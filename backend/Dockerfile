@@ -1,8 +1,11 @@
-FROM node:20-alpine
+FROM node:20-bookworm-slim
 
 WORKDIR /app
 
+# Copy install script BEFORE npm ci so postinstall can run it
 COPY package.json package-lock.json ./
+COPY scripts ./scripts
+
 RUN npm ci --omit=dev
 
 COPY src ./src
