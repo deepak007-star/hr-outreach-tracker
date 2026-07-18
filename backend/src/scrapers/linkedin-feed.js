@@ -55,7 +55,10 @@ const hasContact = c => c.emails.length || c.gforms.length || c.phones.length ||
 // ─── Browser ──────────────────────────────────────────────────────────────────
 
 async function launchBrowser() {
-  const headless = process.env.NODE_ENV === 'production' || process.env.HEADLESS === '1';
+  // Force headless when: production, HEADLESS=1, or Linux without a display (no X server)
+  const noDisplay = process.platform === 'linux' && !process.env.DISPLAY;
+  const headless  = process.env.HEADLESS === '0' ? false
+                  : noDisplay || process.env.NODE_ENV === 'production' || process.env.HEADLESS === '1';
   const args     = ['--no-sandbox', '--disable-dev-shm-usage', '--disable-infobars'];
   for (const channel of ['msedge', 'chrome']) {
     try {
