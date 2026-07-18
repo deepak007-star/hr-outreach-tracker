@@ -6,16 +6,16 @@ const { requireAuth, requireAdmin } = require('../middleware/auth');
 const router = express.Router();
 
 // ── POST /api/leads — public submit (upsert by email so users can edit) ─────
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   const { name, email, mobile, plan_interest, experience, job_type, other_info,
           linkedin_url, twitter_handle, github_url, preferred_contact } = req.body;
   if (!name?.trim())  return res.status(400).json({ error: 'Name is required.' });
   if (!email?.trim()) return res.status(400).json({ error: 'Email is required.' });
 
-  const existing = db.prepare('SELECT id FROM leads WHERE email = ?').get(email.trim().toLowerCase());
+  const existing = await db.prepare('SELECT id FROM leads WHERE email = ?').get(email.trim().toLowerCase());
 
   if (existing) {
-    db.prepare(`
+    await db.prepare(`
       UPDATE leads SET name=?, mobile=?, plan_interest=?, experience=?, job_type=?, other_info=?,
         linkedin_url=?, twitter_handle=?, github_url=?, preferred_contact=?, status='new'
       WHERE id=?
@@ -29,7 +29,7 @@ router.post('/', (req, res) => {
   }
 
   const id = crypto.randomUUID();
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO leads (id, name, email, mobile, plan_interest, experience, job_type, other_info,
                        linkedin_url, twitter_handle, github_url, preferred_contact)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -44,16 +44,16 @@ router.post('/', (req, res) => {
 router.use(requireAuth, requireAdmin);
 
 // GET /api/leads — list all with optional filter
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   const { status } = req.query;
   const leads = status
-    ? db.prepare('SELECT * FROM leads WHERE status = ? ORDER BY created_at DESC').all(status)
-    : db.prepare('SELECT * FROM leads ORDER BY created_at DESC').all();
+    ? await db.prepare('SELECT * FROM leads WHERE status = ? ORDER BY created_at DESC').all(status)
+    : await db.prepare('SELECT * FROM leads ORDER BY created_at DESC').all();
   res.json(leads);
 });
 
 // PUT /api/leads/:id — update status / notes
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
   const { status, notes, name, mobile, plan_interest, experience, job_type, other_info,
           linkedin_url, twitter_handle, github_url, preferred_contact } = req.body;
   const allowed = {};
@@ -74,13 +74,13 @@ router.put('/:id', (req, res) => {
 
   const sets   = Object.keys(allowed).map(k => `${k} = ?`).join(', ');
   const values = [...Object.values(allowed), req.params.id];
-  db.prepare(`UPDATE leads SET ${sets} WHERE id = ?`).run(...values);
+  await db.prepare(`UPDATE leads SET ${sets} WHERE id = ?`).run(...values);
   res.json({ ok: true });
 });
 
 // DELETE /api/leads/:id
-router.delete('/:id', (req, res) => {
-  db.prepare('DELETE FROM leads WHERE id = ?').run(req.params.id);
+router.delete('/:id', async (req, res) => {
+  await db.prepare('DELETE FROM leads WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
 

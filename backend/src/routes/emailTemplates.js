@@ -55,40 +55,41 @@ Looking forward to hearing from you!`,
   },
 ];
 
-function seedIfEmpty() {
-  const count = db.prepare('SELECT COUNT(*) as c FROM email_templates').get()?.c || 0;
-  if (count > 0) return;
+async function seedIfEmpty() {
+  const row = await db.prepare('SELECT COUNT(*) as c FROM email_templates').get();
+  if (parseInt(row?.c || 0) > 0) return;
   const ins = db.prepare('INSERT INTO email_templates (id, name, subject, body, is_default) VALUES (?, ?, ?, ?, 1)');
-  SEEDS.forEach(t => ins.run(crypto.randomUUID(), t.name, t.subject, t.body));
+  for (const t of SEEDS) await ins.run(crypto.randomUUID(), t.name, t.subject, t.body);
 }
 
 // GET /api/email-templates
-router.get('/', (req, res) => {
-  seedIfEmpty();
-  res.json(db.prepare('SELECT * FROM email_templates ORDER BY is_default DESC, created_at ASC').all());
+router.get('/', async (req, res) => {
+  await seedIfEmpty();
+  res.json(await db.prepare('SELECT * FROM email_templates ORDER BY is_default DESC, created_at ASC').all());
 });
 
 // POST /api/email-templates
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   const { name, subject = '', body = '' } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'Name is required' });
   const id = crypto.randomUUID();
-  db.prepare('INSERT INTO email_templates (id, name, subject, body) VALUES (?, ?, ?, ?)').run(id, name.trim(), subject, body);
+  await db.prepare('INSERT INTO email_templates (id, name, subject, body) VALUES (?, ?, ?, ?)').run(id, name.trim(), subject, body);
   res.status(201).json({ id, name, subject, body, is_default: 0, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
 });
 
 // PUT /api/email-templates/:id
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
   const { name, subject = '', body = '' } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'Name is required' });
-  db.prepare(`UPDATE email_templates SET name = ?, subject = ?, body = ?, updated_at = datetime('now') WHERE id = ?`)
-    .run(name.trim(), subject, body, req.params.id);
+  const updatedAt = new Date().toISOString().replace('T', ' ').slice(0, 19);
+  await db.prepare(`UPDATE email_templates SET name = ?, subject = ?, body = ?, updated_at = ? WHERE id = ?`)
+    .run(name.trim(), subject, body, updatedAt, req.params.id);
   res.json({ success: true });
 });
 
 // DELETE /api/email-templates/:id
-router.delete('/:id', (req, res) => {
-  db.prepare('DELETE FROM email_templates WHERE id = ?').run(req.params.id);
+router.delete('/:id', async (req, res) => {
+  await db.prepare('DELETE FROM email_templates WHERE id = ?').run(req.params.id);
   res.json({ success: true });
 });
 

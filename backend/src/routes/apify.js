@@ -16,23 +16,24 @@ function softAuth(req, _res, next) {
 const router = express.Router();
 const APIFY  = 'https://api.apify.com/v2';
 
-function getSettings() {
-  const get = key => db.prepare('SELECT value FROM settings WHERE key = ?').get(key)?.value || '';
+async function getSettings() {
+  const get = async key => (await db.prepare('SELECT value FROM settings WHERE key = ?').get(key))?.value || '';
+  const searchQueriesRaw = await get('apify_search_queries');
+  let searchQueries;
+  try { searchQueries = JSON.parse(searchQueriesRaw || '[]'); } catch { searchQueries = []; }
   return {
-    apiKey:       get('apify_api_key'),
-    actorId:      get('apify_actor_id'),
-    searchQueries: (() => {
-      try { return JSON.parse(get('apify_search_queries') || '[]'); } catch { return []; }
-    })(),
-    maxPosts:    parseInt(get('apify_max_posts')    || '30'),
-    postedLimit: get('apify_posted_limit') || '24h',
-    sortBy:      get('apify_sort_by')      || 'relevance',
+    apiKey:       await get('apify_api_key'),
+    actorId:      await get('apify_actor_id'),
+    searchQueries,
+    maxPosts:    parseInt((await get('apify_max_posts'))    || '30'),
+    postedLimit: (await get('apify_posted_limit')) || '24h',
+    sortBy:      (await get('apify_sort_by'))      || 'relevance',
   };
 }
 
 // ── GET /api/apify/settings ────────────────────────────────────────────────
-router.get('/settings', (_, res) => {
-  const s = getSettings();
+router.get('/settings', async (_, res) => {
+  const s = await getSettings();
   res.json({
     apiKey:        s.apiKey ? '••••••••' + s.apiKey.slice(-4) : '',
     hasApiKey:     !!s.apiKey,
@@ -45,20 +46,23 @@ router.get('/settings', (_, res) => {
 });
 
 // ── PUT /api/apify/settings ────────────────────────────────────────────────
-router.put('/settings', (req, res) => {
-  const set = (k, v) => {
+router.put('/settings', async (req, res) => {
+  const set = async (k, v) => {
     if (v !== undefined && v !== null)
-      db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(k, String(v));
+      await db.prepare(`
+        INSERT INTO settings (key, value) VALUES (?, ?)
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+      `).run(k, String(v));
   };
-  set('apify_actor_id',       req.body.actorId);
-  set('apify_max_posts',      req.body.maxPosts);
-  set('apify_posted_limit',   req.body.postedLimit);
-  set('apify_sort_by',        req.body.sortBy);
+  await set('apify_actor_id',       req.body.actorId);
+  await set('apify_max_posts',      req.body.maxPosts);
+  await set('apify_posted_limit',   req.body.postedLimit);
+  await set('apify_sort_by',        req.body.sortBy);
   if (Array.isArray(req.body.searchQueries))
-    set('apify_search_queries', JSON.stringify(req.body.searchQueries));
+    await set('apify_search_queries', JSON.stringify(req.body.searchQueries));
   // Only overwrite API key if a non-masked value is provided
   if (req.body.apiKey && !req.body.apiKey.startsWith('••••'))
-    set('apify_api_key', req.body.apiKey);
+    await set('apify_api_key', req.body.apiKey);
   res.json({ success: true });
 });
 
@@ -163,7 +167,7 @@ function parseApifyPost(item) {
 
 // ── Standalone scrape logic (used by route + auto-fetch) ──────────────────
 async function performScrape(overrides = {}) {
-  const s = getSettings();
+  const s = await getSettings();
   if (!s.apiKey)  return { error: 'Apify API key not set.' };
   if (!s.actorId) return { error: 'Actor ID not set.' };
 
@@ -221,21 +225,28 @@ async function performScrape(overrides = {}) {
   const items = Array.isArray(raw) ? raw : (raw.items || raw.jobs || []);
 
   // Clear old posts, insert new ones
-  db.exec('DELETE FROM linkedin_posts');
+  await db.exec('DELETE FROM linkedin_posts');
   let imported = 0;
 
   const stmt = db.prepare(`
-    INSERT OR REPLACE INTO linkedin_posts
+    INSERT INTO linkedin_posts
       (id, raw_json, title, description, company_name, author_name,
        author_headline, author_linkedin, location, job_type, tech_stack,
        post_url, posted_at, likes, comments, is_hiring, confidence_score)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    ON CONFLICT (id) DO UPDATE SET
+      raw_json = EXCLUDED.raw_json, title = EXCLUDED.title, description = EXCLUDED.description,
+      company_name = EXCLUDED.company_name, author_name = EXCLUDED.author_name,
+      author_headline = EXCLUDED.author_headline, author_linkedin = EXCLUDED.author_linkedin,
+      location = EXCLUDED.location, job_type = EXCLUDED.job_type, tech_stack = EXCLUDED.tech_stack,
+      post_url = EXCLUDED.post_url, posted_at = EXCLUDED.posted_at, likes = EXCLUDED.likes,
+      comments = EXCLUDED.comments, is_hiring = EXCLUDED.is_hiring, confidence_score = EXCLUDED.confidence_score
   `);
 
   for (const item of items) {
     try {
       const p = parseApifyPost(item);
-      stmt.run(
+      await stmt.run(
         p.id, p.raw_json, p.title, p.description, p.company_name,
         p.author_name, p.author_headline, p.author_linkedin,
         p.location, p.job_type, p.tech_stack, p.post_url,
@@ -257,7 +268,10 @@ router.post('/scrape', requireAuth, requireAdmin, async (req, res) => {
     if (result.error) return res.status(400).json({ error: result.error });
 
     // Record last scrape time
-    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('apify_last_scrape', new Date().toISOString());
+    await db.prepare(`
+      INSERT INTO settings (key, value) VALUES (?, ?)
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+    `).run('apify_last_scrape', new Date().toISOString());
 
     res.json({ success: true, imported: result.imported, total: result.total });
   } catch (err) {
@@ -267,13 +281,13 @@ router.post('/scrape', requireAuth, requireAdmin, async (req, res) => {
 });
 
 // ── GET /api/apify/posts ───────────────────────────────────────────────────
-router.get('/posts', (req, res) => {
+router.get('/posts', async (req, res) => {
   const { search, hiring_only } = req.query;
   const wheres = [];
   const params = [];
 
   if (search) {
-    wheres.push('(title LIKE ? OR description LIKE ? OR company_name LIKE ? OR author_name LIKE ? OR tech_stack LIKE ?)');
+    wheres.push('(title ILIKE ? OR description ILIKE ? OR company_name ILIKE ? OR author_name ILIKE ? OR tech_stack ILIKE ?)');
     const s = `%${search}%`;
     params.push(s, s, s, s, s);
   }
@@ -283,7 +297,8 @@ router.get('/posts', (req, res) => {
   if (wheres.length) sql += ' WHERE ' + wheres.join(' AND ');
   sql += ' ORDER BY confidence_score DESC, scraped_at DESC';
 
-  const posts = db.prepare(sql).all(...params).map(p => ({
+  const rows = await db.prepare(sql).all(...params);
+  const posts = rows.map(p => ({
     ...p,
     tech_stack: JSON.parse(p.tech_stack || '[]'),
   }));
@@ -291,7 +306,7 @@ router.get('/posts', (req, res) => {
 });
 
 // ── PATCH /api/apify/posts/:id/status ─────────────────────────────────────
-router.patch('/posts/:id/status', softAuth, (req, res) => {
+router.patch('/posts/:id/status', softAuth, async (req, res) => {
   const { status } = req.body;
 
   if (status === 'applied') {
@@ -309,13 +324,13 @@ router.patch('/posts/:id/status', softAuth, (req, res) => {
     rlRecord(uid, 'apply');
   }
 
-  db.prepare('UPDATE linkedin_posts SET status = ? WHERE id = ?').run(status, req.params.id);
+  await db.prepare('UPDATE linkedin_posts SET status = ? WHERE id = ?').run(status, req.params.id);
   res.json({ success: true });
 });
 
 // ── DELETE /api/apify/posts ────────────────────────────────────────────────
-router.delete('/posts', (_, res) => {
-  db.exec('DELETE FROM linkedin_posts');
+router.delete('/posts', async (_, res) => {
+  await db.exec('DELETE FROM linkedin_posts');
   res.json({ success: true });
 });
 

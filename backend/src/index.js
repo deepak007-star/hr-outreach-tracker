@@ -72,18 +72,21 @@ async function main() {
   const { randomUUID } = require('crypto');
   setInterval(async () => {
     try {
-      const lastVal = database.prepare('SELECT value FROM settings WHERE key = ?').get('apify_last_scrape')?.value;
+      const lastVal = (await database.prepare('SELECT value FROM settings WHERE key = ?').get('apify_last_scrape'))?.value;
       if (lastVal) {
         const hoursSince = (Date.now() - new Date(lastVal).getTime()) / 3_600_000;
         if (hoursSince < 23) return;
       }
-      const s = getSettings();
+      const s = await getSettings();
       if (!s.apiKey || !s.actorId || !s.searchQueries?.length) return;
       console.log('[Auto-scrape] 24h elapsed — starting scheduled LinkedIn fetch…');
       const result = await performScrape();
       if (result.error) { console.log('[Auto-scrape] Skipped:', result.error); return; }
-      database.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('apify_last_scrape', new Date().toISOString());
-      database.prepare('INSERT INTO notifications (id, user_id, type, title, body) VALUES (?, ?, ?, ?, ?)')
+      await database.prepare(`
+        INSERT INTO settings (key, value) VALUES (?, ?)
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+      `).run('apify_last_scrape', new Date().toISOString());
+      await database.prepare('INSERT INTO notifications (id, user_id, type, title, body) VALUES (?, ?, ?, ?, ?)')
         .run(randomUUID(), null, 'info', 'LinkedIn posts updated', `Auto-sync imported ${result.imported} new job posts from LinkedIn.`);
       console.log(`[Auto-scrape] Done — imported ${result.imported}/${result.total} posts`);
     } catch (e) { console.error('[Auto-scrape] Failed:', e.message); }
@@ -98,7 +101,7 @@ async function main() {
       const todayDay = DAYS[now.getDay()];
       const todayStr = now.toISOString().split('T')[0];
 
-      const rows = database.prepare("SELECT key, value FROM settings WHERE key LIKE 'reminder_%'").all();
+      const rows = await database.prepare("SELECT key, value FROM settings WHERE key LIKE 'reminder_%'").all();
       for (const row of rows) {
         if (row.key.includes('_email_sent_')) continue; // skip tracking keys
         const userId = row.key.slice('reminder_'.length);
@@ -111,15 +114,18 @@ async function main() {
 
         // Check if already sent today
         const sentKey = `reminder_email_sent_${userId}_${todayStr}`;
-        const alreadySent = database.prepare('SELECT value FROM settings WHERE key = ?').get(sentKey);
+        const alreadySent = await database.prepare('SELECT value FROM settings WHERE key = ?').get(sentKey);
         if (alreadySent) continue;
 
-        const user = database.prepare('SELECT email, name FROM users WHERE id = ?').get(userId);
+        const user = await database.prepare('SELECT email, name FROM users WHERE id = ?').get(userId);
         if (!user) continue;
 
         try {
           await sendReminderEmail(user.email, user.name, config);
-          database.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(sentKey, '1');
+          await database.prepare(`
+            INSERT INTO settings (key, value) VALUES (?, ?)
+            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+          `).run(sentKey, '1');
           console.log(`[Reminder] Email sent to ${user.email}`);
         } catch (e) {
           console.error(`[Reminder] Failed to send to ${user.email}:`, e.message);
@@ -131,17 +137,19 @@ async function main() {
   // Daily email verification — runs once on startup then every 24h
   async function runEmailVerification() {
     try {
-      const contacts = database.prepare(
+      const cutoff = new Date(Date.now() - 23 * 3_600_000).toISOString().replace('T', ' ').slice(0, 19);
+      const contacts = await database.prepare(
         `SELECT id, email FROM contacts
          WHERE email_verified IN ('pending','unverifiable')
             OR email_checked_at IS NULL
-            OR email_checked_at < datetime('now', '-23 hours')`
-      ).all();
+            OR email_checked_at < ?`
+      ).all(cutoff);
       let updated = 0;
       for (const c of contacts) {
         const status = await checkEmailDomain(c.email);
-        database.prepare(`UPDATE contacts SET email_verified = ?, email_checked_at = datetime('now') WHERE id = ?`)
-          .run(status, c.id);
+        const checkedAt = new Date().toISOString().replace('T', ' ').slice(0, 19);
+        await database.prepare(`UPDATE contacts SET email_verified = ?, email_checked_at = ? WHERE id = ?`)
+          .run(status, checkedAt, c.id);
         updated++;
       }
       if (updated > 0) console.log(`[Email verify] Checked ${updated} contact emails`);

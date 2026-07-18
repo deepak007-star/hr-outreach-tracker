@@ -35,7 +35,7 @@ There is no test suite and no lint script configured in either package.json — 
 
 ### Docker
 
-`docker-compose.yml` at the repo root builds both services (backend: node:20-alpine running `node src/index.js`; frontend: multi-stage build served by nginx on 5173). Backend `data/` and `uploads/` are bind-mounted from the host so the SQLite file and Excel export persist across container rebuilds.
+`docker-compose.yml` at the repo root runs three services: `postgres` (postgres:16-alpine, named volume `pgdata`), `backend` (node:20-alpine running `node src/index.js`), and `frontend` (multi-stage build served by nginx on 5173). Backend `data/` and `uploads/` are bind-mounted from the host so the Excel export and uploaded files persist across container rebuilds; the database itself persists in the `pgdata` volume.
 
 ```
 docker compose up --build -d
@@ -45,11 +45,17 @@ docker logs hr-outreach-backend -f
 
 ## Architecture
 
-### Database: sql.js, not better-sqlite3
+### Database: Postgres via `pg`
 
-`backend/src/db/database.js` uses **sql.js** (WASM SQLite), wrapped in a thin proxy that mimics the better-sqlite3 synchronous API (`db.prepare(sql).run()/.get()/.all()`). Critically, **every write re-exports and rewrites the entire DB file to disk** (`fs.writeFileSync` on every `.run()` that changes rows) — there is no WAL/incremental persistence. This is fine at personal-CRM scale but means writes are O(db size), and `require('../db/database')` returns a Proxy that throws `'Database not initialised yet'` if accessed before `database.initialize()` resolves in `index.js`'s `main()`. All routes are required *after* `await database.initialize()` for this reason — keep new routes' requires inside `main()` too, not at module top-level.
+`backend/src/db/database.js` uses **node-postgres** (`pg.Pool`), wrapped in a thin proxy exposing an async version of the better-sqlite3-style API: `db.prepare(sql).run()/.get()/.all()` all return Promises — **every call site must `await` them**. The wrapper auto-translates `?` placeholders to Postgres's `$1, $2, …` positional syntax, so query text in route files still uses `?`. `db.exec(sql)` runs raw (unparameterized) SQL, including multi-statement DDL. `require('../db/database')` returns a Proxy that throws `'Database not initialised yet'` if accessed before `database.initialize()` resolves in `index.js`'s `main()`. All routes are required *after* `await database.initialize()` for this reason — keep new routes' requires inside `main()` too, not at module top-level.
 
-Schema lives entirely in `database.js` as `CREATE TABLE IF NOT EXISTS` + a growing list of best-effort `ALTER TABLE ... ADD COLUMN` migrations wrapped in `try/catch {}` (no migration framework). To add a column, append another guarded `ALTER TABLE` there rather than editing the `CREATE TABLE`.
+Connection comes from `DATABASE_URL` (see `backend/.env.example`), falling back to `postgres://postgres:postgres@localhost:5432/hr_outreach_tracker` for local dev. `docker-compose.yml` runs a `postgres:16-alpine` service and wires `DATABASE_URL` for the `backend` container automatically.
+
+Schema lives entirely in `database.js` as `CREATE TABLE IF NOT EXISTS` + a growing list of `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` migrations (no migration framework, no try/catch needed since Postgres supports `IF NOT EXISTS` natively). To add a column, append another `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` there rather than editing the `CREATE TABLE`.
+
+Date/time columns (`date_added`, `sent_at`, `created_at`, etc.) stay `TEXT` in the `'YYYY-MM-DD HH:MM:SS'` UTC format SQLite's `datetime('now')` used to produce — table defaults use `to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')`, and route code that needs "now" or a relative cutoff computes it in JS (`new Date().toISOString().replace('T',' ').slice(0,19)`) and passes it as a bound parameter, rather than relying on Postgres-side date functions. This was a deliberate choice to avoid `pg` handing back `Date` objects (which would break the string slicing/comparison several routes and `excelSync.js` do on these columns) — don't switch these columns to `TIMESTAMPTZ` without checking every consumer first.
+
+`INSERT OR REPLACE` / `INSERT OR IGNORE` (SQLite-only) are gone — use `INSERT ... ON CONFLICT (col) DO UPDATE SET ...` / `ON CONFLICT DO NOTHING` instead. Unique-constraint violations surface as `err.code === '23505'` (Postgres), not the old `err.message.includes('UNIQUE constraint failed')` check. `LIKE` in user-facing search filters was changed to `ILIKE` to preserve SQLite's case-insensitive-by-default matching.
 
 Tables: `contacts`, `email_log`, `settings` (key/value store for SMTP config, daily send cap, Apify config, per-user reminder configs as `reminder_<userId>` JSON), `users`, `notifications`, `linkedin_posts`, `email_templates`, `leads` (early-access/waitlist signups), `profiles` (resume/profile data, one row per user).
 

@@ -1,75 +1,59 @@
-const initSqlJs = require('sql.js');
-const path = require('path');
-const fs   = require('fs');
+const { Pool } = require('pg');
 
-const DATA_DIR = path.join(__dirname, '../../data');
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-const DB_PATH = path.join(DATA_DIR, 'contacts.db');
+const connectionString = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/hr_outreach_tracker';
+const isLocal = /localhost|127\.0\.0\.1/.test(connectionString);
 
-let _db = null;
+const pool = new Pool({
+  connectionString,
+  ssl: isLocal ? false : { rejectUnauthorized: false },
+});
 
-// ── Thin wrapper matching the better-sqlite3 synchronous API ───────────────
-function makeWrapper(sqldb) {
-  function persist() {
-    fs.writeFileSync(DB_PATH, Buffer.from(sqldb.export()));
-  }
+// SQLite's datetime('now') produced 'YYYY-MM-DD HH:MM:SS' in UTC — match that
+// format so every route that slices/compares these columns as plain text
+// keeps working unchanged.
+const NOW_EXPR = `to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')`;
 
-  function makeStmt(sql) {
-    return {
-      run(...params) {
-        const stmt = sqldb.prepare(sql);
-        stmt.run(params);
-        const changes = sqldb.getRowsModified();
-        stmt.free();
-        if (changes > 0) persist();
-        return { changes };
-      },
-      get(...params) {
-        const stmt = sqldb.prepare(sql);
-        stmt.bind(params);
-        const row = stmt.step() ? { ...stmt.getAsObject() } : undefined;
-        stmt.free();
-        return row;
-      },
-      all(...params) {
-        const stmt = sqldb.prepare(sql);
-        stmt.bind(params);
-        const rows = [];
-        while (stmt.step()) rows.push({ ...stmt.getAsObject() });
-        stmt.free();
-        return rows;
-      },
-    };
-  }
+function toPgSql(sql) {
+  let i = 0;
+  return sql.replace(/\?/g, () => `$${++i}`);
+}
 
+function makeStmt(sql) {
+  const pgSql = toPgSql(sql);
   return {
-    exec(sql) { sqldb.run(sql); return this; },
-    prepare(sql) { return makeStmt(sql); },
+    async run(...params) {
+      const result = await pool.query(pgSql, params);
+      return { changes: result.rowCount };
+    },
+    async get(...params) {
+      const result = await pool.query(pgSql, params);
+      return result.rows[0];
+    },
+    async all(...params) {
+      const result = await pool.query(pgSql, params);
+      return result.rows;
+    },
   };
 }
+
+let ready = false;
+
+const db = {
+  async exec(sql) { await pool.query(sql); return db; },
+  prepare(sql) { return makeStmt(sql); },
+};
 
 // ── Proxy so routes can do: const db = require('../db/database') unchanged ─
 const proxy = new Proxy({}, {
   get(_, prop) {
     if (prop === 'initialize') return initialize;
-    if (!_db) throw new Error('Database not initialised yet');
-    return _db[prop];
+    if (!ready) throw new Error('Database not initialised yet');
+    return db[prop];
   },
 });
 
 async function initialize() {
-  const SQL = await initSqlJs();
-
-  let sqldb;
-  if (fs.existsSync(DB_PATH)) {
-    sqldb = new SQL.Database(fs.readFileSync(DB_PATH));
-  } else {
-    sqldb = new SQL.Database();
-  }
-
-  _db = makeWrapper(sqldb);
-
-  _db.exec(`
+  await db.exec(`
     CREATE TABLE IF NOT EXISTS contacts (
       id                TEXT PRIMARY KEY,
       name              TEXT NOT NULL,
@@ -80,7 +64,7 @@ async function initialize() {
       email_confidence  TEXT NOT NULL DEFAULT 'unknown',
       source_url        TEXT,
       status            TEXT NOT NULL DEFAULT 'New',
-      date_added        TEXT NOT NULL DEFAULT (datetime('now')),
+      date_added        TEXT NOT NULL DEFAULT (${NOW_EXPR}),
       date_last_contacted TEXT,
       notes             TEXT,
       tags              TEXT NOT NULL DEFAULT '[]'
@@ -89,7 +73,7 @@ async function initialize() {
     CREATE TABLE IF NOT EXISTS email_log (
       id            TEXT PRIMARY KEY,
       contact_id    TEXT REFERENCES contacts(id),
-      sent_at       TEXT NOT NULL DEFAULT (datetime('now')),
+      sent_at       TEXT NOT NULL DEFAULT (${NOW_EXPR}),
       subject       TEXT,
       body_snapshot TEXT,
       opened        INTEGER NOT NULL DEFAULT 0,
@@ -107,7 +91,7 @@ async function initialize() {
       email         TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
       role          TEXT NOT NULL DEFAULT 'user',
-      created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at    TEXT NOT NULL DEFAULT (${NOW_EXPR})
     );
 
     CREATE TABLE IF NOT EXISTS notifications (
@@ -117,7 +101,7 @@ async function initialize() {
       title      TEXT NOT NULL,
       body       TEXT NOT NULL DEFAULT '',
       is_read    INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (${NOW_EXPR})
     );
 
     CREATE TABLE IF NOT EXISTS linkedin_posts (
@@ -139,7 +123,7 @@ async function initialize() {
       is_hiring        INTEGER NOT NULL DEFAULT 1,
       confidence_score REAL NOT NULL DEFAULT 0,
       status           TEXT NOT NULL DEFAULT 'new',
-      scraped_at       TEXT NOT NULL DEFAULT (datetime('now'))
+      scraped_at       TEXT NOT NULL DEFAULT (${NOW_EXPR})
     );
 
     CREATE TABLE IF NOT EXISTS email_templates (
@@ -148,8 +132,8 @@ async function initialize() {
       subject    TEXT NOT NULL DEFAULT '',
       body       TEXT NOT NULL DEFAULT '',
       is_default INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (${NOW_EXPR}),
+      updated_at TEXT NOT NULL DEFAULT (${NOW_EXPR})
     );
 
     CREATE TABLE IF NOT EXISTS leads (
@@ -161,7 +145,7 @@ async function initialize() {
       experience   TEXT,
       job_type     TEXT,
       other_info   TEXT,
-      created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at   TEXT NOT NULL DEFAULT (${NOW_EXPR})
     );
 
     CREATE TABLE IF NOT EXISTS profiles (
@@ -180,7 +164,7 @@ async function initialize() {
       resume_text       TEXT,
       resume_filename   TEXT,
       resume_uploaded_at TEXT,
-      updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+      updated_at        TEXT NOT NULL DEFAULT (${NOW_EXPR})
     );
   `);
 
@@ -191,49 +175,37 @@ async function initialize() {
     smtp_config:            '{}',
     unsubscribe_footer_text:'To opt out of future emails, reply with UNSUBSCRIBE.',
   };
-  const ins = _db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
-  for (const [k, v] of Object.entries(defaults)) ins.run(k, v);
+  const ins = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING');
+  for (const [k, v] of Object.entries(defaults)) await ins.run(k, v);
 
   // Migrations for DBs created before these columns existed
-  try { _db.exec(`ALTER TABLE users ADD COLUMN plan TEXT NOT NULL DEFAULT 'demo'`); } catch {}
-  try { _db.exec(`ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'`); } catch {}
-  try { _db.exec(`ALTER TABLE contacts ADD COLUMN email_verified TEXT NOT NULL DEFAULT 'pending'`); } catch {}
-  try { _db.exec(`ALTER TABLE contacts ADD COLUMN email_checked_at TEXT`); } catch {}
-  try { _db.exec(`ALTER TABLE profiles ADD COLUMN job_title_1 TEXT`); } catch {}
-  try { _db.exec(`ALTER TABLE profiles ADD COLUMN job_title_2 TEXT`); } catch {}
-  try { _db.exec(`ALTER TABLE profiles ADD COLUMN job_title_3 TEXT`); } catch {}
-  try { _db.exec(`ALTER TABLE profiles ADD COLUMN preferred_city TEXT`); } catch {}
-  try { _db.exec(`ALTER TABLE leads ADD COLUMN status TEXT NOT NULL DEFAULT 'new'`); } catch {}
-  try { _db.exec(`ALTER TABLE leads ADD COLUMN notes TEXT`); } catch {}
-  try { _db.exec(`ALTER TABLE leads ADD COLUMN linkedin_url TEXT`); } catch {}
-  try { _db.exec(`ALTER TABLE leads ADD COLUMN twitter_handle TEXT`); } catch {}
-  try { _db.exec(`ALTER TABLE leads ADD COLUMN github_url TEXT`); } catch {}
-  try { _db.exec(`ALTER TABLE leads ADD COLUMN preferred_contact TEXT`); } catch {}
+  await db.exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'demo'`);
+  await db.exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user'`);
+  await db.exec(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS email_verified TEXT NOT NULL DEFAULT 'pending'`);
+  await db.exec(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS email_checked_at TEXT`);
+  await db.exec(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS job_title_1 TEXT`);
+  await db.exec(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS job_title_2 TEXT`);
+  await db.exec(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS job_title_3 TEXT`);
+  await db.exec(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS preferred_city TEXT`);
+  await db.exec(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'new'`);
+  await db.exec(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS notes TEXT`);
+  await db.exec(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS linkedin_url TEXT`);
+  await db.exec(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS twitter_handle TEXT`);
+  await db.exec(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS github_url TEXT`);
+  await db.exec(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS preferred_contact TEXT`);
 
   // Promote first registered user to admin if no admin exists
-  try {
-    const adminExists = _db.prepare('SELECT id FROM users WHERE role = ?').get('admin');
-    if (!adminExists) {
-      const firstUser = _db.prepare('SELECT id FROM users ORDER BY created_at ASC LIMIT 1').get();
-      if (firstUser) {
-        _db.prepare('UPDATE users SET role = ? WHERE id = ?').run('admin', firstUser.id);
-        console.log('[DB migration] Promoted first user to admin role');
-      }
+  const adminExists = await db.prepare('SELECT id FROM users WHERE role = ?').get('admin');
+  if (!adminExists) {
+    const firstUser = await db.prepare('SELECT id FROM users ORDER BY created_at ASC LIMIT 1').get();
+    if (firstUser) {
+      await db.prepare('UPDATE users SET role = ? WHERE id = ?').run('admin', firstUser.id);
+      console.log('[DB migration] Promoted first user to admin role');
     }
-  } catch {}
-  try {
-    _db.exec(`CREATE TABLE IF NOT EXISTS notifications (
-      id         TEXT PRIMARY KEY,
-      user_id    TEXT,
-      type       TEXT NOT NULL DEFAULT 'info',
-      title      TEXT NOT NULL,
-      body       TEXT NOT NULL DEFAULT '',
-      is_read    INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    )`);
-  } catch {}
+  }
 
-  return _db;
+  ready = true;
+  return db;
 }
 
 module.exports = proxy;

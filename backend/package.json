@@ -1,7 +1,7 @@
 {
   "name": "hr-outreach-tracker-backend",
   "version": "1.0.0",
-  "description": "HR Outreach Tracker – Express + SQLite backend",
+  "description": "HR Outreach Tracker – Express + Postgres backend",
   "main": "src/index.js",
   "scripts": {
     "dev": "nodemon src/index.js",
@@ -19,7 +19,7 @@
     "multer": "^1.4.5-lts.1",
     "nodemailer": "^6.9.7",
     "pdf-parse": "^2.4.5",
-    "sql.js": "^1.12.0"
+    "pg": "^8.22.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"

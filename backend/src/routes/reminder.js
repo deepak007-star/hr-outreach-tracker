@@ -5,27 +5,30 @@ const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
-function getSmtp() {
-  const row = db.prepare("SELECT value FROM settings WHERE key = 'smtp_config'").get();
+async function getSmtp() {
+  const row = await db.prepare("SELECT value FROM settings WHERE key = 'smtp_config'").get();
   try { return JSON.parse(row?.value || '{}'); } catch { return {}; }
 }
 
 // GET /api/reminder
-router.get('/', requireAuth, (req, res) => {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(`reminder_${req.user.userId}`);
+router.get('/', requireAuth, async (req, res) => {
+  const row = await db.prepare('SELECT value FROM settings WHERE key = ?').get(`reminder_${req.user.userId}`);
   try { res.json(JSON.parse(row?.value || '{}')); } catch { res.json({}); }
 });
 
 // PUT /api/reminder
-router.put('/', requireAuth, (req, res) => {
+router.put('/', requireAuth, async (req, res) => {
   const key = `reminder_${req.user.userId}`;
-  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, JSON.stringify(req.body));
+  await db.prepare(`
+    INSERT INTO settings (key, value) VALUES (?, ?)
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+  `).run(key, JSON.stringify(req.body));
   res.json({ success: true });
 });
 
 // ── Email sender (called from scheduled interval in index.js) ─────────────
 async function sendReminderEmail(userEmail, userName, config) {
-  const smtp = getSmtp();
+  const smtp = await getSmtp();
   if (!smtp.host || !smtp.user || !smtp.pass) return false;
 
   const msg = config.message || 'Time for your daily HR outreach goal!';

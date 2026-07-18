@@ -56,7 +56,7 @@ async function syncExcel() {
     cell.border = { bottom: { style: 'medium', color: { argb: 'FF0D2137' } } };
   });
 
-  const contacts = db.prepare('SELECT * FROM contacts ORDER BY date_added DESC').all();
+  const contacts = await db.prepare('SELECT * FROM contacts ORDER BY date_added DESC').all();
 
   for (const c of contacts) {
     const row = ws.addRow({

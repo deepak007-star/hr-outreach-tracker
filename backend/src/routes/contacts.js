@@ -24,7 +24,7 @@ const upload = multer({
 const VALID_STATUSES = ['New', 'Drafted', 'Sent', 'Opened', 'Replied', 'Interview', 'Rejected', 'Do Not Contact'];
 
 // ── GET /api/contacts  ─────────────────────────────────────────────────────
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   const { status, search, source, tag } = req.query;
   let q = 'SELECT * FROM contacts WHERE 1=1';
   const p = [];
@@ -32,16 +32,16 @@ router.get('/', (req, res) => {
   if (status) { q += ' AND status = ?'; p.push(status); }
   if (source) { q += ' AND email_source = ?'; p.push(source); }
   if (search) {
-    q += ' AND (name LIKE ? OR company LIKE ? OR email LIKE ? OR title LIKE ?)';
+    q += ' AND (name ILIKE ? OR company ILIKE ? OR email ILIKE ? OR title ILIKE ?)';
     const s = `%${search}%`;
     p.push(s, s, s, s);
   }
-  if (tag) { q += ' AND tags LIKE ?'; p.push(`%"${tag}"%`); }
+  if (tag) { q += ' AND tags ILIKE ?'; p.push(`%"${tag}"%`); }
 
   q += ' ORDER BY date_added DESC';
 
   try {
-    const rows = db.prepare(q).all(...p);
+    const rows = await db.prepare(q).all(...p);
     res.json(rows.map(r => ({ ...r, tags: JSON.parse(r.tags || '[]') })));
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -94,14 +94,16 @@ router.post('/import', upload.single('file'), async (req, res) => {
       colIdx < 0 ? '' : (row.getCell(colIdx + 1).value?.toString().trim() || '');
 
     const stmt = db.prepare(`
-      INSERT OR IGNORE INTO contacts
+      INSERT INTO contacts
         (id, name, title, company, email, email_source, email_confidence, status, notes, tags, source_url)
       VALUES (?, ?, ?, ?, ?, 'csv_import', 'unknown', ?, ?, ?, ?)
+      ON CONFLICT DO NOTHING
     `);
 
     let imported = 0, skipped = 0;
     const errors = [];
 
+    const parsedRows = [];
     ws.eachRow((row, rowNum) => {
       if (rowNum === 1) return;
 
@@ -114,22 +116,28 @@ router.post('/import', upload.single('file'), async (req, res) => {
       const tagsRaw   = getCell(row, colMap.tags);
       const tags      = tagsRaw ? tagsRaw.split(/[,;]/).map(t => t.trim()).filter(Boolean) : [];
 
+      parsedRows.push({
+        rowNum, name, email, status,
+        title:      getCell(row, colMap.title) || null,
+        company:    getCell(row, colMap.company) || null,
+        notes:      getCell(row, colMap.notes) || null,
+        tags,
+        source_url: getCell(row, colMap.source_url) || null,
+      });
+    });
+
+    for (const r of parsedRows) {
       try {
-        const r = stmt.run(
-          crypto.randomUUID(), name,
-          getCell(row, colMap.title) || null,
-          getCell(row, colMap.company) || null,
-          email, status,
-          getCell(row, colMap.notes) || null,
-          JSON.stringify(tags),
-          getCell(row, colMap.source_url) || null
+        const result = await stmt.run(
+          crypto.randomUUID(), r.name, r.title, r.company,
+          r.email, r.status, r.notes, JSON.stringify(r.tags), r.source_url
         );
-        if (r.changes > 0) imported++;
+        if (result.changes > 0) imported++;
         else skipped++; // duplicate email
       } catch (e) {
-        errors.push({ row: rowNum, email, error: e.message });
+        errors.push({ row: r.rowNum, email: r.email, error: e.message });
       }
-    });
+    }
 
     fs.unlinkSync(filePath);
     await syncExcel();
@@ -148,7 +156,7 @@ router.post('/bulk-delete', async (req, res) => {
     return res.status(400).json({ error: 'ids[] required' });
 
   try {
-    db.prepare(`DELETE FROM contacts WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+    await db.prepare(`DELETE FROM contacts WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
     await syncExcel();
     res.json({ ok: true, deleted: ids.length });
   } catch (err) {
@@ -165,7 +173,7 @@ router.post('/bulk-status', async (req, res) => {
     return res.status(400).json({ error: 'Invalid status' });
 
   try {
-    db.prepare(`UPDATE contacts SET status = ? WHERE id IN (${ids.map(() => '?').join(',')})`).run(status, ...ids);
+    await db.prepare(`UPDATE contacts SET status = ? WHERE id IN (${ids.map(() => '?').join(',')})`).run(status, ...ids);
     await syncExcel();
     res.json({ ok: true, updated: ids.length });
   } catch (err) {
@@ -174,8 +182,8 @@ router.post('/bulk-status', async (req, res) => {
 });
 
 // ── GET /api/contacts/:id  ─────────────────────────────────────────────────
-router.get('/:id', (req, res) => {
-  const c = db.prepare('SELECT * FROM contacts WHERE id = ?').get(req.params.id);
+router.get('/:id', async (req, res) => {
+  const c = await db.prepare('SELECT * FROM contacts WHERE id = ?').get(req.params.id);
   if (!c) return res.status(404).json({ error: 'Not found' });
   res.json({ ...c, tags: JSON.parse(c.tags || '[]') });
 });
@@ -194,7 +202,7 @@ router.post('/', async (req, res) => {
 
   const id = crypto.randomUUID();
   try {
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO contacts
         (id, name, title, company, email, email_source, email_confidence, source_url, status, notes, tags)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -202,10 +210,10 @@ router.post('/', async (req, res) => {
         email_source, email_confidence, source_url || null, status, notes || null, JSON.stringify(tags));
 
     await syncExcel();
-    const c = db.prepare('SELECT * FROM contacts WHERE id = ?').get(id);
+    const c = await db.prepare('SELECT * FROM contacts WHERE id = ?').get(id);
     res.status(201).json({ ...c, tags: JSON.parse(c.tags) });
   } catch (err) {
-    if (err.message.includes('UNIQUE constraint failed'))
+    if (err.code === '23505')
       return res.status(409).json({ error: 'A contact with this email already exists' });
     res.status(500).json({ error: err.message });
   }
@@ -230,13 +238,13 @@ router.put('/:id', async (req, res) => {
 
   params.push(id);
   try {
-    const r = db.prepare(`UPDATE contacts SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+    const r = await db.prepare(`UPDATE contacts SET ${sets.join(', ')} WHERE id = ?`).run(...params);
     if (r.changes === 0) return res.status(404).json({ error: 'Not found' });
     await syncExcel();
-    const c = db.prepare('SELECT * FROM contacts WHERE id = ?').get(id);
+    const c = await db.prepare('SELECT * FROM contacts WHERE id = ?').get(id);
     res.json({ ...c, tags: JSON.parse(c.tags) });
   } catch (err) {
-    if (err.message.includes('UNIQUE constraint failed'))
+    if (err.code === '23505')
       return res.status(409).json({ error: 'Email already in use by another contact' });
     res.status(500).json({ error: err.message });
   }
@@ -245,7 +253,7 @@ router.put('/:id', async (req, res) => {
 // ── DELETE /api/contacts/:id  ──────────────────────────────────────────────
 router.delete('/:id', async (req, res) => {
   try {
-    const r = db.prepare('DELETE FROM contacts WHERE id = ?').run(req.params.id);
+    const r = await db.prepare('DELETE FROM contacts WHERE id = ?').run(req.params.id);
     if (r.changes === 0) return res.status(404).json({ error: 'Not found' });
     await syncExcel();
     res.json({ ok: true });

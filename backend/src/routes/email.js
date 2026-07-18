@@ -17,23 +17,24 @@ function renderTemplate(tpl, contact) {
     .replace(/\{\{email\}\}/gi,   contact.email   || '');
 }
 
-function getSmtpConfig() {
-  const row = db.prepare("SELECT value FROM settings WHERE key = 'smtp_config'").get();
+async function getSmtpConfig() {
+  const row = await db.prepare("SELECT value FROM settings WHERE key = 'smtp_config'").get();
   try { return JSON.parse(row?.value || '{}'); } catch { return {}; }
 }
 
-function getFooter() {
-  const row = db.prepare("SELECT value FROM settings WHERE key = 'unsubscribe_footer_text'").get();
+async function getFooter() {
+  const row = await db.prepare("SELECT value FROM settings WHERE key = 'unsubscribe_footer_text'").get();
   return row?.value || 'To opt out of future emails, reply with UNSUBSCRIBE.';
 }
 
-function getSentToday() {
-  const row = db.prepare("SELECT COUNT(*) as c FROM email_log WHERE date(sent_at) = date('now')").get();
-  return row?.c || 0;
+async function getSentToday() {
+  const today = new Date().toISOString().slice(0, 10);
+  const row = await db.prepare("SELECT COUNT(*) as c FROM email_log WHERE LEFT(sent_at, 10) = ?").get(today);
+  return parseInt(row?.c || 0);
 }
 
-function getDailyCap() {
-  const row = db.prepare("SELECT value FROM settings WHERE key = 'daily_send_cap'").get();
+async function getDailyCap() {
+  const row = await db.prepare("SELECT value FROM settings WHERE key = 'daily_send_cap'").get();
   return parseInt(row?.value || '20');
 }
 
@@ -47,31 +48,32 @@ function createTransport(smtp) {
   });
 }
 
-function wasRecentlySent(contactId) {
-  const row = db.prepare(`
+async function wasRecentlySent(contactId) {
+  const cutoff = new Date(Date.now() - 14 * 86_400_000).toISOString().replace('T', ' ').slice(0, 19);
+  const row = await db.prepare(`
     SELECT id FROM email_log
-    WHERE contact_id = ? AND sent_at > datetime('now', '-14 days')
+    WHERE contact_id = ? AND sent_at > ?
     LIMIT 1
-  `).get(contactId);
+  `).get(contactId, cutoff);
   return !!row;
 }
 
 // ── POST /api/email/preview ────────────────────────────────────────────────
-router.post('/preview', (req, res) => {
+router.post('/preview', async (req, res) => {
   const { contactIds, subject, body } = req.body;
   if (!Array.isArray(contactIds) || !contactIds.length)
     return res.status(400).json({ error: 'contactIds[] required' });
   if (!subject || !body)
     return res.status(400).json({ error: 'subject and body are required' });
 
-  const footer   = getFooter();
-  const sentToday = getSentToday();
-  const cap       = getDailyCap();
+  const footer   = await getFooter();
+  const sentToday = await getSentToday();
+  const cap       = await getDailyCap();
   const previews  = [];
   let budgetLeft  = Math.max(0, cap - sentToday);
 
   for (const id of contactIds) {
-    const contact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(id);
+    const contact = await db.prepare('SELECT * FROM contacts WHERE id = ?').get(id);
     if (!contact) continue;
 
     let blocked = false;
@@ -79,7 +81,7 @@ router.post('/preview', (req, res) => {
 
     if (contact.status === 'Do Not Contact') {
       blocked = true; blockReason = 'Marked Do Not Contact';
-    } else if (wasRecentlySent(id)) {
+    } else if (await wasRecentlySent(id)) {
       blocked = true; blockReason = 'Already emailed in the last 14 days';
     } else if (budgetLeft <= 0) {
       blocked = true; blockReason = `Daily cap of ${cap} reached`;
@@ -114,32 +116,32 @@ router.post('/send', rlMiddleware('email'), async (req, res) => {
   if (!Array.isArray(sends) || !sends.length)
     return res.status(400).json({ error: 'sends[] required' });
 
-  const smtp = getSmtpConfig();
+  const smtp = await getSmtpConfig();
   if (!smtp.host || !smtp.user || !smtp.pass)
     return res.status(400).json({
       error: 'SMTP is not configured. Open SMTP Settings and save your credentials first.'
     });
 
   // Re-check daily cap server-side (defense-in-depth)
-  const cap = getDailyCap();
-  if (getSentToday() >= cap)
+  const cap = await getDailyCap();
+  if (await getSentToday() >= cap)
     return res.status(429).json({ error: `Daily send cap of ${cap} reached. Try again tomorrow.` });
 
-  const footer      = getFooter();
+  const footer      = await getFooter();
   const transport   = createTransport(smtp);
   const results     = [];
-  let sentCount     = getSentToday();
+  let sentCount     = await getSentToday();
 
   for (let i = 0; i < sends.length; i++) {
     const { contactId, subject, body } = sends[i];
     // Re-validate each contact right before sending
-    const contact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(contactId);
+    const contact = await db.prepare('SELECT * FROM contacts WHERE id = ?').get(contactId);
     if (!contact) { results.push({ contactId, ok: false, error: 'Contact not found' }); continue; }
 
     if (contact.status === 'Do Not Contact') {
       results.push({ contactId, ok: false, error: 'Do Not Contact' }); continue;
     }
-    if (wasRecentlySent(contactId)) {
+    if (await wasRecentlySent(contactId)) {
       results.push({ contactId, ok: false, error: 'Already emailed in the last 14 days' }); continue;
     }
     if (sentCount >= cap) {
@@ -160,12 +162,13 @@ router.post('/send', rlMiddleware('email'), async (req, res) => {
     try {
       await transport.sendMail(mailOpts);
 
-      db.prepare(`INSERT INTO email_log (id, contact_id, subject, body_snapshot) VALUES (?, ?, ?, ?)`)
+      await db.prepare(`INSERT INTO email_log (id, contact_id, subject, body_snapshot) VALUES (?, ?, ?, ?)`)
         .run(crypto.randomUUID(), contactId, subject, textBody);
 
       const newStatus = ['New', 'Drafted'].includes(contact.status) ? 'Sent' : contact.status;
-      db.prepare(`UPDATE contacts SET status = ?, date_last_contacted = datetime('now') WHERE id = ?`)
-        .run(newStatus, contactId);
+      const contactedAt = new Date().toISOString().replace('T', ' ').slice(0, 19);
+      await db.prepare(`UPDATE contacts SET status = ?, date_last_contacted = ? WHERE id = ?`)
+        .run(newStatus, contactedAt, contactId);
 
       sentCount++;
       results.push({ contactId, ok: true, email: contact.email });
@@ -173,8 +176,8 @@ router.post('/send', rlMiddleware('email'), async (req, res) => {
     } catch (err) {
       const isBounce = !!(err.responseCode && err.responseCode >= 500);
       if (isBounce) {
-        db.prepare("UPDATE contacts SET status = 'Do Not Contact' WHERE id = ?").run(contactId);
-        db.prepare(`INSERT INTO email_log (id, contact_id, subject, body_snapshot, bounced) VALUES (?, ?, ?, ?, 1)`)
+        await db.prepare("UPDATE contacts SET status = 'Do Not Contact' WHERE id = ?").run(contactId);
+        await db.prepare(`INSERT INTO email_log (id, contact_id, subject, body_snapshot, bounced) VALUES (?, ?, ?, ?, 1)`)
           .run(crypto.randomUUID(), contactId, subject, textBody);
       }
       results.push({ contactId, ok: false, error: err.message, bounced: isBounce });
@@ -212,15 +215,15 @@ router.post('/send-direct', rlMiddleware('email'), async (req, res) => {
   if (!to || !subject || !body)
     return res.status(400).json({ error: 'to, subject, and body are required.' });
 
-  const smtp = getSmtpConfig();
+  const smtp = await getSmtpConfig();
   if (!smtp.host || !smtp.user || !smtp.pass)
     return res.status(400).json({ error: 'SMTP not configured. Open SMTP Settings first.' });
 
-  const cap = getDailyCap();
-  if (getSentToday() >= cap)
+  const cap = await getDailyCap();
+  if (await getSentToday() >= cap)
     return res.status(429).json({ error: `Daily send cap of ${cap} reached.` });
 
-  const footer   = getFooter();
+  const footer   = await getFooter();
   const fullBody = `${body}\n\n---\n${footer}`;
   const htmlBody = fullBody.split('\n').map(l => `<p style="margin:0 0 4px">${l || '&nbsp;'}</p>`).join('');
 
@@ -240,7 +243,7 @@ router.post('/send-direct', rlMiddleware('email'), async (req, res) => {
 });
 
 // ── GET /api/email/log ─────────────────────────────────────────────────────
-router.get('/log', (req, res) => {
+router.get('/log', async (req, res) => {
   const { contactId } = req.query;
   const limit = Math.min(parseInt(req.query.limit || '100'), 500);
 
@@ -255,14 +258,15 @@ router.get('/log', (req, res) => {
   q += ' ORDER BY el.sent_at DESC LIMIT ?';
   p.push(limit);
 
-  res.json(db.prepare(q).all(...p));
+  res.json(await db.prepare(q).all(...p));
 });
 
 // ── GET /api/email/stats ───────────────────────────────────────────────────
-router.get('/stats', (_, res) => {
-  const sentToday = getSentToday();
-  const cap       = getDailyCap();
-  const total     = db.prepare('SELECT COUNT(*) as c FROM email_log').get()?.c || 0;
+router.get('/stats', async (_, res) => {
+  const sentToday = await getSentToday();
+  const cap       = await getDailyCap();
+  const totalRow  = await db.prepare('SELECT COUNT(*) as c FROM email_log').get();
+  const total     = parseInt(totalRow?.c || 0);
   res.json({ sentToday, dailyCap: cap, remaining: Math.max(0, cap - sentToday), totalSent: total });
 });
 

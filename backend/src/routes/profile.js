@@ -13,15 +13,15 @@ const upload = multer({ dest: os.tmpdir(), limits: { fileSize: 10 * 1024 * 1024 
 router.use(requireAuth);
 
 // ── GET /api/profile ───────────────────────────────────────────────────────
-router.get('/', (req, res) => {
-  const profile = db.prepare('SELECT * FROM profiles WHERE user_id = ?').get(req.user.userId);
+router.get('/', async (req, res) => {
+  const profile = await db.prepare('SELECT * FROM profiles WHERE user_id = ?').get(req.user.userId);
   if (!profile) return res.json({});
   try { profile.skills = JSON.parse(profile.skills || '[]'); } catch { profile.skills = []; }
   res.json(profile);
 });
 
 // ── PUT /api/profile ───────────────────────────────────────────────────────
-router.put('/', (req, res) => {
+router.put('/', async (req, res) => {
   const fields = [
     'full_name', 'current_title', 'current_company', 'location',
     'phone', 'linkedin_url', 'github_url', 'portfolio_url',
@@ -35,12 +35,12 @@ router.put('/', (req, res) => {
       data[f] = f === 'skills' ? JSON.stringify(req.body[f]) : req.body[f];
     }
   }
-  data.updated_at = new Date().toISOString();
+  data.updated_at = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
   const setClauses = Object.keys(data).map(k => `${k} = ?`).join(', ');
   const values     = [...Object.values(data), req.user.userId];
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO profiles (user_id, ${Object.keys(data).join(', ')})
     VALUES (?, ${Object.keys(data).map(() => '?').join(', ')})
     ON CONFLICT(user_id) DO UPDATE SET ${setClauses}
@@ -84,15 +84,16 @@ router.post('/resume', upload.single('resume'), async (req, res) => {
     text = text.replace(/\r\n/g, '\n').trim();
 
     // Persist resume text + filename in profile
-    db.prepare(`
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    await db.prepare(`
       INSERT INTO profiles (user_id, resume_text, resume_filename, resume_uploaded_at, updated_at)
-      VALUES (?, ?, ?, datetime('now'), datetime('now'))
+      VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(user_id) DO UPDATE SET
         resume_text = excluded.resume_text,
         resume_filename = excluded.resume_filename,
         resume_uploaded_at = excluded.resume_uploaded_at,
         updated_at = excluded.updated_at
-    `).run(req.user.userId, text, req.file.originalname);
+    `).run(req.user.userId, text, req.file.originalname, now, now);
 
     res.json({ text, filename: req.file.originalname });
   } catch (err) {
