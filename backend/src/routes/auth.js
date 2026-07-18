@@ -57,11 +57,20 @@ router.post('/login', async (req, res) => {
   res.json({ token, user: { id: user.id, name: user.name, email: user.email, plan: user.plan || 'demo', role } });
 });
 
-// ── GET /api/auth/me ───────────────────────────────────────────────────────
+// ── GET /api/auth/me ─────────────────────────��─────────────────────────────
 router.get('/me', requireAuth, async (req, res) => {
   const user = await db.prepare('SELECT id, name, email, plan, role, created_at FROM users WHERE id = ?').get(req.user.userId);
   if (!user) return res.status(404).json({ error: 'User not found.' });
   res.json(user);
+});
+
+// ── GET /api/auth/whoami  (no-auth debug — see exactly what DB has for any email)
+router.get('/whoami', async (req, res) => {
+  const { email } = req.query;
+  if (!email) return res.status(400).json({ error: 'Pass ?email=... to check' });
+  const user = await db.prepare('SELECT id, name, email, role, plan, created_at FROM users WHERE LOWER(email) = ?').get(email.toLowerCase().trim());
+  if (!user) return res.json({ found: false, email, message: 'No row in public.users for this email — wrong DB or user never registered via the app' });
+  res.json({ found: true, ...user });
 });
 
 module.exports = router;

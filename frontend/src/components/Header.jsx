@@ -29,6 +29,15 @@ export default function Header({ onLoginClick }) {
               <div className="hidden sm:block text-right">
                 <p className="text-white text-xs font-medium leading-tight">{user.name}</p>
                 <p className="text-slate-400 text-xs leading-tight">{user.email}</p>
+                <p className="text-slate-500 text-xs leading-tight">
+                  <span className={`font-semibold ${user.role === 'admin' ? 'text-yellow-400' : 'text-slate-400'}`}>
+                    {user.role}
+                  </span>
+                  {' · '}
+                  <span className={user.plan === 'advanced' ? 'text-emerald-400' : 'text-slate-400'}>
+                    {user.plan}
+                  </span>
+                </p>
               </div>
               <button
                 onClick={logout}
