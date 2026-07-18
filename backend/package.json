@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
-    "postinstall": "npx playwright install chromium --with-deps"
+    "postinstall": "node scripts/install-browsers.js"
   },
   "dependencies": {
     "@octokit/rest": "^21.1.1",
