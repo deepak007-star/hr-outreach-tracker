@@ -641,6 +641,204 @@ function UsersSection() {
   );
 }
 
+// ── Data Management Section ────────────────────────────────────────────────
+function DataManagementSection() {
+  const [purge,    setPurge]    = useState({ enabled: true, retention_days: 30, last_purge: null });
+  const [ghCfg,    setGhCfg]    = useState({ enabled: false, token: '', owner: '', repo: '', retention_days: 30 });
+  const [ghStatus, setGhStatus] = useState(null);
+  const [saving,   setSaving]   = useState(false);
+  const [running,  setRunning]  = useState(false);
+  const [purging,  setPurging]  = useState(false);
+  const [jobStats, setJobStats] = useState(null);
+
+  useEffect(() => {
+    api.get('/github-backup/status').then(s => {
+      setGhStatus(s);
+      setGhCfg(c => ({ ...c, enabled: s.enabled, retention_days: s.retention_days }));
+    }).catch(() => {});
+    api.get('/github-backup/config').then(c => {
+      setGhCfg(prev => ({ ...prev, ...c }));
+    }).catch(() => {});
+    api.get('/scraped-jobs/stats').then(setJobStats).catch(() => {});
+  }, []);
+
+  async function savePurgeConfig() {
+    setSaving(true);
+    try {
+      await api.post('/scraped-jobs/purge', { retention_days: purge.retention_days });
+      toast.success(`Purged jobs older than ${purge.retention_days} days`);
+      api.get('/scraped-jobs/stats').then(setJobStats).catch(() => {});
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Purge failed');
+    } finally { setSaving(false); }
+  }
+
+  async function saveGhConfig() {
+    setSaving(true);
+    try {
+      await api.put('/github-backup/config', ghCfg);
+      toast.success('GitHub backup config saved');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Save failed');
+    } finally { setSaving(false); }
+  }
+
+  async function runBackup() {
+    setRunning(true);
+    try {
+      const r = await api.post('/github-backup/run');
+      toast.success(`Backup complete! ${r.uploaded} file(s) pushed, ${r.purgedJobs} jobs purged`);
+      api.get('/github-backup/status').then(setGhStatus).catch(() => {});
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Backup failed');
+    } finally { setRunning(false); }
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Job Stats */}
+      {jobStats && (
+        <div className="grid grid-cols-3 gap-3">
+          {[
+            { label: 'Total Jobs in DB', value: jobStats.total,  color: 'blue'   },
+            { label: 'Last 30 days',     value: jobStats.last30, color: 'green'  },
+            { label: 'Last 7 days',      value: jobStats.last7,  color: 'purple' },
+          ].map(s => (
+            <div key={s.label} className={`bg-${s.color}-50 border border-${s.color}-100 rounded-xl p-4 text-center`}>
+              <p className={`text-2xl font-black text-${s.color}-700`}>{s.value.toLocaleString()}</p>
+              <p className="text-xs text-gray-500 mt-0.5">{s.label}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Purge Config */}
+      <div className="bg-white border rounded-2xl p-5 space-y-4">
+        <h3 className="font-bold text-gray-800 flex items-center gap-2">🗑️ Data Retention &amp; Purge</h3>
+        <p className="text-sm text-gray-500">Scraped jobs older than the retention window are purged from the database. Data is pushed to GitHub backup before deletion if configured.</p>
+
+        <div className="flex flex-wrap items-end gap-4">
+          <div>
+            <label className="text-xs font-semibold text-gray-500 block mb-1">Retention (days)</label>
+            <input
+              type="number"
+              min="1" max="365"
+              value={purge.retention_days}
+              onChange={e => setPurge(p => ({ ...p, retention_days: parseInt(e.target.value) || 30 }))}
+              className="w-28 border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+            />
+          </div>
+          <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer pb-2">
+            <input
+              type="checkbox"
+              checked={purge.enabled}
+              onChange={e => setPurge(p => ({ ...p, enabled: e.target.checked }))}
+              className="rounded"
+            />
+            Auto-purge enabled (runs daily)
+          </label>
+          <button
+            onClick={savePurgeConfig}
+            disabled={purging || saving}
+            className="px-5 py-2 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 disabled:opacity-60 transition-colors pb-2"
+          >
+            {purging ? 'Purging…' : `Purge Now (>${purge.retention_days}d)`}
+          </button>
+        </div>
+        {ghStatus?.jobs_to_purge > 0 && (
+          <p className="text-xs text-orange-600 font-medium">
+            ⚠️ {ghStatus.jobs_to_purge} jobs are eligible for purge (older than {purge.retention_days} days)
+          </p>
+        )}
+      </div>
+
+      {/* GitHub Backup Config */}
+      <div className="bg-white border rounded-2xl p-5 space-y-4">
+        <h3 className="font-bold text-gray-800 flex items-center gap-2">
+          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.44 9.8 8.2 11.4.6.1.82-.26.82-.58v-2.17c-3.34.72-4.04-1.6-4.04-1.6-.54-1.38-1.33-1.75-1.33-1.75-1.08-.74.08-.72.08-.72 1.2.08 1.83 1.23 1.83 1.23 1.06 1.82 2.78 1.3 3.46.99.1-.77.42-1.3.76-1.6-2.66-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.12-.3-.54-1.52.12-3.17 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 3-.4c1.02 0 2.04.14 3 .4 2.28-1.55 3.29-1.23 3.29-1.23.66 1.65.24 2.87.12 3.17.77.84 1.24 1.91 1.24 3.22 0 4.61-2.81 5.63-5.48 5.92.43.37.81 1.1.81 2.22v3.29c0 .32.22.69.82.57C20.56 21.8 24 17.3 24 12c0-6.63-5.37-12-12-12z"/></svg>
+          GitHub Backup
+        </h3>
+        <p className="text-sm text-gray-500">Push daily snapshots and archived job data to a GitHub repository. Daily snapshots are saved to <code className="bg-gray-100 px-1 rounded">snapshots/</code>, archived data to <code className="bg-gray-100 px-1 rounded">backup/</code>.</p>
+
+        {ghStatus?.last_backup && (
+          <p className="text-xs text-green-600 font-medium">✅ Last backup: {new Date(ghStatus.last_backup).toLocaleString()}</p>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-semibold text-gray-500 block mb-1">GitHub Token (PAT)</label>
+            <input
+              type="password"
+              placeholder={ghCfg.token ? '***configured***' : 'ghp_xxxx…'}
+              value={ghCfg.token === '***configured***' ? '' : (ghCfg.token || '')}
+              onChange={e => setGhCfg(c => ({ ...c, token: e.target.value }))}
+              className="w-full border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+            />
+            <p className="text-xs text-gray-400 mt-0.5">Needs repo write access</p>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-gray-500 block mb-1">GitHub Owner</label>
+            <input
+              type="text"
+              placeholder="your-username"
+              value={ghCfg.owner || ''}
+              onChange={e => setGhCfg(c => ({ ...c, owner: e.target.value }))}
+              className="w-full border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-gray-500 block mb-1">Repository Name</label>
+            <input
+              type="text"
+              placeholder="hr-outreach-data-backup"
+              value={ghCfg.repo || ''}
+              onChange={e => setGhCfg(c => ({ ...c, repo: e.target.value }))}
+              className="w-full border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-gray-500 block mb-1">Data retention for backup (days)</label>
+            <input
+              type="number" min="7" max="365"
+              value={ghCfg.retention_days || 30}
+              onChange={e => setGhCfg(c => ({ ...c, retention_days: parseInt(e.target.value) || 30 }))}
+              className="w-full border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+            />
+          </div>
+        </div>
+
+        <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={!!ghCfg.enabled}
+            onChange={e => setGhCfg(c => ({ ...c, enabled: e.target.checked }))}
+            className="rounded"
+          />
+          Enable daily automatic backup to GitHub
+        </label>
+
+        <div className="flex gap-3 pt-2">
+          <button
+            onClick={saveGhConfig}
+            disabled={saving}
+            className="px-5 py-2 bg-gray-900 text-white rounded-xl text-sm font-semibold hover:bg-gray-800 disabled:opacity-60 transition-colors"
+          >
+            {saving ? 'Saving…' : 'Save Config'}
+          </button>
+          <button
+            onClick={runBackup}
+            disabled={running || !ghStatus?.configured}
+            className="px-5 py-2 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 disabled:opacity-60 transition-colors"
+            title={!ghStatus?.configured ? 'Configure GitHub settings first' : ''}
+          >
+            {running ? '⏳ Backing up…' : '⬆️ Run Backup Now'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main AdminPanel ────────────────────────────────────────────────────────
 export default function AdminPanel() {
   const { user } = useAuth();
@@ -656,8 +854,9 @@ export default function AdminPanel() {
   }
 
   const TABS = [
-    { id: 'leads', icon: '🚀', label: 'Interest Leads' },
+    { id: 'leads', icon: '🚀', label: 'Interest Leads'  },
     { id: 'users', icon: '👥', label: 'User Management' },
+    { id: 'data',  icon: '🗄️', label: 'Data &amp; Backup' },
   ];
 
   return (
@@ -684,13 +883,14 @@ export default function AdminPanel() {
             className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all ${
               tab === t.id ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'
             }`}>
-            <span>{t.icon}</span><span>{t.label}</span>
+            <span>{t.icon}</span><span dangerouslySetInnerHTML={{ __html: t.label }} />
           </button>
         ))}
       </div>
 
       {tab === 'leads' && <LeadsSection />}
       {tab === 'users' && <UsersSection />}
+      {tab === 'data'  && <DataManagementSection />}
     </div>
   );
 }

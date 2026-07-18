@@ -33,6 +33,10 @@ async function main() {
   const emailVerifyRouter    = require('./routes/emailVerify');
   const adminRouter          = require('./routes/admin');
   const oauthRouter          = require('./routes/oauth');
+  const scraperRouter        = require('./routes/scraper');
+  const scrapedJobsRouter    = require('./routes/scraped-jobs');
+  const gmailRouter          = require('./routes/gmail');
+  const githubBackupRouter   = require('./routes/github-backup');
   const { performScrape, getSettings } = require('./routes/apify');
   const { sendReminderEmail } = require('./routes/reminder');
 
@@ -57,6 +61,10 @@ async function main() {
   app.use('/api/email-verify',    emailVerifyRouter);
   app.use('/api/admin',           adminRouter);
   app.use('/api/oauth',           oauthRouter);
+  app.use('/api/scraper',         scraperRouter);
+  app.use('/api/scraped-jobs',    scrapedJobsRouter);
+  app.use('/api/gmail',           gmailRouter);
+  app.use('/api/github-backup',   githubBackupRouter);
   app.get('/api/health', (_, res) =>
     res.json({ status: 'ok', timestamp: new Date().toISOString() })
   );
@@ -159,6 +167,73 @@ async function main() {
   }
   setTimeout(runEmailVerification, 15_000); // startup check after 15s
   setInterval(runEmailVerification, 24 * 3_600_000); // every 24h
+
+  // ── Daily scraper-job purge + GitHub backup ─────────────────────────────────
+  async function runDailyPurgeAndBackup() {
+    try {
+      const purgeRow = await database.prepare("SELECT value FROM settings WHERE key='purge_config'").get();
+      let purgeCfg = {};
+      try { purgeCfg = JSON.parse(purgeRow?.value || '{}'); } catch {}
+
+      if (purgeCfg.enabled !== false) {
+        const retentionDays = Math.max(parseInt(purgeCfg.retention_days) || 30, 1);
+        const cutoff = new Date(Date.now() - retentionDays * 86_400_000).toISOString().replace('T', ' ').slice(0, 19);
+        const result = await database.prepare('DELETE FROM scraped_jobs WHERE created_at < ?').run(cutoff);
+        if (result.changes > 0) {
+          console.log(`[Purge] Removed ${result.changes} scraped jobs older than ${retentionDays} days`);
+        }
+        purgeCfg.last_purge = new Date().toISOString().slice(0, 10);
+        await database.prepare("INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value")
+          .run('purge_config', JSON.stringify(purgeCfg));
+      }
+
+      // GitHub backup if configured
+      const ghRow = await database.prepare("SELECT value FROM settings WHERE key='github_backup_config'").get();
+      let ghCfg = {};
+      try { ghCfg = JSON.parse(ghRow?.value || '{}'); } catch {}
+
+      if (ghCfg.enabled && ghCfg.token && ghCfg.owner && ghCfg.repo) {
+        try {
+          // Trigger backup by calling the route logic directly
+          const { Octokit } = require('@octokit/rest');
+          const octokit = new Octokit({ auth: ghCfg.token });
+          const today   = new Date().toISOString().slice(0, 10);
+          const d30     = new Date(Date.now() - 30 * 86_400_000).toISOString().replace('T', ' ').slice(0, 19);
+
+          const [jobs, contacts] = await Promise.all([
+            database.prepare('SELECT * FROM scraped_jobs WHERE created_at >= ? ORDER BY created_at DESC').all(d30),
+            database.prepare('SELECT id,name,email,status,company,title,date_added FROM contacts ORDER BY date_added DESC LIMIT 500').all(),
+          ]);
+
+          const snapshotContent = JSON.stringify({ date: today, jobs, contacts }, null, 2);
+          let sha;
+          try {
+            const ex = await octokit.repos.getContent({ owner: ghCfg.owner, repo: ghCfg.repo, path: `snapshots/${today}.json` });
+            sha = ex.data.sha;
+          } catch {}
+          await octokit.repos.createOrUpdateFileContents({
+            owner:   ghCfg.owner,
+            repo:    ghCfg.repo,
+            path:    `snapshots/${today}.json`,
+            message: `snapshot: daily data for ${today}`,
+            content: Buffer.from(snapshotContent).toString('base64'),
+            ...(sha ? { sha } : {}),
+          });
+          await database.prepare("INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value")
+            .run('github_backup_config', JSON.stringify({ ...ghCfg, last_backup: new Date().toISOString() }));
+          console.log(`[GitHub backup] Snapshot pushed for ${today}`);
+        } catch (e) {
+          console.error('[GitHub backup] Failed:', e.message);
+        }
+      }
+    } catch (e) {
+      console.error('[Daily purge/backup]', e.message);
+    }
+  }
+
+  // Run purge once at startup (after 30s) then every 24h
+  setTimeout(runDailyPurgeAndBackup, 30_000);
+  setInterval(runDailyPurgeAndBackup, 24 * 3_600_000);
 }
 
 main().catch(err => { console.error('Startup failed:', err); process.exit(1); });

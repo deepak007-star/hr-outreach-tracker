@@ -177,6 +177,59 @@ async function initialize() {
       updated_at    TEXT NOT NULL DEFAULT (${NOW_EXPR}),
       PRIMARY KEY (user_id, provider)
     );
+
+    CREATE TABLE IF NOT EXISTS scraped_jobs (
+      id               TEXT PRIMARY KEY,
+      scraper_type     TEXT NOT NULL,
+      job_category     TEXT NOT NULL DEFAULT 'general',
+      title            TEXT NOT NULL DEFAULT '',
+      company          TEXT NOT NULL DEFAULT '',
+      location         TEXT NOT NULL DEFAULT '',
+      job_type         TEXT NOT NULL DEFAULT '',
+      salary           TEXT NOT NULL DEFAULT '',
+      experience       TEXT NOT NULL DEFAULT '',
+      tags             TEXT NOT NULL DEFAULT '',
+      description      TEXT NOT NULL DEFAULT '',
+      link             TEXT NOT NULL DEFAULT '',
+      apply_link       TEXT NOT NULL DEFAULT '',
+      posted_at        TEXT NOT NULL DEFAULT '',
+      scraped_at       TEXT NOT NULL,
+      is_remote        INTEGER NOT NULL DEFAULT 0,
+      contact_email    TEXT,
+      contact_phone    TEXT,
+      google_form_link TEXT,
+      whatsapp_link    TEXT,
+      all_contacts     TEXT,
+      created_at       TEXT NOT NULL DEFAULT (${NOW_EXPR})
+    );
+
+    CREATE TABLE IF NOT EXISTS gmail_tokens (
+      user_id       TEXT PRIMARY KEY REFERENCES users(id),
+      gmail_email   TEXT NOT NULL,
+      access_token  TEXT,
+      refresh_token TEXT NOT NULL,
+      token_expiry  TEXT,
+      created_at    TEXT NOT NULL DEFAULT (${NOW_EXPR}),
+      updated_at    TEXT NOT NULL DEFAULT (${NOW_EXPR})
+    );
+
+    CREATE TABLE IF NOT EXISTS gmail_tracked_emails (
+      id               TEXT PRIMARY KEY,
+      user_id          TEXT NOT NULL REFERENCES users(id),
+      gmail_message_id TEXT,
+      gmail_thread_id  TEXT,
+      contact_email    TEXT NOT NULL,
+      contact_name     TEXT NOT NULL DEFAULT '',
+      subject          TEXT NOT NULL DEFAULT '',
+      body_snippet     TEXT NOT NULL DEFAULT '',
+      full_body        TEXT NOT NULL DEFAULT '',
+      sent_at          TEXT NOT NULL,
+      email_status     TEXT NOT NULL DEFAULT 'sent',
+      replied_at       TEXT,
+      reply_snippet    TEXT,
+      last_synced_at   TEXT,
+      created_at       TEXT NOT NULL DEFAULT (${NOW_EXPR})
+    );
   `);
 
   const defaults = {
@@ -185,6 +238,9 @@ async function initialize() {
     scrape_enabled:         'false',
     smtp_config:            '{}',
     unsubscribe_footer_text:'To opt out of future emails, reply with UNSUBSCRIBE.',
+    purge_config:           JSON.stringify({ enabled: true, retention_days: 30, last_purge: null }),
+    github_backup_config:   JSON.stringify({ enabled: false, token: '', owner: '', repo: '', last_backup: null }),
+    scraper_defaults:       JSON.stringify({ since: '7d', limit: 50, location: 'India' }),
   };
   const ins = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING');
   for (const [k, v] of Object.entries(defaults)) await ins.run(k, v);
@@ -204,6 +260,11 @@ async function initialize() {
   await db.exec(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS twitter_handle TEXT`);
   await db.exec(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS github_url TEXT`);
   await db.exec(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS preferred_contact TEXT`);
+  // scraped_jobs index for fast date-range queries
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_scraped_jobs_created_at ON scraped_jobs (created_at)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_scraped_jobs_category ON scraped_jobs (job_category)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_gmail_tracked_user ON gmail_tracked_emails (user_id, sent_at)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_gmail_tracked_status ON gmail_tracked_emails (user_id, email_status)`);
 
   // Promote first registered user to admin if no admin exists
   const adminExists = await db.prepare('SELECT id FROM users WHERE role = ?').get('admin');

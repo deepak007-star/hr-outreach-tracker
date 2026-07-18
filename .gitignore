@@ -5,6 +5,8 @@ backend/data/*.db-shm
 backend/data/*.xlsx
 backend/uploads/
 backend/.env
+backend/src/output/
+backend/backup/
 dist/
 .DS_Store
 Thumbs.db

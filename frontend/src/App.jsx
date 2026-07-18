@@ -16,11 +16,12 @@ import AuthModal         from './components/AuthModal.jsx';
 import PlansModal        from './components/PlansModal.jsx';
 import EarlyAccessBanner from './components/EarlyAccessBanner.jsx';
 import BulkJobAnalyzer   from './components/BulkJobAnalyzer.jsx';
-import LinkedInPosts     from './components/LinkedInPosts.jsx';
 import RateLimitBar      from './components/RateLimitBar.jsx';
 import Dashboard        from './components/Dashboard.jsx';
 import TemplatesPage    from './components/TemplatesPage.jsx';
 import AdminPanel       from './components/AdminPanel.jsx';
+import ColdEmailSection from './components/ColdEmailSection.jsx';
+import JobScraperSection from './components/JobScraperSection.jsx';
 import { api, API_ROOT } from './api/client.js';
 
 const PLAN_LIMITS = { guest: 5, demo: 10, basic: 100, advanced: 999999 };
@@ -45,8 +46,9 @@ export default function App() {
   const [activityKey,      setActivityKey]      = useState(0);
   const [activeTab,        setActiveTab]        = useState('home'); // 'home' | 'contacts' | 'templates' | 'jobs' | 'bulk' | 'profile'
   const [showAuthModal,    setShowAuthModal]    = useState(false);
-  const [showPlans,   setShowPlans]   = useState(false);
-  const [contactSubTab,    setContactSubTab]    = useState('my'); // 'my' | 'linkedin'
+  const [showPlans,        setShowPlans]        = useState(false);
+  // contacts section sub-tabs: 'my' | 'cold-email' | 'job-links'
+  const [contactSubTab,    setContactSubTab]    = useState('my');
   const { user } = useAuth();
 
   const visibleLimit = PLAN_LIMITS[user?.plan] ?? PLAN_LIMITS.guest;
@@ -238,7 +240,7 @@ export default function App() {
             { id: 'templates', label: '📄 Templates' },
             { id: 'jobs',      label: '🔍 Job Analyzer' },
             { id: 'bulk',      label: '🚀 Bulk Apply' },
-            { id: 'profile',   label: '👤 Profile', requiresAuth: true },
+            { id: 'profile',   label: '👤 Profile',  requiresAuth: true },
             ...(user?.role === 'admin' ? [{ id: 'admin', label: '🛡️ Admin', requiresAuth: true }] : []),
           ].map(tab => (
             <button
@@ -297,10 +299,11 @@ export default function App() {
         {activeTab === 'contacts' && <>
 
         {/* Contact subtabs */}
-        <div className="flex gap-1 border-b bg-white rounded-t-xl px-2 pt-1 -mb-1">
+        <div className="flex gap-1 border-b bg-white rounded-t-xl px-2 pt-1 -mb-1 overflow-x-auto">
           {[
-            { id: 'my',       label: '👥 My Contacts',      desc: 'Manually added & imported' },
-            { id: 'linkedin', label: '💼 LinkedIn Posts',   desc: 'Scraped via Apify' },
+            { id: 'my',         label: '👥 My Contacts',         desc: 'Manually added & imported contacts' },
+            { id: 'cold-email', label: '📧 Cold Emailing',        desc: 'Gmail tracking + LinkedIn feed'   },
+            { id: 'job-links',  label: '💼 Job Links',            desc: 'Scrape LinkedIn, Naukri & more'   },
           ].map(sub => (
             <button
               key={sub.id}
@@ -310,14 +313,26 @@ export default function App() {
                   ? 'border-blue-600 text-blue-700'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
+              title={sub.desc}
             >
               {sub.label}
             </button>
           ))}
         </div>
 
-        {/* LinkedIn Posts subtab */}
-        {contactSubTab === 'linkedin' && <LinkedInPosts />}
+        {/* Cold Emailing sub-tab */}
+        {contactSubTab === 'cold-email' && (
+          <div className="bg-gray-50 rounded-b-xl border border-t-0 p-4">
+            <ColdEmailSection />
+          </div>
+        )}
+
+        {/* Job Links sub-tab */}
+        {contactSubTab === 'job-links' && (
+          <div className="bg-gray-50 rounded-b-xl border border-t-0 p-4">
+            <JobScraperSection />
+          </div>
+        )}
 
         {/* My Contacts subtab */}
         {contactSubTab === 'my' && <>
