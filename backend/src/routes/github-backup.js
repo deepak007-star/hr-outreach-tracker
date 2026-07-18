@@ -2,9 +2,10 @@
 
 const express = require('express');
 const db      = require('../db/database');
-const { requireAdmin } = require('../middleware/auth');
+const { requireAuth, requireAdmin } = require('../middleware/auth');
 
 const router = express.Router();
+router.use(requireAuth);
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
