@@ -52,6 +52,7 @@ async function main() {
   const { checkEmailDomain } = require('./routes/emailVerify');
   const emailVerifyRouter    = require('./routes/emailVerify');
   const adminRouter          = require('./routes/admin');
+  const vaultRouter          = require('./routes/vault');
   const oauthRouter          = require('./routes/oauth');
   const rbacRouter           = require('./routes/rbac');
   const scraperRouter        = require('./routes/scraper');
@@ -86,6 +87,7 @@ async function main() {
   app.use('/api/email-templates', emailTemplatesRouter);
   app.use('/api/email-verify',    emailVerifyRouter);
   app.use('/api/admin',           adminRouter);
+  app.use('/api/vault',           vaultRouter);
   app.use('/api/oauth',           oauthRouter);
   app.use('/api/rbac',            rbacRouter);
   app.use('/api/scraper',         scraperRouter);

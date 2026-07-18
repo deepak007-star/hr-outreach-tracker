@@ -274,6 +274,21 @@ async function initialize() {
       permission_id TEXT NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
       PRIMARY KEY (role_id, permission_id)
     );
+
+    CREATE TABLE IF NOT EXISTS password_vault (
+      id           TEXT PRIMARY KEY,
+      user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      title        TEXT NOT NULL,
+      username     TEXT NOT NULL DEFAULT '',
+      password_enc TEXT NOT NULL,
+      iv           TEXT NOT NULL,
+      tag          TEXT NOT NULL,
+      url          TEXT NOT NULL DEFAULT '',
+      category     TEXT NOT NULL DEFAULT 'general',
+      notes        TEXT NOT NULL DEFAULT '',
+      created_at   TEXT NOT NULL DEFAULT (${NOW_EXPR}),
+      updated_at   TEXT NOT NULL DEFAULT (${NOW_EXPR})
+    );
   `);
 
   const defaults = {
@@ -319,6 +334,7 @@ async function initialize() {
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_scraped_jobs_category ON scraped_jobs (job_category)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_gmail_tracked_user ON gmail_tracked_emails (user_id, sent_at)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_gmail_tracked_status ON gmail_tracked_emails (user_id, email_status)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_password_vault_user ON password_vault (user_id)`);
 
   // ── RBAC seed ────────────────────────────────────────────────────────────────
   const PERMISSIONS = [

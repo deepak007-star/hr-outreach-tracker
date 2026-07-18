@@ -3,6 +3,7 @@ import { toast } from 'react-hot-toast';
 import { api } from '../api/client.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import RolesPermissions from './RolesPermissions.jsx';
+import PasswordVault from './PasswordVault.jsx';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const PLANS  = ['guest', 'demo', 'basic', 'advanced'];
@@ -502,6 +503,93 @@ function LeadsSection() {
   );
 }
 
+// ── Reset Password Modal ───────────────────────────────────────────────────
+function ResetPasswordModal({ user: target, onClose }) {
+  const [password, setPassword]   = useState('');
+  const [confirm,  setConfirm]    = useState('');
+  const [show,     setShow]       = useState(false);
+  const [saving,   setSaving]     = useState(false);
+  const [done,     setDone]       = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!password || password.length < 6) return toast.error('Password must be at least 6 characters');
+    if (password !== confirm)             return toast.error('Passwords do not match');
+    setSaving(true);
+    try {
+      await api.put(`/admin/users/${target.id}/password`, { password });
+      setDone(true);
+      toast.success(`Password reset for ${target.name}`);
+      setTimeout(onClose, 1500);
+    } catch (err) {
+      toast.error(err?.response?.data?.error || 'Failed to reset password');
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-base font-bold text-gray-900">Reset Password</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+        </div>
+        {done ? (
+          <div className="text-center py-4">
+            <div className="text-3xl mb-2">✅</div>
+            <p className="text-sm text-green-700 font-medium">Password reset successfully</p>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
+              Setting a new password for <strong>{target.name}</strong> ({target.email})
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">New Password</label>
+              <div className="relative">
+                <input
+                  type={show ? 'text' : 'password'}
+                  className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder="Min 6 characters"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  autoFocus
+                />
+                <button type="button" onClick={() => setShow(s => !s)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                  {show ? '🙈' : '👁'}
+                </button>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Confirm Password</label>
+              <input
+                type={show ? 'text' : 'password'}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-500 outline-none"
+                placeholder="Repeat password"
+                value={confirm}
+                onChange={e => setConfirm(e.target.value)}
+              />
+            </div>
+            {password && confirm && password !== confirm && (
+              <p className="text-xs text-red-500">Passwords do not match</p>
+            )}
+            <div className="flex gap-2 pt-1">
+              <button type="button" onClick={onClose}
+                className="flex-1 px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50">
+                Cancel
+              </button>
+              <button type="submit" disabled={saving}
+                className="flex-1 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 font-semibold">
+                {saving ? 'Resetting…' : 'Reset Password'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Users Section ──────────────────────────────────────────────────────────
 function UsersSection() {
   const { user: me }  = useAuth();
@@ -509,6 +597,7 @@ function UsersSection() {
   const [allRoles,  setAllRoles]  = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [search,    setSearch]    = useState('');
+  const [resetTarget, setResetTarget] = useState(null); // user to reset password for
 
   const load = useCallback(() => {
     setLoading(true);
@@ -554,6 +643,9 @@ function UsersSection() {
 
   return (
     <div className="space-y-4">
+      {resetTarget && (
+        <ResetPasswordModal user={resetTarget} onClose={() => setResetTarget(null)} />
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -625,8 +717,14 @@ function UsersSection() {
                       </select>
                     </td>
                     <td className="px-4 py-3.5">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <EmailChooser email={u.email} subject="Hi from HR Outreach Tracker" body={`Hi ${u.name},\n\n`} label="✉ Email" size="xs" />
+                        {!isMe && (
+                          <button onClick={() => setResetTarget(u)}
+                            className="text-xs text-amber-600 hover:text-amber-800 border border-amber-200 rounded-lg px-2 py-1 hover:bg-amber-50 transition font-medium">
+                            Reset PW
+                          </button>
+                        )}
                         {!isMe && (
                           <button onClick={() => deleteUser(u.id, u.name)}
                             className="text-xs text-red-400 hover:text-red-600 transition font-medium">
@@ -862,10 +960,11 @@ export default function AdminPanel() {
   }
 
   const TABS = [
-    { id: 'leads', icon: '🚀', label: 'Interest Leads'       },
-    { id: 'users', icon: '👥', label: 'User Management'      },
-    { id: 'roles', icon: '🔐', label: 'Roles & Permissions'  },
-    { id: 'data',  icon: '🗄️', label: 'Data &amp; Backup'   },
+    { id: 'leads',     icon: '🚀', label: 'Interest Leads'       },
+    { id: 'users',     icon: '👥', label: 'User Management'      },
+    { id: 'roles',     icon: '🛡️', label: 'Roles & Permissions'  },
+    { id: 'passwords', icon: '🔐', label: 'Password Vault'       },
+    { id: 'data',      icon: '🗄️', label: 'Data &amp; Backup'   },
   ];
 
   return (
@@ -908,6 +1007,18 @@ export default function AdminPanel() {
             </p>
           </div>
           <RolesPermissions />
+        </div>
+      )}
+      {tab === 'passwords' && (
+        <div className="bg-white border rounded-2xl p-5">
+          <div className="mb-4">
+            <h2 className="text-base font-bold text-gray-800">Password Vault — All Users</h2>
+            <p className="text-xs text-gray-500 mt-0.5">
+              View all stored credentials across all users. Click "Reveal" to decrypt any password on demand.
+              Passwords are encrypted with AES-256-GCM at rest.
+            </p>
+          </div>
+          <PasswordVault isAdmin={true} />
         </div>
       )}
       {tab === 'data'  && <DataManagementSection />}

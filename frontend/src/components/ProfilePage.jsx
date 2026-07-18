@@ -7,6 +7,8 @@ import ProfileAnalyzer from './ProfileAnalyzer.jsx';
 import { getSuggestedSkills } from '../data/skillSuggestions.js';
 import { useDraft, readDraft, clearDraft, useBeforeUnload } from '../hooks/useDraft.js';
 import { invalidateCache } from '../api/client.js';
+import PasswordVault from './PasswordVault.jsx';
+import ChangePassword from './ChangePassword.jsx';
 
 const PROFILE_CACHE_KEY = 'ss:profile';
 const PROFILE_CACHE_TTL = 5 * 60 * 1000; // 5 min
@@ -515,10 +517,11 @@ function LinksTab({ profile, user, onSave, onDirtyChange }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 const TABS = [
-  { id: 'overview', label: '👤 Overview' },
-  { id: 'resume',   label: '📄 Resume & Skills' },
-  { id: 'links',    label: '🔗 Links' },
-  { id: 'score',    label: '📊 Profile Score' },
+  { id: 'overview',   label: '👤 Overview' },
+  { id: 'resume',     label: '📄 Resume & Skills' },
+  { id: 'links',      label: '🔗 Links' },
+  { id: 'score',      label: '📊 Profile Score' },
+  { id: 'passwords',  label: '🔐 Passwords' },
 ];
 
 export default function ProfilePage({ onDirtyChange }) {
@@ -705,6 +708,18 @@ export default function ProfilePage({ onDirtyChange }) {
                 setActiveTab('score');
               }}
             />
+          )}
+          {activeTab === 'passwords' && (
+            <div className="space-y-8">
+              <ChangePassword />
+              <div>
+                <h3 className="text-base font-semibold text-gray-900 mb-1">Password Vault</h3>
+                <p className="text-xs text-gray-500 mb-4">
+                  Store credentials for job boards, LinkedIn, email accounts and more. All passwords are encrypted at rest.
+                </p>
+                <PasswordVault isAdmin={false} />
+              </div>
+            </div>
           )}
         </div>
       </div>
