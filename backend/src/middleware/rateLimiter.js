@@ -1,0 +1,58 @@
+// Sliding-window in-memory rate limiter (resets on server restart — intentional)
+
+const LIMITS = {
+  email: { max: 20, windowMs: 3 * 60 * 60 * 1000, label: 'Email sends' },
+  apply: { max: 30, windowMs: 3 * 60 * 60 * 1000, label: 'Job applications' },
+};
+
+const store = new Map(); // `${uid}:${type}` → number[]
+
+function _clean(key, windowMs) {
+  const now = Date.now();
+  const ts  = (store.get(key) || []).filter(t => now - t < windowMs);
+  store.set(key, ts);
+  return ts;
+}
+
+function check(userId, type) {
+  const { max, windowMs } = LIMITS[type];
+  const ts        = _clean(`${userId}:${type}`, windowMs);
+  const used      = ts.length;
+  const remaining = Math.max(0, max - used);
+  const resetAt   = ts[0] ? new Date(ts[0] + windowMs) : null;
+  return { used, max, remaining, resetAt, allowed: remaining > 0 };
+}
+
+function record(userId, type) {
+  const { windowMs } = LIMITS[type];
+  const key = `${userId}:${type}`;
+  const ts  = _clean(key, windowMs);
+  ts.push(Date.now());
+  store.set(key, ts);
+}
+
+function getStatus(userId) {
+  return Object.fromEntries(
+    Object.keys(LIMITS).map(type => [type, check(userId, type)])
+  );
+}
+
+function middleware(type) {
+  return (req, res, next) => {
+    const uid    = req.user?.userId || req.ip || 'anon';
+    const result = check(uid, type);
+    if (!result.allowed) {
+      const resetStr = result.resetAt
+        ? ` Resets at ${result.resetAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}.`
+        : '';
+      return res.status(429).json({
+        error: `${LIMITS[type].label} limit reached: ${result.max} per 3 hours.${resetStr}`,
+        rateLimitInfo: { ...result, type },
+      });
+    }
+    record(uid, type);
+    next();
+  };
+}
+
+module.exports = { check, record, getStatus, middleware };

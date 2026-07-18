@@ -1,0 +1,12 @@
+node_modules/
+backend/data/*.db
+backend/data/*.db-wal
+backend/data/*.db-shm
+backend/data/*.xlsx
+backend/uploads/
+backend/.env
+dist/
+.DS_Store
+Thumbs.db
+.idea/
+.claude/settings.local.json
