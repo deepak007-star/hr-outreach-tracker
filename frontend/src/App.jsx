@@ -23,6 +23,7 @@ import AdminPanel       from './components/AdminPanel.jsx';
 import ColdEmailSection from './components/ColdEmailSection.jsx';
 import JobScraperSection from './components/JobScraperSection.jsx';
 import UnsavedChangesModal from './components/UnsavedChangesModal.jsx';
+import AskReferral        from './components/AskReferral.jsx';
 import { clearDraft } from './hooks/useDraft.js';
 import { api, API_ROOT } from './api/client.js';
 
@@ -280,6 +281,7 @@ export default function App() {
             { id: 'templates', label: '📄 Templates' },
             { id: 'jobs',      label: '🔍 Job Analyzer' },
             { id: 'bulk',      label: '🚀 Bulk Apply' },
+            { id: 'referrals', label: '🤝 Ask Referral', requiresAuth: true },
             { id: 'profile',   label: '👤 Profile',  requiresAuth: true },
             ...(user?.role === 'admin' ? [{ id: 'admin', label: '🛡️ Admin', requiresAuth: true }] : []),
           ].map(tab => (
@@ -327,6 +329,15 @@ export default function App() {
 
         {/* ── Admin tab ─────────────────────────────────────────── */}
         {activeTab === 'admin' && <AdminPanel />}
+
+        {/* ── Ask Referral tab ──────────────────────────────────── */}
+        {activeTab === 'referrals' && user && <AskReferral />}
+        {activeTab === 'referrals' && !user && (
+          <div className="flex flex-col items-center justify-center h-48 gap-3">
+            <p className="text-gray-500 text-sm">Sign in to access the referral network.</p>
+            <button onClick={() => setShowAuthModal(true)} className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700">Sign In</button>
+          </div>
+        )}
 
         {/* ── Job Analyzer tab ──────────────────────────────────── */}
         {activeTab === 'jobs' && <JobAnalyzer />}

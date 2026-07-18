@@ -289,6 +289,16 @@ async function initialize() {
       created_at   TEXT NOT NULL DEFAULT (${NOW_EXPR}),
       updated_at   TEXT NOT NULL DEFAULT (${NOW_EXPR})
     );
+
+    CREATE TABLE IF NOT EXISTS referral_requests (
+      id           TEXT PRIMARY KEY,
+      from_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      to_user_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      subject      TEXT NOT NULL DEFAULT '',
+      message      TEXT NOT NULL DEFAULT '',
+      created_at   TEXT NOT NULL DEFAULT (${NOW_EXPR}),
+      UNIQUE(from_user_id, to_user_id)
+    );
   `);
 
   const defaults = {
@@ -335,6 +345,8 @@ async function initialize() {
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_gmail_tracked_user ON gmail_tracked_emails (user_id, sent_at)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_gmail_tracked_status ON gmail_tracked_emails (user_id, email_status)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_password_vault_user ON password_vault (user_id)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_referral_requests_from ON referral_requests (from_user_id)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_referral_requests_to ON referral_requests (to_user_id)`);
 
   // ── RBAC seed ────────────────────────────────────────────────────────────────
   const PERMISSIONS = [

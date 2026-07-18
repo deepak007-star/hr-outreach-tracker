@@ -59,6 +59,7 @@ async function main() {
   const scrapedJobsRouter    = require('./routes/scraped-jobs');
   const gmailRouter          = require('./routes/gmail');
   const githubBackupRouter   = require('./routes/github-backup');
+  const referralsRouter      = require('./routes/referrals');
   const { performScrape, getSettings } = require('./routes/apify');
   const { sendReminderEmail } = require('./routes/reminder');
 
@@ -101,6 +102,7 @@ async function main() {
   app.use('/api/scraped-jobs',    scrapedJobsRouter);
   app.use('/api/gmail',           gmailRouter);
   app.use('/api/github-backup',   githubBackupRouter);
+  app.use('/api/referrals',       referralsRouter);
   app.get('/api/health', (_, res) =>
     res.json({ status: 'ok', timestamp: new Date().toISOString() })
   );
