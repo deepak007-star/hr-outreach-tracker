@@ -1,12 +1,11 @@
-const { Pool } = require('pg');
+const { Pool, Client } = require('pg');
 
 const connectionString = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/hr_outreach_tracker';
 const isLocal = /localhost|127\.0\.0\.1/.test(connectionString);
+const sslConfig = isLocal ? false : { rejectUnauthorized: false };
 
-const pool = new Pool({
-  connectionString,
-  ssl: isLocal ? false : { rejectUnauthorized: false },
-});
+// Pool for all regular runtime queries after initialization
+const pool = new Pool({ connectionString, ssl: sslConfig });
 
 // SQLite's datetime('now') produced 'YYYY-MM-DD HH:MM:SS' in UTC — match that
 // format so every route that slices/compares these columns as plain text
@@ -53,6 +52,29 @@ const proxy = new Proxy({}, {
 });
 
 async function initialize() {
+  // Use a dedicated Client (not the pool) for the entire initialization so that
+  // SET statement_timeout = 0 is guaranteed to apply to every DDL + seed query.
+  // Supabase and other hosted Postgres impose short per-statement timeouts on the
+  // pooler; this single persistent connection bypasses that for init only.
+  const initClient = new Client({ connectionString, ssl: sslConfig });
+  await initClient.connect();
+  await initClient.query('SET statement_timeout = 0');
+
+  // Thin wrappers so the rest of initialize() keeps using the same syntax
+  const iExec = (sql) => initClient.query(sql);
+  const iRun  = async (sql, ...params) => { const r = await initClient.query(toPgSql(sql), params); return { changes: r.rowCount }; };
+  const iGet  = async (sql, ...params) => { const r = await initClient.query(toPgSql(sql), params); return r.rows[0]; };
+
+  const _origExec    = db.exec.bind(db);
+  const _origPrepare = db.prepare.bind(db);
+  db.exec    = (sql) => iExec(sql).then(() => db);
+  db.prepare = (sql) => ({
+    run:  (...p) => iRun(sql, ...p),
+    get:  (...p) => iGet(sql, ...p),
+    all:  async (...p) => { const r = await initClient.query(toPgSql(sql), p); return r.rows; },
+  });
+
+  try {
   await db.exec(`
     CREATE TABLE IF NOT EXISTS contacts (
       id                TEXT PRIMARY KEY,
@@ -267,21 +289,31 @@ async function initialize() {
   const ins = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING');
   for (const [k, v] of Object.entries(defaults)) await ins.run(k, v);
 
-  // Migrations for DBs created before these columns existed
-  await db.exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'demo'`);
-  await db.exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user'`);
-  await db.exec(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS email_verified TEXT NOT NULL DEFAULT 'pending'`);
-  await db.exec(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS email_checked_at TEXT`);
-  await db.exec(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS job_title_1 TEXT`);
-  await db.exec(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS job_title_2 TEXT`);
-  await db.exec(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS job_title_3 TEXT`);
-  await db.exec(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS preferred_city TEXT`);
-  await db.exec(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'new'`);
-  await db.exec(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS notes TEXT`);
-  await db.exec(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS linkedin_url TEXT`);
-  await db.exec(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS twitter_handle TEXT`);
-  await db.exec(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS github_url TEXT`);
-  await db.exec(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS preferred_contact TEXT`);
+  // Migrations — skip if column already exists to avoid ACCESS EXCLUSIVE lock on
+  // live tables (ALTER TABLE IF NOT EXISTS still locks even when column is present)
+  const colExists = async (table, col) => {
+    const r = await db.prepare(
+      `SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name=? AND column_name=?`
+    ).get(table, col);
+    return !!r;
+  };
+  const addCol = async (table, col, def) => {
+    if (!(await colExists(table, col))) await db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
+  };
+  await addCol('users',    'plan',             `TEXT NOT NULL DEFAULT 'demo'`);
+  await addCol('users',    'role',             `TEXT NOT NULL DEFAULT 'user'`);
+  await addCol('contacts', 'email_verified',   `TEXT NOT NULL DEFAULT 'pending'`);
+  await addCol('contacts', 'email_checked_at', `TEXT`);
+  await addCol('profiles', 'job_title_1',      `TEXT`);
+  await addCol('profiles', 'job_title_2',      `TEXT`);
+  await addCol('profiles', 'job_title_3',      `TEXT`);
+  await addCol('profiles', 'preferred_city',   `TEXT`);
+  await addCol('leads',    'status',           `TEXT NOT NULL DEFAULT 'new'`);
+  await addCol('leads',    'notes',            `TEXT`);
+  await addCol('leads',    'linkedin_url',     `TEXT`);
+  await addCol('leads',    'twitter_handle',   `TEXT`);
+  await addCol('leads',    'github_url',       `TEXT`);
+  await addCol('leads',    'preferred_contact',`TEXT`);
   // scraped_jobs index for fast date-range queries
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_scraped_jobs_created_at ON scraped_jobs (created_at)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_scraped_jobs_category ON scraped_jobs (job_category)`);
@@ -359,6 +391,13 @@ async function initialize() {
       await db.prepare('UPDATE users SET role = ? WHERE id = ?').run('admin', firstUser.id);
       console.log('[DB migration] Promoted first user to admin role');
     }
+  }
+
+  } finally {
+    // Restore pool-based db methods and close the init connection
+    db.exec    = _origExec;
+    db.prepare = _origPrepare;
+    await initClient.end();
   }
 
   ready = true;
