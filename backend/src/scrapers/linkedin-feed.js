@@ -26,7 +26,7 @@ const path = require('path');
 const fs   = require('fs');
 const { chromium } = require('playwright');
 const {
-  sleep, parseArgs, buildSuffix, saveCSV, saveHTML, RUN_STAMP,
+  sleep, parseArgs, buildSuffix, saveCSV, saveHTML, saveRawCache, RUN_STAMP,
 } = require('../lib/common');
 
 const OUTPUT_DIR    = path.join(__dirname, '..', 'output', 'linkedin-feed');
@@ -460,6 +460,8 @@ async function main() {
     console.log('Nothing to save. Try different keywords or check if LinkedIn posts are indexed.');
     return;
   }
+
+  saveRawCache(posts, OUTPUT_DIR); // saves YYYY-MM-DD.json — required for storeScrapedJobs() to write contacts to DB
 
   const suffix = buildSuffix(opts);
   const base   = path.join(OUTPUT_DIR, `${RUN_STAMP}${suffix}`);
