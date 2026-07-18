@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext.jsx';
 import { extractSkills } from '../data/techSkills.js';
 import ProfileAnalyzer from './ProfileAnalyzer.jsx';
 import { getSuggestedSkills } from '../data/skillSuggestions.js';
+import { useDraft, readDraft, clearDraft, useBeforeUnload } from '../hooks/useDraft.js';
 
 // ── Detection helpers ─────────────────────────────────────────────────────────
 function detectName(t)  { const lines = t.split('\n').map(l=>l.trim()).filter(Boolean); for (const l of lines.slice(0,6)) if (/^[A-Z][a-z]+([\s-][A-Z][a-z]+){1,3}$/.test(l)) return l; return ''; }
@@ -12,7 +13,6 @@ function detectPhone(t) { const m = t.match(/(?:\+\d{1,3}[\s-]?)?\(?\d{3,5}\)?[\
 function detectTitle(t) { const m = t.match(/(Senior|Junior|Lead|Principal|Staff|Software|Backend|Frontend|Full[- ]?Stack|Data|DevOps|Cloud|Java|Python|React)[^\n]{4,60}(Engineer|Developer|Architect|Scientist|Analyst|Manager|Consultant|Specialist)/i); return m ? m[0].trim() : ''; }
 function detectExp(t)   { const m = t.match(/(\d+\.?\d*)\s*\+?\s*years?\s*(of\s+)?(experience|exp)/i); return m ? `${m[1]} years` : ''; }
 
-// ── Avatar ────────────────────────────────────────────────────────────────────
 function Avatar({ name, size = 'lg' }) {
   const initials = (name || 'U').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
   const cls = size === 'lg' ? 'w-20 h-20 text-2xl' : 'w-10 h-10 text-sm';
@@ -23,7 +23,6 @@ function Avatar({ name, size = 'lg' }) {
   );
 }
 
-// ── Skill chip ────────────────────────────────────────────────────────────────
 function SkillChip({ label, onRemove }) {
   return (
     <span className="inline-flex items-center gap-1 bg-blue-50 border border-blue-200 text-blue-700 text-xs px-2.5 py-1 rounded-full">
@@ -33,7 +32,6 @@ function SkillChip({ label, onRemove }) {
   );
 }
 
-// ── EditableField (inline label + input used in Overview) ─────────────────────
 function InfoField({ label, value, editing, onChange, placeholder, type = 'text' }) {
   return (
     <div>
@@ -63,43 +61,102 @@ const JOB_TITLE_OPTIONS = [
   'Python Developer', 'Cloud Engineer', 'Microservices Engineer',
 ];
 
-// ── Overview tab ─────────────────────────────────────────────────────────────
-function OverviewTab({ profile, onSave }) {
-  const [editing, setEditing] = useState(false);
-  const [form,    setForm]    = useState({});
-  const [saving,  setSaving]  = useState(false);
+function profileToOverviewForm(p) {
+  return {
+    current_title:    p?.current_title    || '',
+    current_company:  p?.current_company  || '',
+    location:         p?.location         || '',
+    phone:            p?.phone            || '',
+    total_experience: p?.total_experience || '',
+    summary:          p?.summary          || '',
+    job_title_1:      p?.job_title_1      || '',
+    job_title_2:      p?.job_title_2      || '',
+    job_title_3:      p?.job_title_3      || '',
+    preferred_city:   p?.preferred_city   || '',
+  };
+}
 
+// ── Draft restore banner ──────────────────────────────────────────────────────
+function DraftBanner({ onRestore, onDiscard }) {
+  return (
+    <div className="flex items-center gap-3 bg-amber-50 border border-amber-300 rounded-xl px-4 py-3 text-sm mb-2">
+      <span className="text-lg">📝</span>
+      <span className="flex-1 text-amber-800 font-medium">You have an unsaved draft from your last session.</span>
+      <button onClick={onRestore} className="px-3 py-1 bg-amber-500 text-white text-xs font-semibold rounded-lg hover:bg-amber-600">Restore</button>
+      <button onClick={onDiscard} className="px-3 py-1 border border-amber-300 text-amber-700 text-xs font-semibold rounded-lg hover:bg-amber-100">Discard</button>
+    </div>
+  );
+}
+
+// ── Overview tab ─────────────────────────────────────────────────────────────
+function OverviewTab({ profile, onSave, onDirtyChange }) {
+  const [editing, setEditing] = useState(false);
+  const [form,    setForm]    = useState(() => profileToOverviewForm(profile));
+  const [saving,  setSaving]  = useState(false);
+  const [draftBanner, setDraftBanner] = useState(false);
+  const baseRef = useRef(profileToOverviewForm(profile));
+
+  // On profile load, check for an existing draft
   useEffect(() => {
-    setForm({
-      current_title:    profile?.current_title    || '',
-      current_company:  profile?.current_company  || '',
-      location:         profile?.location         || '',
-      phone:            profile?.phone            || '',
-      total_experience: profile?.total_experience || '',
-      summary:          profile?.summary          || '',
-      job_title_1:      profile?.job_title_1      || '',
-      job_title_2:      profile?.job_title_2      || '',
-      job_title_3:      profile?.job_title_3      || '',
-      preferred_city:   profile?.preferred_city   || '',
-    });
+    const base = profileToOverviewForm(profile);
+    baseRef.current = base;
+    const draft = readDraft('profile:overview');
+    if (draft && JSON.stringify(draft) !== JSON.stringify(base)) {
+      setDraftBanner(true);
+      // Keep current form (draft was already set or use base until user restores)
+    } else {
+      setForm(base);
+    }
   }, [profile]);
+
+  // Auto-save draft while editing
+  useDraft('profile:overview', editing ? form : undefined);
+
+  // Notify parent of dirty state
+  const isDirty = editing && JSON.stringify(form) !== JSON.stringify(baseRef.current);
+  useEffect(() => { onDirtyChange?.(isDirty); }, [isDirty]);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
+  function restoreDraft() {
+    const draft = readDraft('profile:overview');
+    if (draft) { setForm(draft); setEditing(true); }
+    setDraftBanner(false);
+  }
+  function discardDraft() {
+    clearDraft('profile:overview');
+    setForm(baseRef.current);
+    setDraftBanner(false);
+  }
+
   async function save() {
     setSaving(true);
-    try { await onSave(form); setEditing(false); toast.success('Saved'); }
-    catch { toast.error('Save failed'); }
+    try {
+      await onSave(form);
+      baseRef.current = { ...form };
+      clearDraft('profile:overview');
+      setEditing(false);
+      onDirtyChange?.(false);
+      toast.success('Saved');
+    } catch { toast.error('Save failed'); }
     finally { setSaving(false); }
+  }
+
+  function cancel() {
+    setForm(baseRef.current);
+    clearDraft('profile:overview');
+    setEditing(false);
+    onDirtyChange?.(false);
   }
 
   return (
     <div className="space-y-6">
-      {/* Action row */}
+      {draftBanner && <DraftBanner onRestore={restoreDraft} onDiscard={discardDraft} />}
+
       <div className="flex justify-end gap-2">
         {editing ? (
           <>
-            <button onClick={() => { setEditing(false); setForm({ current_title: profile?.current_title||'', current_company: profile?.current_company||'', location: profile?.location||'', phone: profile?.phone||'', total_experience: profile?.total_experience||'', summary: profile?.summary||'' }); }}
+            <button onClick={cancel}
               className="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
             <button onClick={save} disabled={saving}
               className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50">
@@ -114,19 +171,17 @@ function OverviewTab({ profile, onSave }) {
         )}
       </div>
 
-      {/* Basic info grid */}
       <div>
         <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Basic Information</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <InfoField label="Job Title"       value={form.current_title}    editing={editing} onChange={v => set('current_title', v)}    placeholder="e.g. Senior Backend Engineer" />
-          <InfoField label="Company"         value={form.current_company}  editing={editing} onChange={v => set('current_company', v)}  placeholder="e.g. Google" />
-          <InfoField label="Location"        value={form.location}         editing={editing} onChange={v => set('location', v)}          placeholder="e.g. Bangalore, India" />
-          <InfoField label="Phone"           value={form.phone}            editing={editing} onChange={v => set('phone', v)}             placeholder="+91 98765 43210" type="tel" />
+          <InfoField label="Job Title"        value={form.current_title}    editing={editing} onChange={v => set('current_title', v)}    placeholder="e.g. Senior Backend Engineer" />
+          <InfoField label="Company"          value={form.current_company}  editing={editing} onChange={v => set('current_company', v)}  placeholder="e.g. Google" />
+          <InfoField label="Location"         value={form.location}         editing={editing} onChange={v => set('location', v)}          placeholder="e.g. Bangalore, India" />
+          <InfoField label="Phone"            value={form.phone}            editing={editing} onChange={v => set('phone', v)}             placeholder="+91 98765 43210" type="tel" />
           <InfoField label="Total Experience" value={form.total_experience} editing={editing} onChange={v => set('total_experience', v)} placeholder="e.g. 4.5 years" />
         </div>
       </div>
 
-      {/* Job search preferences */}
       <div>
         <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Job Search Preferences</h3>
         <p className="text-xs text-gray-400 mb-3">These titles filter LinkedIn posts and job suggestions automatically.</p>
@@ -177,7 +232,6 @@ function OverviewTab({ profile, onSave }) {
         )}
       </div>
 
-      {/* Summary */}
       <div>
         <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Professional Summary</h3>
         {editing ? (
@@ -199,8 +253,8 @@ function OverviewTab({ profile, onSave }) {
 
 // ── Resume & Skills tab ───────────────────────────────────────────────────────
 function ResumeSkillsTab({ profile, onSave }) {
-  const [newSkill,   setNewSkill]   = useState('');
-  const [uploading,  setUploading]  = useState(false);
+  const [newSkill,  setNewSkill]  = useState('');
+  const [uploading, setUploading] = useState(false);
   const fileRef = useRef(null);
 
   const skills = useMemo(() => { try { return JSON.parse(profile?.skills || '[]'); } catch { return []; } }, [profile?.skills]);
@@ -250,8 +304,6 @@ function ResumeSkillsTab({ profile, onSave }) {
 
   return (
     <div className="space-y-6">
-
-      {/* Resume upload */}
       <div>
         <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Your Resume</h3>
         <input type="file" accept=".pdf,.docx,.doc,.txt" ref={fileRef} className="hidden"
@@ -283,21 +335,16 @@ function ResumeSkillsTab({ profile, onSave }) {
         )}
       </div>
 
-      {/* Skills */}
       <div>
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest">Skills <span className="text-gray-300 font-normal">({skills.length})</span></h3>
         </div>
-
-        {/* Current skills */}
         <div className="flex flex-wrap gap-1.5 min-h-[36px] mb-3">
           {skills.length === 0
             ? <p className="text-xs text-gray-300 italic self-center">No skills yet — upload your resume or add manually</p>
             : skills.map(s => <SkillChip key={s} label={s} onRemove={() => removeSkill(s)} />)
           }
         </div>
-
-        {/* Add input */}
         <div className="flex gap-2">
           <input value={newSkill} onChange={e => setNewSkill(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addSkill(newSkill))}
@@ -306,8 +353,6 @@ function ResumeSkillsTab({ profile, onSave }) {
           <button onClick={() => addSkill(newSkill)}
             className="px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-xl hover:bg-blue-700">+ Add</button>
         </div>
-
-        {/* Suggestions */}
         {suggestions.length > 0 && (
           <div className="mt-4">
             <p className="text-xs text-gray-400 mb-2 font-medium">
@@ -329,26 +374,64 @@ function ResumeSkillsTab({ profile, onSave }) {
 }
 
 // ── Links tab ─────────────────────────────────────────────────────────────────
-function LinksTab({ profile, user, onSave }) {
+function LinksTab({ profile, user, onSave, onDirtyChange }) {
   const [editing, setEditing] = useState(false);
   const [form,    setForm]    = useState({});
   const [saving,  setSaving]  = useState(false);
+  const [draftBanner, setDraftBanner] = useState(false);
+  const baseRef = useRef({});
 
   useEffect(() => {
-    setForm({
+    const base = {
       linkedin_url:  profile?.linkedin_url  || '',
       github_url:    profile?.github_url    || '',
       portfolio_url: profile?.portfolio_url || '',
-    });
+    };
+    baseRef.current = base;
+    const draft = readDraft('profile:links');
+    if (draft && JSON.stringify(draft) !== JSON.stringify(base)) {
+      setDraftBanner(true);
+    } else {
+      setForm(base);
+    }
   }, [profile]);
+
+  useDraft('profile:links', editing ? form : undefined);
+
+  const isDirty = editing && JSON.stringify(form) !== JSON.stringify(baseRef.current);
+  useEffect(() => { onDirtyChange?.(isDirty); }, [isDirty]);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
+  function restoreDraft() {
+    const draft = readDraft('profile:links');
+    if (draft) { setForm(draft); setEditing(true); }
+    setDraftBanner(false);
+  }
+  function discardDraft() {
+    clearDraft('profile:links');
+    setForm(baseRef.current);
+    setDraftBanner(false);
+  }
+
   async function save() {
     setSaving(true);
-    try { await onSave(form); setEditing(false); toast.success('Links saved'); }
-    catch { toast.error('Save failed'); }
+    try {
+      await onSave(form);
+      baseRef.current = { ...form };
+      clearDraft('profile:links');
+      setEditing(false);
+      onDirtyChange?.(false);
+      toast.success('Links saved');
+    } catch { toast.error('Save failed'); }
     finally { setSaving(false); }
+  }
+
+  function cancel() {
+    setForm(baseRef.current);
+    clearDraft('profile:links');
+    setEditing(false);
+    onDirtyChange?.(false);
   }
 
   const LINKS = [
@@ -359,10 +442,12 @@ function LinksTab({ profile, user, onSave }) {
 
   return (
     <div className="space-y-6">
+      {draftBanner && <DraftBanner onRestore={restoreDraft} onDiscard={discardDraft} />}
+
       <div className="flex justify-end gap-2">
         {editing ? (
           <>
-            <button onClick={() => { setEditing(false); setForm({ linkedin_url: profile?.linkedin_url||'', github_url: profile?.github_url||'', portfolio_url: profile?.portfolio_url||'' }); }}
+            <button onClick={cancel}
               className="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
             <button onClick={save} disabled={saving}
               className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50">
@@ -377,7 +462,6 @@ function LinksTab({ profile, user, onSave }) {
         )}
       </div>
 
-      {/* Link cards */}
       <div className="space-y-4">
         <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest">Online Presence</h3>
         {LINKS.map(({ key, label, icon, placeholder, color }) => (
@@ -386,7 +470,7 @@ function LinksTab({ profile, user, onSave }) {
             <div className="flex-1 min-w-0">
               <p className="text-xs font-semibold text-gray-500 mb-1">{label}</p>
               {editing ? (
-                <input type="url" value={form[key]} onChange={e => set(key, e.target.value)} placeholder={placeholder}
+                <input type="url" value={form[key] || ''} onChange={e => set(key, e.target.value)} placeholder={placeholder}
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-300" />
               ) : form[key] ? (
                 <a href={form[key]} target="_blank" rel="noopener" className={`text-sm truncate block hover:underline ${color}`}>{form[key]}</a>
@@ -398,7 +482,6 @@ function LinksTab({ profile, user, onSave }) {
         ))}
       </div>
 
-      {/* Account */}
       <div>
         <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Account</h3>
         <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 space-y-1">
@@ -411,9 +494,6 @@ function LinksTab({ profile, user, onSave }) {
   );
 }
 
-// ── Profile Score tab — alias for analyzer ────────────────────────────────────
-// (just renders ProfileAnalyzer full-width, passed from parent)
-
 // ── Main component ────────────────────────────────────────────────────────────
 const TABS = [
   { id: 'overview', label: '👤 Overview' },
@@ -422,16 +502,40 @@ const TABS = [
   { id: 'score',    label: '📊 Profile Score' },
 ];
 
-export default function ProfilePage() {
+export default function ProfilePage({ onDirtyChange }) {
   const { user }    = useAuth();
   const [profile,   setProfile]   = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [editHero,  setEditHero]  = useState(false);
   const [heroForm,  setHeroForm]  = useState({});
   const [savingHero, setSavingHero] = useState(false);
+  const [heroDraftBanner, setHeroDraftBanner] = useState(false);
+  const heroBaseRef = useRef({});
+
+  // Hero dirty tracking
+  const heroIsDirty = editHero && JSON.stringify(heroForm) !== JSON.stringify(heroBaseRef.current);
+  // Tab-level dirty tracking (set by sub-tabs via callback)
+  const [tabDirty, setTabDirty] = useState(false);
+
+  const isDirty = heroIsDirty || tabDirty;
+  useBeforeUnload(isDirty);
+  useEffect(() => { onDirtyChange?.(isDirty); }, [isDirty]);
+
+  // Draft for hero
+  useDraft('profile:hero', editHero ? heroForm : undefined);
 
   useEffect(() => {
-    api.get('/profile').then(p => { setProfile(p); setHeroForm({ full_name: p.full_name || '' }); }).catch(() => {});
+    api.get('/profile').then(p => {
+      setProfile(p);
+      const base = { full_name: p.full_name || '' };
+      heroBaseRef.current = base;
+      const draft = readDraft('profile:hero');
+      if (draft && JSON.stringify(draft) !== JSON.stringify(base)) {
+        setHeroDraftBanner(true);
+      } else {
+        setHeroForm(base);
+      }
+    }).catch(() => {});
   }, []);
 
   async function updateProfile(updates) {
@@ -442,9 +546,21 @@ export default function ProfilePage() {
 
   async function saveHero() {
     setSavingHero(true);
-    try { await updateProfile(heroForm); setEditHero(false); toast.success('Saved'); }
-    catch { toast.error('Save failed'); }
+    try {
+      await updateProfile(heroForm);
+      heroBaseRef.current = { ...heroForm };
+      clearDraft('profile:hero');
+      setEditHero(false);
+      onDirtyChange?.(tabDirty);
+      toast.success('Saved');
+    } catch { toast.error('Save failed'); }
     finally { setSavingHero(false); }
+  }
+
+  function cancelHero() {
+    setHeroForm(heroBaseRef.current);
+    clearDraft('profile:hero');
+    setEditHero(false);
   }
 
   const skills = useMemo(() => { try { return JSON.parse(profile?.skills || '[]'); } catch { return []; } }, [profile?.skills]);
@@ -464,6 +580,16 @@ export default function ProfilePage() {
 
       {/* ── Hero card ─────────────────────────────────────────────────── */}
       <div className="bg-gradient-to-r from-slate-800 to-slate-900 rounded-2xl shadow-sm p-6 text-white">
+        {heroDraftBanner && (
+          <div className="flex items-center gap-3 bg-amber-500/20 border border-amber-400/40 rounded-xl px-3 py-2 text-sm mb-4">
+            <span>📝</span>
+            <span className="flex-1 text-amber-200 text-xs font-medium">Unsaved draft for name.</span>
+            <button onClick={() => { const d = readDraft('profile:hero'); if (d) { setHeroForm(d); setEditHero(true); } setHeroDraftBanner(false); }}
+              className="px-2 py-0.5 bg-amber-500 text-white text-xs font-semibold rounded hover:bg-amber-600">Restore</button>
+            <button onClick={() => { clearDraft('profile:hero'); setHeroForm(heroBaseRef.current); setHeroDraftBanner(false); }}
+              className="px-2 py-0.5 border border-amber-400/50 text-amber-200 text-xs font-semibold rounded hover:bg-amber-500/20">Discard</button>
+          </div>
+        )}
         <div className="flex items-start gap-5">
           <Avatar name={displayName} size="lg" />
           <div className="flex-1 min-w-0">
@@ -500,7 +626,7 @@ export default function ProfilePage() {
           <div className="flex gap-2 shrink-0">
             {editHero ? (
               <>
-                <button onClick={() => setEditHero(false)}
+                <button onClick={cancelHero}
                   className="px-3 py-1.5 border border-white/20 rounded-lg text-xs text-white hover:bg-white/10">Cancel</button>
                 <button onClick={saveHero} disabled={savingHero}
                   className="px-4 py-1.5 bg-blue-500 rounded-lg text-xs font-semibold text-white hover:bg-blue-600 disabled:opacity-50">
@@ -519,8 +645,6 @@ export default function ProfilePage() {
 
       {/* ── Tabbed sections ───────────────────────────────────────────── */}
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-
-        {/* Tab strip */}
         <div className="flex border-b border-gray-100 bg-gray-50">
           {TABS.map(t => (
             <button
@@ -537,17 +661,16 @@ export default function ProfilePage() {
           ))}
         </div>
 
-        {/* Tab body */}
         <div className="p-6">
-          {activeTab === 'overview' && <OverviewTab profile={profile} onSave={updateProfile} />}
+          {activeTab === 'overview' && <OverviewTab profile={profile} onSave={updateProfile} onDirtyChange={setTabDirty} />}
           {activeTab === 'resume'   && <ResumeSkillsTab profile={profile} onSave={updateProfile} />}
-          {activeTab === 'links'    && <LinksTab profile={profile} user={user} onSave={updateProfile} />}
+          {activeTab === 'links'    && <LinksTab profile={profile} user={user} onSave={updateProfile} onDirtyChange={setTabDirty} />}
           {activeTab === 'score'    && (
             <ProfileAnalyzer
               profile={profile}
               onSave={async (updates) => {
                 await updateProfile(updates);
-                setActiveTab('score'); // stay on score tab
+                setActiveTab('score');
               }}
             />
           )}

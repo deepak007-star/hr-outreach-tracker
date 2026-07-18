@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './contexts/AuthContext.jsx';
 import Header            from './components/Header.jsx';
@@ -22,6 +22,8 @@ import TemplatesPage    from './components/TemplatesPage.jsx';
 import AdminPanel       from './components/AdminPanel.jsx';
 import ColdEmailSection from './components/ColdEmailSection.jsx';
 import JobScraperSection from './components/JobScraperSection.jsx';
+import UnsavedChangesModal from './components/UnsavedChangesModal.jsx';
+import { clearDraft } from './hooks/useDraft.js';
 import { api, API_ROOT } from './api/client.js';
 
 const PLAN_LIMITS = { guest: 5, demo: 10, basic: 100, advanced: 999999 };
@@ -50,6 +52,22 @@ export default function App() {
   // contacts section sub-tabs: 'my' | 'cold-email' | 'job-links'
   const [contactSubTab,    setContactSubTab]    = useState('my');
   const { user } = useAuth();
+
+  // Unsaved-changes guard: ProfilePage reports dirty state here
+  const profileDirtyRef   = useRef(false);
+  const [showUnsavedModal, setShowUnsavedModal] = useState(false);
+  const pendingTabRef      = useRef(null);
+
+  // Intercept tab navigation — show modal if ProfilePage has unsaved changes
+  const navigateTo = useCallback((tabId, requiresAuth) => {
+    if (requiresAuth && !user) { setShowAuthModal(true); return; }
+    if (profileDirtyRef.current && activeTab === 'profile' && tabId !== 'profile') {
+      pendingTabRef.current = tabId;
+      setShowUnsavedModal(true);
+      return;
+    }
+    setActiveTab(tabId);
+  }, [activeTab, user]);
 
   const visibleLimit = PLAN_LIMITS[user?.plan] ?? PLAN_LIMITS.guest;
   const planName     = PLAN_NAMES[user?.plan]  ?? PLAN_NAMES.guest;
@@ -245,10 +263,7 @@ export default function App() {
           ].map(tab => (
             <button
               key={tab.id}
-              onClick={() => {
-                if (tab.requiresAuth && !user) { setShowAuthModal(true); return; }
-                setActiveTab(tab.id);
-              }}
+              onClick={() => navigateTo(tab.id, tab.requiresAuth)}
               className={`px-4 py-3.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                 activeTab === tab.id
                   ? 'border-blue-600 text-blue-700 bg-blue-50/50'
@@ -278,7 +293,9 @@ export default function App() {
         {activeTab === 'templates' && <TemplatesPage />}
 
         {/* ── Profile tab ────────────────────────────────────────── */}
-        {activeTab === 'profile' && user && <ProfilePage />}
+        {activeTab === 'profile' && user && (
+          <ProfilePage onDirtyChange={v => { profileDirtyRef.current = v; }} />
+        )}
         {activeTab === 'profile' && !user && (
           <div className="flex flex-col items-center justify-center h-48 gap-3">
             <p className="text-gray-500 text-sm">Sign in to view and edit your profile.</p>
@@ -483,6 +500,28 @@ export default function App() {
         <PlansModal
           onClose={() => setShowPlans(false)}
           onSignupClick={() => { setShowPlans(false); setShowAuthModal(true); }}
+        />
+      )}
+
+      {showUnsavedModal && (
+        <UnsavedChangesModal
+          onSaveDraft={() => {
+            // Draft is already auto-saved by useDraft; just proceed with navigation
+            setShowUnsavedModal(false);
+            profileDirtyRef.current = false;
+            if (pendingTabRef.current) { setActiveTab(pendingTabRef.current); pendingTabRef.current = null; }
+          }}
+          onLeave={() => {
+            // Discard all profile drafts and navigate
+            ['profile:overview', 'profile:links', 'profile:hero'].forEach(k => clearDraft(k));
+            setShowUnsavedModal(false);
+            profileDirtyRef.current = false;
+            if (pendingTabRef.current) { setActiveTab(pendingTabRef.current); pendingTabRef.current = null; }
+          }}
+          onStay={() => {
+            setShowUnsavedModal(false);
+            pendingTabRef.current = null;
+          }}
         />
       )}
     </div>
