@@ -154,9 +154,14 @@ export default function FeedContactsPanel() {
     }
   };
 
+  const [filterTab, setFilterTab] = useState('all');
+
   const selectedContacts = contacts.filter(c => selected.has(c.contact_email));
   const pendingContacts  = contacts.filter(c => !c.already_emailed);
   const sentContacts     = contacts.filter(c =>  c.already_emailed);
+  const filteredContacts = filterTab === 'pending' ? pendingContacts
+    : filterTab === 'sent' ? sentContacts
+    : contacts;
 
   const timeSince = lastSync
     ? Math.floor((Date.now() - lastSync.getTime()) / 1000) < 10
@@ -195,7 +200,13 @@ export default function FeedContactsPanel() {
               { id: 'pending', label: `Not emailed (${pendingContacts.length})` },
               { id: 'sent',    label: `Emailed (${sentContacts.length})` },
             ].map(t => (
-              <button key={t.id} className="px-3 py-1.5 bg-white text-gray-600 hover:bg-gray-50">
+              <button key={t.id}
+                onClick={() => setFilterTab(t.id)}
+                className={`px-3 py-1.5 text-xs font-medium transition ${
+                  filterTab === t.id
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white text-gray-600 hover:bg-gray-50'
+                }`}>
                 {t.label}
               </button>
             ))}
@@ -241,7 +252,7 @@ export default function FeedContactsPanel() {
 
       {/* Contact rows */}
       <div className="space-y-2">
-        {contacts.map(c => (
+        {filteredContacts.map(c => (
           <div key={c.id}
                className={`bg-white border rounded-xl px-4 py-3 flex items-center gap-3 hover:shadow-sm transition-shadow ${
                  c.just_sent || c.already_emailed ? 'opacity-75' : ''

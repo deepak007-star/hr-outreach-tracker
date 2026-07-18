@@ -405,7 +405,7 @@ async function initialize() {
     await insRole.run(r.id, r.name, r.description, r.is_system);
     // Seed permissions only if role has none yet
     const existing = await db.prepare('SELECT COUNT(*) as n FROM role_permissions WHERE role_id = ?').get(r.id);
-    if (existing?.n === 0) {
+    if (parseInt(existing?.n) === 0) {
       const insRp = db.prepare('INSERT INTO role_permissions (role_id, permission_id) VALUES (?,?) ON CONFLICT DO NOTHING');
       for (const pid of r.permissions) await insRp.run(r.id, pid);
     }

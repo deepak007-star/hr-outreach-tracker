@@ -140,8 +140,9 @@ router.put('/change-password', requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
-// ── GET /api/auth/whoami  (debug — no auth required) ──────────────────────
-router.get('/whoami', async (req, res) => {
+// ── GET /api/auth/whoami  (admin only) ────────────────────────────────────
+const { requireAdmin } = require('../middleware/auth');
+router.get('/whoami', requireAuth, requireAdmin, async (req, res) => {
   const { email } = req.query;
   if (!email) return res.status(400).json({ error: 'Pass ?email=... to check' });
   const user = await db.prepare('SELECT id, name, email, role, plan, created_at FROM users WHERE LOWER(email) = ?').get(email.toLowerCase().trim());

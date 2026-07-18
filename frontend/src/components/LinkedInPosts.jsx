@@ -404,7 +404,7 @@ export default function LinkedInPosts() {
   // ── Filter ───────────────────────────────────────────────────────────────────
   const filtered = posts.filter(p => {
     if (filter === 'email') return !!p.contact_email;
-    if (filter === 'phone') return !p.contact_email && !!p.contact_phone;
+    if (filter === 'phone') return !!p.contact_phone;
     return true;
   });
 

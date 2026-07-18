@@ -378,7 +378,7 @@ router.post('/reply', requireAuth, async (req, res) => {
     await gmail.users.messages.send({
       userId: 'me',
       requestBody: {
-        raw,
+        raw: encoded,
         threadId: threadId || undefined,
       },
     });

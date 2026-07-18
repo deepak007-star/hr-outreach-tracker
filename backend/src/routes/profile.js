@@ -61,14 +61,9 @@ router.post('/resume', upload.single('resume'), async (req, res) => {
     let text = '';
 
     if (ext === '.pdf') {
-      const { PDFParse } = require('pdf-parse');
-      const parser = new PDFParse({ data: fs.readFileSync(filePath) });
-      try {
-        const data = await parser.getText();
-        text = data.text;
-      } finally {
-        await parser.destroy();
-      }
+      const pdfParse = require('pdf-parse');
+      const data = await pdfParse(fs.readFileSync(filePath));
+      text = data.text;
     } else if (ext === '.docx' || ext === '.doc') {
       const mammoth = require('mammoth');
       const result  = await mammoth.extractRawText({ path: filePath });

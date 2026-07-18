@@ -6,8 +6,10 @@ const ExcelJS  = require('exceljs');
 const crypto   = require('crypto');
 const db       = require('../db/database');
 const { syncExcel } = require('../services/excelSync');
+const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
+router.use(requireAuth);
 
 const UPLOADS_DIR = path.join(__dirname, '../../../uploads');
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });

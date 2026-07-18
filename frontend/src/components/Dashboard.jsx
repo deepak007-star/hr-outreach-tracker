@@ -272,9 +272,9 @@ export default function Dashboard({
               </div>
               <div className="h-3 bg-gray-100 rounded-full overflow-hidden mt-3 mb-1">
                 <div className="h-full bg-gradient-to-r from-blue-400 to-indigo-500 rounded-full transition-all duration-700"
-                  style={{ width: `${Math.min((sentToday / dailyCap) * 100, 100)}%` }} />
+                  style={{ width: `${dailyCap > 0 ? Math.min((sentToday / dailyCap) * 100, 100) : 0}%` }} />
               </div>
-              <p className="text-xs text-gray-400 text-right">{Math.round((sentToday / dailyCap) * 100)}% of daily cap</p>
+              <p className="text-xs text-gray-400 text-right">{dailyCap > 0 ? Math.round((sentToday / dailyCap) * 100) : 0}% of daily cap</p>
             </div>
 
             <div className="border-t pt-4 space-y-3">

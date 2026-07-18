@@ -229,10 +229,10 @@ export default function AskReferral() {
     try {
       const [usersRes, profileRes] = await Promise.all([
         api.get('/referrals/users'),
-        api.get('/profile').catch(() => ({ data: {} })),
+        api.get('/profile').catch(() => ({})),
       ]);
-      setUsers(usersRes.data);
-      setMyProfile(profileRes.data);
+      setUsers(Array.isArray(usersRes) ? usersRes : []);
+      setMyProfile(profileRes || {});
     } catch {
       toast.error('Failed to load community members');
     } finally {
@@ -244,7 +244,7 @@ export default function AskReferral() {
     setRcvLoading(true);
     try {
       const res = await api.get('/referrals/received');
-      setReceived(res.data);
+      setReceived(Array.isArray(res) ? res : []);
     } catch {
       toast.error('Failed to load received requests');
     } finally {
@@ -411,7 +411,7 @@ export default function AskReferral() {
                     <p className="text-sm text-gray-600 whitespace-pre-wrap line-clamp-4">{r.message}</p>
                   </div>
                   <a
-                    href={`mailto:${r.from_email}?subject=Re: ${encodeURIComponent(r.subject || 'Referral Request')}`}
+                    href={`mailto:${r.from_email}?subject=${encodeURIComponent('Re: ' + (r.subject || 'Referral Request'))}`}
                     className="shrink-0 self-start px-3 py-1.5 text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
                   >
                     Reply →
