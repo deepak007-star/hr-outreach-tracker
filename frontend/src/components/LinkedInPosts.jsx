@@ -284,7 +284,8 @@ export default function LinkedInPosts() {
   const [search,        setSearch]     = useState('');
   const [since,         setSince]      = useState('all');
   const [hiringOnly,    setHiringOnly] = useState(false);
-  const [filter,        setFilter]     = useState('all'); // 'all' | 'email' | 'phone' | 'apify'
+  const [filter,        setFilter]     = useState('all'); // 'all' | 'email' | 'phone'
+  const [includeApify,  setIncludeApify] = useState(false);
   const [selected,      setSelected]   = useState(new Set());
   const [composeTo,     setComposeTo]  = useState(null);
   const [activePost,    setActivePost] = useState(null);
@@ -299,18 +300,18 @@ export default function LinkedInPosts() {
     if (showLogs) logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [scraperLogs]);
 
-  // ── Fetch from unified endpoint ──────────────────────────────────────────────
+  // ── Fetch from scraper-primary endpoint ─────────────────────────────────────
   const fetchPosts = useCallback(async () => {
     setLoading(true);
     try {
-      const params = { since, limit: 500 };
-      if (search)       params.search       = search;
-      if (hiringOnly)   params.hiring_only  = 'true';
+      const params = { since, limit: 500, source: includeApify ? 'all' : 'scraper' };
+      if (search)     params.search      = search;
+      if (hiringOnly) params.hiring_only = 'true';
       const data = await api.get('/linkedin-feed', { params });
       setPosts(data.posts || []);
     } catch { toast.error('Failed to load posts'); }
     finally  { setLoading(false); }
-  }, [search, since, hiringOnly]);
+  }, [search, since, hiringOnly, includeApify]);
 
   useEffect(() => { fetchPosts(); }, [fetchPosts]);
 
@@ -404,13 +405,12 @@ export default function LinkedInPosts() {
   const filtered = posts.filter(p => {
     if (filter === 'email') return !!p.contact_email;
     if (filter === 'phone') return !p.contact_email && !!p.contact_phone;
-    if (filter === 'apify') return p.source === 'apify';
     return true;
   });
 
   const withEmail = posts.filter(p => p.contact_email).length;
   const phoneOnly = posts.filter(p => !p.contact_email && p.contact_phone).length;
-  const apifyOnly = posts.filter(p => p.source === 'apify').length;
+  const apifyOnly = posts.filter(p => p.source === 'apify' || p.source === 'both').length;
 
   return (
     <div className="space-y-4">
@@ -431,8 +431,13 @@ export default function LinkedInPosts() {
 
         <div className="ml-auto flex items-center gap-2 flex-wrap">
           <span className="text-xs text-gray-400">
-            {posts.length} posts · {withEmail} with email · {phoneOnly} phone only · {apifyOnly} from Apify
+            {posts.length} posts · {withEmail} email · {phoneOnly} phone
+            {includeApify && apifyOnly > 0 ? ` · ${apifyOnly} Apify` : ''}
           </span>
+          <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none border rounded-lg px-2.5 py-1.5 hover:bg-gray-50 transition-colors">
+            <input type="checkbox" checked={includeApify} onChange={e => setIncludeApify(e.target.checked)} className="rounded accent-blue-600" />
+            Include Apify posts
+          </label>
           {user && (
             <button onClick={runScraper} disabled={scraping}
                     className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 transition">
@@ -460,10 +465,11 @@ export default function LinkedInPosts() {
       {!loading && posts.length === 0 && (
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 text-center space-y-3">
           <p className="text-3xl">💼</p>
-          <p className="font-semibold text-gray-800">No LinkedIn posts yet</p>
+          <p className="font-semibold text-gray-800">No scraped posts yet</p>
           <p className="text-sm text-gray-500">
-            Click <strong>Scrape LinkedIn Feed</strong> to find HR hiring posts with emails and phone numbers.
-            Scraped posts are stored in the database and visible to all users.
+            Click <strong>Scrape LinkedIn Feed</strong> to find HR hiring posts with email addresses, phone numbers, and Google Forms.
+            Results are stored in the DB and visible to all users instantly.
+            Toggle <em>Include Apify posts</em> above to also see posts fetched via the Apify API.
           </p>
           <button onClick={runScraper} disabled={scraping}
                   className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50">
@@ -477,10 +483,9 @@ export default function LinkedInPosts() {
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex rounded-lg border overflow-hidden text-xs font-medium">
             {[
-              { id: 'all',   label: `All (${posts.length})`         },
-              { id: 'email', label: `✉ Email (${withEmail})`        },
-              { id: 'phone', label: `📱 Phone (${phoneOnly})`       },
-              { id: 'apify', label: `🔵 Apify (${apifyOnly})`       },
+              { id: 'all',   label: `All (${posts.length})`  },
+              { id: 'email', label: `✉ Email (${withEmail})` },
+              { id: 'phone', label: `📱 Phone (${phoneOnly})` },
             ].map(f => (
               <button key={f.id} onClick={() => setFilter(f.id)}
                       className={`px-3 py-2 transition-colors ${filter === f.id ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
