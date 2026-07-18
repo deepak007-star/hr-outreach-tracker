@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { api } from '../api/client.js';
 
 const AuthContext = createContext(null);
@@ -6,6 +6,8 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [user,    setUser]    = useState(null);
   const [loading, setLoading] = useState(true);
+  // keep a stable ref so event listeners always call the latest sync
+  const syncRef = useRef(null);
 
   useEffect(() => {
     const token = localStorage.getItem('hr_token');
@@ -14,16 +16,28 @@ export function AuthProvider({ children }) {
     const sync = () =>
       api.get('/auth/me')
         .then(u => setUser(u))
-        .catch(() => { localStorage.removeItem('hr_token'); setUser(null); });
+        .catch(err => {
+          // Only log out on auth errors — ignore network/server hiccups
+          const status = err?.response?.status;
+          if (status === 401 || status === 403) {
+            localStorage.removeItem('hr_token');
+            setUser(null);
+          }
+        });
+
+    syncRef.current = sync;
 
     sync().finally(() => setLoading(false));
 
-    // Re-sync when user focuses the tab (catches manual DB updates instantly)
+    // visibilitychange fires when switching browser tabs (focus only fires for window)
+    const onVisible = () => { if (document.visibilityState === 'visible') sync(); };
+    document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('focus', sync);
-    // Background poll — keeps data fresh even without tab focus
-    const interval = setInterval(sync, 60_000);
+    // Background poll — catches changes even if the tab stays open and focused
+    const interval = setInterval(sync, 30_000);
 
     return () => {
+      document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('focus', sync);
       clearInterval(interval);
     };
@@ -32,6 +46,8 @@ export function AuthProvider({ children }) {
   const login = (token, userData) => {
     localStorage.setItem('hr_token', token);
     setUser(userData);
+    // Immediately re-fetch from DB so role/plan are always fresh after login
+    api.get('/auth/me').then(u => setUser(u)).catch(() => {});
   };
 
   const logout = () => {
