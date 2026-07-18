@@ -224,8 +224,7 @@ async function performScrape(overrides = {}) {
   const raw   = await itemsRes.json();
   const items = Array.isArray(raw) ? raw : (raw.items || raw.jobs || []);
 
-  // Clear old posts, insert new ones
-  await db.exec('DELETE FROM linkedin_posts');
+  // Upsert — accumulate posts, never delete history
   let imported = 0;
 
   const stmt = db.prepare(`
@@ -328,8 +327,8 @@ router.patch('/posts/:id/status', softAuth, async (req, res) => {
   res.json({ success: true });
 });
 
-// ── DELETE /api/apify/posts ────────────────────────────────────────────────
-router.delete('/posts', async (_, res) => {
+// ── DELETE /api/apify/posts — admin-only manual clear ─────────────────────
+router.delete('/posts', requireAdmin, async (_, res) => {
   await db.exec('DELETE FROM linkedin_posts');
   res.json({ success: true });
 });

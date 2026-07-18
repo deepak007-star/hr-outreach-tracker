@@ -78,8 +78,11 @@ async function storeScrapedJobs(scraperType, category, outDir) {
           whatsapp_link, all_contacts, created_at
         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT (id) DO UPDATE SET
-          email_status   = EXCLUDED.email_status,
-          scraped_at     = EXCLUDED.scraped_at
+          scraped_at     = EXCLUDED.scraped_at,
+          description    = EXCLUDED.description,
+          contact_email  = COALESCE(EXCLUDED.contact_email, scraped_jobs.contact_email),
+          contact_phone  = COALESCE(EXCLUDED.contact_phone, scraped_jobs.contact_phone),
+          all_contacts   = COALESCE(EXCLUDED.all_contacts,  scraped_jobs.all_contacts)
       `).run(
         id, scraperType, category,
         job.title || '', job.company || '', job.location || '',

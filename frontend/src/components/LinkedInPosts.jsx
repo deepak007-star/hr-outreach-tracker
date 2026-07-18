@@ -2,44 +2,50 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'react-hot-toast';
 import { api, API_ROOT } from '../api/client.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
+import PostWorkflowModal from './PostWorkflowModal.jsx';
 
-// ─── Bulk-email compose modal ─────────────────────────────────────────────────
+// ─── Confidence badge ─────────────────────────────────────────────────────────
+function ConfidenceBadge({ score }) {
+  if (score == null) return null;
+  const pct = Math.round(score * 100);
+  const cls = pct >= 80 ? 'text-green-700 bg-green-50 border-green-200'
+            : pct >= 60 ? 'text-yellow-700 bg-yellow-50 border-yellow-200'
+            :             'text-gray-500 bg-gray-50 border-gray-200';
+  return <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${cls}`}>{pct}%</span>;
+}
 
+// ─── Status badge colours ─────────────────────────────────────────────────────
+const STATUS_COLORS = {
+  new:       'bg-gray-100 text-gray-600',
+  viewed:    'bg-blue-100 text-blue-700',
+  contacted: 'bg-yellow-100 text-yellow-700',
+  applied:   'bg-green-100 text-green-700',
+  rejected:  'bg-red-100 text-red-700',
+};
+
+// ─── Bulk email compose modal ─────────────────────────────────────────────────
 function BulkEmailModal({ contacts, onClose, onSent }) {
-  const defaultSubject = 'Job Application — Interested in Your Opening';
-  const defaultBody = `Hi,
-
-I came across your LinkedIn post and I'm interested in the opportunity you mentioned.
-
-I'd love to connect and learn more about the role. Please find my profile below:
-
-[Your Profile/Resume Link]
-
-Looking forward to hearing from you!
-
-Best regards,
-[Your Name]`;
-
-  const [subject, setSubject] = useState(defaultSubject);
-  const [body,    setBody]    = useState(defaultBody);
+  const [subject, setSubject] = useState('Job Application — Interested in Your Opening');
+  const [body,    setBody]    = useState(
+    `Hi,\n\nI came across your LinkedIn post about job openings and I'm very interested in the opportunity.\n\nI'd love to connect and discuss further.\n\n[Your Profile / Resume Link]\n\nBest regards,\n[Your Name]`
+  );
   const [sending, setSending] = useState(false);
 
   const handleSend = async () => {
     if (!subject.trim() || !body.trim()) return;
     setSending(true);
     try {
-      const payload = {
+      const result = await api.post('/scraped-jobs/send-feed-emails', {
         subject: subject.trim(),
         body:    body.trim(),
         contacts: contacts.map(c => ({
           email:   c.contact_email,
-          name:    c.contact_name || '',
-          company: c.company      || '',
-          title:   c.title        || '',
+          name:    c.author_name   || '',
+          company: c.company       || '',
+          title:   c.title         || '',
         })),
-      };
-      const result = await api.post('/scraped-jobs/send-feed-emails', payload);
-      toast.success(`Sent ${result.sent}/${result.total} emails successfully`);
+      });
+      toast.success(`${result.sent}/${result.total} emails sent!`);
       onSent(contacts.map(c => c.id));
       onClose();
     } catch (e) {
@@ -55,58 +61,36 @@ Best regards,
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <div>
-            <h2 className="font-semibold text-gray-900">✉ Compose Bulk Email</h2>
-            <p className="text-sm text-gray-500 mt-0.5">
-              Sending <span className="font-semibold text-blue-700">{contacts.length}</span> separate emails — one per contact
-            </p>
+            <h2 className="font-semibold text-gray-900">✉ Compose Emails</h2>
+            <p className="text-sm text-gray-500">{contacts.length} separate email{contacts.length !== 1 ? 's' : ''} — one per contact</p>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl p-1">✕</button>
         </div>
-
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          {/* Recipient pills */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Recipients</p>
-            <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-2 bg-gray-50 rounded-lg border">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">To</p>
+            <div className="flex flex-wrap gap-1.5 bg-gray-50 rounded-lg border p-2 max-h-20 overflow-y-auto">
               {contacts.map(c => (
-                <span key={c.id} className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
-                  {c.contact_email}
-                </span>
+                <span key={c.id} className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">{c.contact_email}</span>
               ))}
             </div>
           </div>
-
           <div>
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Subject</label>
-            <input
-              value={subject}
-              onChange={e => setSubject(e.target.value)}
-              className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
-            />
+            <input value={subject} onChange={e => setSubject(e.target.value)}
+                   className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none" />
           </div>
           <div>
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Message</label>
-            <textarea
-              value={body}
-              onChange={e => setBody(e.target.value)}
-              rows={12}
-              className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none resize-none font-mono leading-relaxed"
-            />
+            <textarea value={body} onChange={e => setBody(e.target.value)} rows={10}
+                      className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none resize-none font-mono leading-relaxed" />
           </div>
-          <p className="text-xs text-gray-400">
-            Each recipient gets an individual email. No CC/BCC — completely separate sends.
-          </p>
+          <p className="text-xs text-gray-400">Each recipient gets their own individual email — not CC/BCC.</p>
         </div>
-
         <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50 rounded-b-2xl">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 border rounded-lg hover:bg-gray-100 transition-colors">
-            Cancel
-          </button>
-          <button
-            onClick={handleSend}
-            disabled={sending || !subject.trim() || !body.trim()}
-            className="px-5 py-2 text-sm font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
-          >
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 border rounded-lg hover:bg-gray-100">Cancel</button>
+          <button onClick={handleSend} disabled={sending || !subject.trim() || !body.trim()}
+                  className="px-5 py-2 text-sm font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
             {sending ? 'Sending…' : `✉ Send ${contacts.length} Email${contacts.length !== 1 ? 's' : ''}`}
           </button>
         </div>
@@ -115,136 +99,168 @@ Best regards,
   );
 }
 
-// ─── Contact card ─────────────────────────────────────────────────────────────
-
-function ContactCard({ job, selected, onSelect, hasEmail, onSingleEmail, onCopy }) {
+// ─── Individual post card ─────────────────────────────────────────────────────
+function PostCard({ post, selected, onSelect, onWorkflow, onSingleEmail, onStatusChange }) {
+  const hasContact = post.contact_email || post.contact_phone || post.google_form_link || post.whatsapp_link;
   const allContacts = (() => {
-    try { return JSON.parse(job.all_contacts || '{}'); }
-    catch { return {}; }
+    try { return JSON.parse(post.all_contacts || '{}'); } catch { return {}; }
   })();
-  const emails   = allContacts.emails  || (job.contact_email  ? [job.contact_email]  : []);
-  const phones   = allContacts.phones  || (job.contact_phone  ? [job.contact_phone]  : []);
-  const gforms   = allContacts.gforms  || (job.google_form_link ? [job.google_form_link] : []);
-  const waLinks  = allContacts.waLinks || (job.whatsapp_link  ? [job.whatsapp_link]  : []);
+  const emails  = allContacts.emails  || (post.contact_email  ? [post.contact_email]  : []);
+  const phones  = allContacts.phones  || (post.contact_phone  ? [post.contact_phone]  : []);
+  const gforms  = allContacts.gforms  || (post.google_form_link ? [post.google_form_link] : []);
+  const waLinks = allContacts.waLinks || (post.whatsapp_link  ? [post.whatsapp_link]  : []);
 
-  const posted = job.created_at?.slice(0, 10) || '';
+  const isApify = post.source === 'apify' || post.source === 'both';
+  const isScraper = post.source === 'scraper' || post.source === 'both';
 
   return (
     <div className={`bg-white border rounded-xl p-4 space-y-3 transition-all hover:shadow-md ${
-      selected       ? 'border-blue-400 bg-blue-50/30 ring-1 ring-blue-300' :
-      job.emailed_now ? 'border-green-300 bg-green-50/20' : 'hover:border-blue-200'
+      selected ? 'border-blue-400 bg-blue-50/30 ring-1 ring-blue-300' :
+      post.emailed_now ? 'border-green-300' : 'hover:border-blue-200'
     }`}>
-      {/* Top row */}
-      <div className="flex items-start gap-3">
-        {hasEmail && (
-          <input
-            type="checkbox"
-            checked={selected}
-            onChange={() => onSelect(job)}
-            className="mt-1 rounded accent-blue-600 cursor-pointer"
-          />
+
+      {/* ── Header ──────────────────────────────────────────────────────── */}
+      <div className="flex items-start gap-2">
+        {post.contact_email && (
+          <input type="checkbox" checked={selected} onChange={() => onSelect(post)}
+                 className="mt-1 rounded accent-blue-600 cursor-pointer shrink-0" />
         )}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center flex-wrap gap-2">
-            <p className="font-semibold text-gray-900 truncate">{job.title || 'LinkedIn Hiring Post'}</p>
-            {job.emailed_now && (
-              <span className="text-xs bg-green-100 text-green-700 border border-green-200 px-2 py-0.5 rounded-full font-medium">✓ Emailed</span>
+          <div className="flex items-center flex-wrap gap-1.5">
+            <p className="font-semibold text-gray-900 truncate max-w-xs">{post.title || 'LinkedIn Post'}</p>
+            {isApify && <ConfidenceBadge score={post.confidence_score} />}
+            {post.is_hiring === 1 && (
+              <span className="text-[10px] bg-green-100 text-green-700 border border-green-200 px-1.5 py-0.5 rounded-full font-semibold">
+                #Hiring
+              </span>
             )}
-            {!job.emailed_now && job.already_emailed && (
-              <span className="text-xs bg-gray-100 text-gray-500 border border-gray-200 px-2 py-0.5 rounded-full font-medium">Sent before</span>
+            {post.emailed_now && (
+              <span className="text-[10px] bg-green-100 text-green-700 border border-green-200 px-1.5 py-0.5 rounded-full font-semibold">✓ Emailed</span>
+            )}
+            {isApify && post.status && post.status !== 'new' && (
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold capitalize ${STATUS_COLORS[post.status] || STATUS_COLORS.new}`}>
+                {post.status}
+              </span>
             )}
           </div>
-          <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-            {job.company   && <span className="text-xs text-gray-600 font-medium">{job.company}</span>}
-            {job.location  && <span className="text-xs text-gray-400">📍 {job.location}</span>}
-            {posted        && <span className="text-xs text-gray-400">{posted}</span>}
+          <div className="flex items-center gap-2 flex-wrap mt-0.5">
+            {post.company   && <span className="text-xs text-gray-600 font-medium">{post.company}</span>}
+            {post.location  && <span className="text-xs text-gray-400">📍 {post.location}</span>}
+            {post.job_type  && <span className="text-xs text-gray-400 capitalize">{post.job_type}</span>}
+            <span className="text-xs text-gray-300">{post.created_at?.slice(0, 10)}</span>
           </div>
         </div>
-        {job.link && (
-          <a href={job.link} target="_blank" rel="noopener noreferrer"
+        {post.link && (
+          <a href={post.link} target="_blank" rel="noopener noreferrer"
              className="text-xs text-blue-500 hover:text-blue-700 shrink-0 whitespace-nowrap">
-            View Post →
+            View →
           </a>
         )}
       </div>
 
-      {/* Description snippet */}
-      {job.description && (
-        <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed">{job.description}</p>
+      {/* ── Author (apify) ────────────────────────────────────────────────── */}
+      {isApify && post.author_name && (
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center text-xs font-bold text-indigo-700 shrink-0">
+            {post.author_name[0]?.toUpperCase() || '?'}
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-gray-800 truncate">{post.author_name}</p>
+            {post.author_headline && (
+              <p className="text-[11px] text-gray-400 truncate">{post.author_headline}</p>
+            )}
+          </div>
+          {post.author_linkedin && (
+            <a href={post.author_linkedin} target="_blank" rel="noopener noreferrer"
+               className="text-xs text-blue-500 ml-auto shrink-0">in</a>
+          )}
+        </div>
       )}
 
-      {/* Email contacts */}
-      {emails.length > 0 && (
-        <div className="space-y-1">
+      {/* ── Description ──────────────────────────────────────────────────── */}
+      {post.description && (
+        <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed">{post.description}</p>
+      )}
+
+      {/* ── Tech stack (apify) ────────────────────────────────────────────── */}
+      {isApify && post.tech_stack?.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {post.tech_stack.slice(0, 5).map(t => (
+            <span key={t} className="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded-full font-medium">{t}</span>
+          ))}
+          {post.tech_stack.length > 5 && (
+            <span className="text-[10px] text-gray-400">+{post.tech_stack.length - 5}</span>
+          )}
+        </div>
+      )}
+
+      {/* ── Contact info (scraper) ────────────────────────────────────────── */}
+      {isScraper && hasContact && (
+        <div className="space-y-1.5 border-t pt-2">
           {emails.map(email => (
             <div key={email} className="flex items-center gap-2 flex-wrap">
               <span className="text-xs text-blue-600 font-medium">✉ {email}</span>
-              <button
-                onClick={() => { navigator.clipboard.writeText(email); toast.success('Copied!'); }}
-                className="text-xs text-gray-400 hover:text-gray-600 border border-gray-200 rounded px-1.5 py-0.5 hover:bg-gray-50"
-              >
+              <button onClick={() => { navigator.clipboard.writeText(email); toast.success('Copied!'); }}
+                      className="text-[11px] text-gray-400 hover:text-gray-600 border border-gray-200 rounded px-1.5 py-0.5 hover:bg-gray-50">
                 Copy
               </button>
-              <button
-                onClick={() => onSingleEmail({ ...job, contact_email: email })}
-                className="text-xs bg-blue-600 text-white rounded px-2 py-0.5 hover:bg-blue-700 font-medium"
-              >
+              <button onClick={() => onSingleEmail({ ...post, contact_email: email })}
+                      className="text-[11px] bg-blue-600 text-white rounded px-2 py-0.5 hover:bg-blue-700 font-medium">
                 Email
               </button>
             </div>
           ))}
-        </div>
-      )}
-
-      {/* Phone contacts */}
-      {phones.length > 0 && (
-        <div className="space-y-1">
           {phones.map(phone => (
             <div key={phone} className="flex items-center gap-2 flex-wrap">
               <span className="text-xs text-gray-700 font-medium">📱 {phone}</span>
-              <button
-                onClick={() => { navigator.clipboard.writeText(phone); toast.success('Copied!'); }}
-                className="text-xs text-gray-400 hover:text-gray-600 border border-gray-200 rounded px-1.5 py-0.5 hover:bg-gray-50"
-              >
+              <button onClick={() => { navigator.clipboard.writeText(phone); toast.success('Copied!'); }}
+                      className="text-[11px] text-gray-400 hover:text-gray-600 border border-gray-200 rounded px-1.5 py-0.5 hover:bg-gray-50">
                 Copy
               </button>
               <a href={`tel:${phone}`}
-                 className="text-xs text-green-600 border border-green-200 rounded px-1.5 py-0.5 hover:bg-green-50">
+                 className="text-[11px] text-green-700 border border-green-200 rounded px-1.5 py-0.5 hover:bg-green-50">
                 Call
               </a>
             </div>
           ))}
-        </div>
-      )}
-
-      {/* WhatsApp links */}
-      {waLinks.length > 0 && (
-        <div className="flex flex-wrap gap-2">
           {waLinks.map(wa => (
             <a key={wa} href={wa} target="_blank" rel="noopener noreferrer"
-               className="text-xs bg-green-50 text-green-700 border border-green-200 rounded-lg px-2 py-1 hover:bg-green-100 font-medium">
+               className="inline-flex text-xs bg-green-50 text-green-700 border border-green-200 rounded-lg px-2 py-1 hover:bg-green-100 font-medium">
               💬 WhatsApp
             </a>
           ))}
-        </div>
-      )}
-
-      {/* Google Forms */}
-      {gforms.length > 0 && (
-        <div className="flex flex-wrap gap-2">
           {gforms.map(gf => (
             <a key={gf} href={gf} target="_blank" rel="noopener noreferrer"
-               className="text-xs bg-purple-50 text-purple-700 border border-purple-200 rounded-lg px-2 py-1 hover:bg-purple-100 font-medium">
+               className="inline-flex text-xs bg-purple-50 text-purple-700 border border-purple-200 rounded-lg px-2 py-1 hover:bg-purple-100 font-medium">
               📋 Apply via Form
             </a>
           ))}
         </div>
       )}
 
-      {/* Phone-only label */}
-      {emails.length === 0 && phones.length === 0 && !job.contact_email && (
-        <p className="text-xs text-gray-400 italic">No direct contact info extracted</p>
-      )}
+      {/* ── Actions row ──────────────────────────────────────────────────── */}
+      <div className="flex items-center gap-2 flex-wrap border-t pt-2">
+        {isApify && (
+          <button onClick={() => onWorkflow(post)}
+                  className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition">
+            Work →
+          </button>
+        )}
+        {isApify && post.status && (
+          <select
+            value={post.status}
+            onChange={e => onStatusChange(post.id, e.target.value)}
+            className="text-xs border rounded-lg px-2 py-1.5 focus:ring-1 focus:ring-blue-300 outline-none bg-white cursor-pointer"
+          >
+            {Object.keys(STATUS_COLORS).map(s => (
+              <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+            ))}
+          </select>
+        )}
+        {post.likes > 0 && (
+          <span className="text-xs text-gray-400 ml-auto">👍 {post.likes}  💬 {post.comments}</span>
+        )}
+      </div>
     </div>
   );
 }
@@ -252,74 +268,65 @@ function ContactCard({ job, selected, onSelect, hasEmail, onSingleEmail, onCopy 
 // ─── Main component ───────────────────────────────────────────────────────────
 
 const SINCE_OPTS = [
+  { value: 'all', label: 'All time'     },
   { value: '7d',  label: 'Last 7 days'  },
-  { value: '14d', label: 'Last 14 days' },
   { value: '30d', label: 'Last 30 days' },
   { value: '90d', label: 'Last 90 days' },
 ];
 
 export default function LinkedInPosts() {
-  const { user }                      = useAuth();
-  const [jobs,          setJobs]      = useState([]);
-  const [loading,       setLoading]   = useState(true);
-  const [scraping,      setScraping]  = useState(false);
-  const [scraperLogs,   setLogs]      = useState([]);
-  const [showLogs,      setShowLogs]  = useState(false);
-  const [search,        setSearch]    = useState('');
-  const [since,         setSince]     = useState('30d');
-  const [filter,        setFilter]    = useState('all'); // 'all' | 'email' | 'phone'
-  const [selected,      setSelected]  = useState(new Set()); // set of job IDs
-  const [composeTo,     setComposeTo] = useState(null); // null | 'bulk' | single-job
-  const [profile,       setProfile]   = useState(null);
+  const { user }                       = useAuth();
+  const [posts,         setPosts]      = useState([]);
+  const [loading,       setLoading]    = useState(true);
+  const [scraping,      setScraping]   = useState(false);
+  const [scraperLogs,   setLogs]       = useState([]);
+  const [showLogs,      setShowLogs]   = useState(false);
+  const [search,        setSearch]     = useState('');
+  const [since,         setSince]      = useState('all');
+  const [hiringOnly,    setHiringOnly] = useState(false);
+  const [filter,        setFilter]     = useState('all'); // 'all' | 'email' | 'phone' | 'apify'
+  const [selected,      setSelected]   = useState(new Set());
+  const [composeTo,     setComposeTo]  = useState(null);
+  const [activePost,    setActivePost] = useState(null);
+  const [profile,       setProfile]    = useState(null);
   const logsEndRef = useRef(null);
 
-  // Load user profile for keyword defaults
   useEffect(() => {
-    if (!user) return;
-    api.get('/profile').then(p => setProfile(p)).catch(() => {});
+    if (user) api.get('/profile').then(p => setProfile(p)).catch(() => {});
   }, [user]);
 
-  // Auto-scroll logs
   useEffect(() => {
     if (showLogs) logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [scraperLogs]);
 
-  const fetchJobs = useCallback(async () => {
+  // ── Fetch from unified endpoint ──────────────────────────────────────────────
+  const fetchPosts = useCallback(async () => {
     setLoading(true);
     try {
-      const params = { scraper: 'linkedin-feed', since, limit: 200 };
-      if (search) params.search = search;
-      const data = await api.get('/scraped-jobs', { params });
-
-      // Check already-emailed status
-      const rows = data.jobs || [];
-      if (rows.length) {
-        try {
-          const feedRes = await api.get('/scraped-jobs/feed-contacts', { params: { since, limit: 500 } });
-          const emailedMap = new Map((feedRes.contacts || []).map(c => [c.id, c.already_emailed]));
-          rows.forEach(j => { j.already_emailed = emailedMap.get(j.id) || 0; });
-        } catch {}
-      }
-      setJobs(rows);
-    } catch { toast.error('Failed to load LinkedIn feed posts'); }
+      const params = { since, limit: 500 };
+      if (search)       params.search       = search;
+      if (hiringOnly)   params.hiring_only  = 'true';
+      const data = await api.get('/linkedin-feed', { params });
+      setPosts(data.posts || []);
+    } catch { toast.error('Failed to load posts'); }
     finally  { setLoading(false); }
-  }, [search, since]);
+  }, [search, since, hiringOnly]);
 
-  useEffect(() => { fetchJobs(); }, [fetchJobs]);
+  useEffect(() => { fetchPosts(); }, [fetchPosts]);
 
-  // ── SSE scraper trigger ──────────────────────────────────────────────────────
+  // ── Scraper trigger ──────────────────────────────────────────────────────────
   const runScraper = async () => {
     if (scraping) return;
     setScraping(true);
     setLogs([]);
     setShowLogs(true);
 
-    const titles = [profile?.job_title_1, profile?.job_title_2, profile?.job_title_3, profile?.current_title]
+    const keywords = [profile?.job_title_1, profile?.job_title_2, profile?.job_title_3, profile?.current_title]
       .filter(Boolean).slice(0, 3);
-    const keywords = titles.length ? titles : ['Software Developer'];
+    const titles   = keywords.length ? keywords : ['Software Developer'];
     const location = profile?.preferred_city || profile?.location || 'India';
 
-    const send = line => setLogs(prev => [...prev, line]);
+    const addLog = (type, text) => setLogs(prev => [...prev, { type, text }]);
 
     try {
       const resp = await fetch(`${API_ROOT}/api/scraper/run`, {
@@ -328,13 +335,7 @@ export default function LinkedInPosts() {
           'Content-Type':  'application/json',
           'Authorization': `Bearer ${localStorage.getItem('hr_token')}`,
         },
-        body: JSON.stringify({
-          scraper: 'linkedin-feed',
-          titles:  keywords,
-          location,
-          limit:   30,
-          since:   '7d',
-        }),
+        body: JSON.stringify({ scraper: 'linkedin-feed', titles, location, limit: 30 }),
       });
 
       const reader  = resp.body.getReader();
@@ -353,13 +354,13 @@ export default function LinkedInPosts() {
           try {
             const msg = JSON.parse(line.slice(5).trim());
             if (msg.type === 'log' || msg.type === 'err') {
-              send({ type: msg.type, text: msg.data });
+              addLog(msg.type, msg.data);
             } else if (msg.type === 'done') {
               if (msg.data.code === 0) {
                 toast.success(`Scrape complete — ${msg.data.stored || 0} posts stored`);
-                fetchJobs();
+                fetchPosts();
               } else {
-                toast.error('Scraper exited with errors — see logs below');
+                toast.error('Scraper exited with errors — check logs');
               }
             }
           } catch {}
@@ -372,106 +373,76 @@ export default function LinkedInPosts() {
     }
   };
 
-  // ── Selection helpers ────────────────────────────────────────────────────────
-  const emailJobs = jobs.filter(j => j.contact_email);
-
-  const toggleSelect = (job) => {
-    if (!job.contact_email) return;
-    setSelected(prev => {
-      const next = new Set(prev);
-      next.has(job.id) ? next.delete(job.id) : next.add(job.id);
-      return next;
-    });
+  // ── Status change (Apify posts) ──────────────────────────────────────────────
+  const handleStatusChange = async (postId, status) => {
+    try {
+      await api.patch(`/linkedin-feed/${postId}/status`, { status });
+      setPosts(prev => prev.map(p => p.id === postId ? { ...p, status } : p));
+      if (activePost?.id === postId) setActivePost(prev => ({ ...prev, status }));
+    } catch (e) { toast.error(e.response?.data?.error || 'Status update failed'); }
   };
 
+  // ── Selection ────────────────────────────────────────────────────────────────
+  const emailPosts  = posts.filter(p => p.contact_email);
+  const toggleSelect = p => {
+    if (!p.contact_email) return;
+    setSelected(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; });
+  };
   const toggleAll = () => {
-    const emailIds = emailJobs.map(j => j.id);
-    if (emailIds.every(id => selected.has(id))) {
-      setSelected(new Set());
-    } else {
-      setSelected(new Set(emailIds));
-    }
+    if (emailPosts.every(p => selected.has(p.id))) setSelected(new Set());
+    else setSelected(new Set(emailPosts.map(p => p.id)));
   };
-
-  const selectedJobs = emailJobs.filter(j => selected.has(j.id));
+  const selectedPosts = emailPosts.filter(p => selected.has(p.id));
 
   const handleSent = (sentIds) => {
-    const sentSet = new Set(sentIds);
-    setJobs(prev => prev.map(j => sentSet.has(j.id) ? { ...j, emailed_now: true, already_emailed: 1 } : j));
+    const s = new Set(sentIds);
+    setPosts(prev => prev.map(p => s.has(p.id) ? { ...p, emailed_now: true } : p));
     setSelected(new Set());
   };
 
-  // ── Filtered view ────────────────────────────────────────────────────────────
-  const filtered = jobs.filter(j => {
-    if (filter === 'email') return !!j.contact_email;
-    if (filter === 'phone') return !j.contact_email && !!j.contact_phone;
+  // ── Filter ───────────────────────────────────────────────────────────────────
+  const filtered = posts.filter(p => {
+    if (filter === 'email') return !!p.contact_email;
+    if (filter === 'phone') return !p.contact_email && !!p.contact_phone;
+    if (filter === 'apify') return p.source === 'apify';
     return true;
   });
 
-  const emailCount = jobs.filter(j => j.contact_email).length;
-  const phoneCount = jobs.filter(j => !j.contact_email && j.contact_phone).length;
+  const withEmail = posts.filter(p => p.contact_email).length;
+  const phoneOnly = posts.filter(p => !p.contact_email && p.contact_phone).length;
+  const apifyOnly = posts.filter(p => p.source === 'apify').length;
 
   return (
     <div className="space-y-4">
 
-      {/* ── Toolbar ────────────────────────────────────────────────────────── */}
+      {/* ── Toolbar ───────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap gap-3 items-center">
-        <input
-          type="text"
-          placeholder="Search title, company, email…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="border rounded-lg px-3 py-2 text-sm w-64 focus:ring-2 focus:ring-blue-300 outline-none bg-white"
-        />
-        <select
-          value={since}
-          onChange={e => setSince(e.target.value)}
-          className="border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none bg-white"
-        >
+        <input type="text" placeholder="Search title, company, email…"
+               value={search} onChange={e => setSearch(e.target.value)}
+               className="border rounded-lg px-3 py-2 text-sm w-64 focus:ring-2 focus:ring-blue-300 outline-none bg-white" />
+        <select value={since} onChange={e => setSince(e.target.value)}
+                className="border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none bg-white">
           {SINCE_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
+        <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer select-none">
+          <input type="checkbox" checked={hiringOnly} onChange={e => setHiringOnly(e.target.checked)} className="rounded" />
+          Hiring only
+        </label>
 
         <div className="ml-auto flex items-center gap-2 flex-wrap">
           <span className="text-xs text-gray-400">
-            {jobs.length} posts · {emailCount} with email · {phoneCount} phone only
+            {posts.length} posts · {withEmail} with email · {phoneOnly} phone only · {apifyOnly} from Apify
           </span>
           {user && (
-            <button
-              onClick={runScraper}
-              disabled={scraping}
-              className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 transition"
-            >
+            <button onClick={runScraper} disabled={scraping}
+                    className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 transition">
               {scraping ? '⏳ Scraping…' : '🔍 Scrape LinkedIn Feed'}
             </button>
           )}
         </div>
       </div>
 
-      {/* ── Info banner (first load) ──────────────────────────────────────── */}
-      {!loading && jobs.length === 0 && (
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-5 text-center space-y-3">
-          <p className="text-2xl">🔍</p>
-          <p className="font-semibold text-gray-800">No LinkedIn Feed posts yet</p>
-          <p className="text-sm text-gray-500">
-            Click <strong>Scrape LinkedIn Feed</strong> to find HR hiring posts that contain emails, phone numbers, or Google Form links.
-            Uses your profile's job titles as keywords.
-          </p>
-          {!profile?.job_title_1 && (
-            <p className="text-xs text-orange-600 bg-orange-50 rounded-lg px-3 py-2 inline-block border border-orange-200">
-              Tip: Add job titles in your Profile → Preferences for better results
-            </p>
-          )}
-          <button
-            onClick={runScraper}
-            disabled={scraping}
-            className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50"
-          >
-            {scraping ? '⏳ Scraping…' : '🔍 Scrape LinkedIn Feed'}
-          </button>
-        </div>
-      )}
-
-      {/* ── SSE log panel ────────────────────────────────────────────────── */}
+      {/* ── Log panel ────────────────────────────────────────────────────── */}
       {showLogs && (
         <div className="bg-gray-900 rounded-xl border border-gray-700 p-4 space-y-1 max-h-48 overflow-y-auto">
           <div className="flex items-center justify-between mb-2">
@@ -479,53 +450,56 @@ export default function LinkedInPosts() {
             <button onClick={() => setShowLogs(false)} className="text-gray-500 hover:text-gray-300 text-xs">Hide</button>
           </div>
           {scraperLogs.map((l, i) => (
-            <p key={i} className={`text-xs font-mono whitespace-pre-wrap ${l.type === 'err' ? 'text-red-400' : 'text-green-300'}`}>
-              {l.text}
-            </p>
+            <p key={i} className={`text-xs font-mono whitespace-pre-wrap ${l.type === 'err' ? 'text-red-400' : 'text-green-300'}`}>{l.text}</p>
           ))}
           <div ref={logsEndRef} />
         </div>
       )}
 
-      {/* ── Filter + bulk select bar ────────────────────────────────────── */}
-      {!loading && jobs.length > 0 && (
+      {/* ── Empty state ───────────────────────────────────────────────────── */}
+      {!loading && posts.length === 0 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 text-center space-y-3">
+          <p className="text-3xl">💼</p>
+          <p className="font-semibold text-gray-800">No LinkedIn posts yet</p>
+          <p className="text-sm text-gray-500">
+            Click <strong>Scrape LinkedIn Feed</strong> to find HR hiring posts with emails and phone numbers.
+            Scraped posts are stored in the database and visible to all users.
+          </p>
+          <button onClick={runScraper} disabled={scraping}
+                  className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50">
+            {scraping ? '⏳ Scraping…' : '🔍 Scrape LinkedIn Feed'}
+          </button>
+        </div>
+      )}
+
+      {/* ── Filter + bulk select bar ──────────────────────────────────────── */}
+      {!loading && posts.length > 0 && (
         <div className="flex flex-wrap items-center gap-3">
-          {/* Filter tabs */}
           <div className="flex rounded-lg border overflow-hidden text-xs font-medium">
             {[
-              { id: 'all',   label: `All (${jobs.length})` },
-              { id: 'email', label: `✉ Email (${emailCount})` },
-              { id: 'phone', label: `📱 Phone only (${phoneCount})` },
+              { id: 'all',   label: `All (${posts.length})`         },
+              { id: 'email', label: `✉ Email (${withEmail})`        },
+              { id: 'phone', label: `📱 Phone (${phoneOnly})`       },
+              { id: 'apify', label: `🔵 Apify (${apifyOnly})`       },
             ].map(f => (
-              <button
-                key={f.id}
-                onClick={() => setFilter(f.id)}
-                className={`px-3 py-2 transition-colors ${
-                  filter === f.id ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
-                }`}
-              >
+              <button key={f.id} onClick={() => setFilter(f.id)}
+                      className={`px-3 py-2 transition-colors ${filter === f.id ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
                 {f.label}
               </button>
             ))}
           </div>
 
-          {emailJobs.length > 0 && (
+          {emailPosts.length > 0 && (
             <>
               <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={emailJobs.length > 0 && emailJobs.every(j => selected.has(j.id))}
-                  onChange={toggleAll}
-                  className="rounded accent-blue-600"
-                />
-                Select all email contacts
+                <input type="checkbox" className="rounded accent-blue-600"
+                       checked={emailPosts.every(p => selected.has(p.id))}
+                       onChange={toggleAll} />
+                Select all with email
               </label>
-
               {selected.size > 0 && (
-                <button
-                  onClick={() => setComposeTo('bulk')}
-                  className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition"
-                >
+                <button onClick={() => setComposeTo('bulk')}
+                        className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700">
                   ✉ Email {selected.size} selected
                 </button>
               )}
@@ -534,41 +508,41 @@ export default function LinkedInPosts() {
         </div>
       )}
 
-      {/* ── Contact cards ────────────────────────────────────────────────── */}
+      {/* ── Cards grid ────────────────────────────────────────────────────── */}
       {loading ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {[1, 2, 3, 4].map(i => <div key={i} className="h-40 bg-gray-100 animate-pulse rounded-xl" />)}
+          {[1, 2, 3, 4].map(i => <div key={i} className="h-44 bg-gray-100 animate-pulse rounded-xl" />)}
         </div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-10 text-gray-400 text-sm">No posts match this filter.</div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {filtered.map(job => (
-            <ContactCard
-              key={job.id}
-              job={job}
-              hasEmail={!!job.contact_email}
-              selected={selected.has(job.id)}
+          {filtered.map(post => (
+            <PostCard
+              key={post.id}
+              post={post}
+              selected={selected.has(post.id)}
               onSelect={toggleSelect}
-              onSingleEmail={j => setComposeTo({ single: true, contacts: [j] })}
+              onWorkflow={setActivePost}
+              onSingleEmail={p => setComposeTo({ single: true, contacts: [p] })}
+              onStatusChange={handleStatusChange}
             />
           ))}
         </div>
       )}
 
-      {/* ── Compose modals ───────────────────────────────────────────────── */}
+      {/* ── Modals ────────────────────────────────────────────────────────── */}
       {composeTo === 'bulk' && (
-        <BulkEmailModal
-          contacts={selectedJobs}
-          onClose={() => setComposeTo(null)}
-          onSent={handleSent}
-        />
+        <BulkEmailModal contacts={selectedPosts} onClose={() => setComposeTo(null)} onSent={handleSent} />
       )}
       {composeTo?.single && (
-        <BulkEmailModal
-          contacts={composeTo.contacts}
-          onClose={() => setComposeTo(null)}
-          onSent={handleSent}
+        <BulkEmailModal contacts={composeTo.contacts} onClose={() => setComposeTo(null)} onSent={handleSent} />
+      )}
+      {activePost && (
+        <PostWorkflowModal
+          post={activePost}
+          onClose={() => setActivePost(null)}
+          onStatusChange={handleStatusChange}
         />
       )}
     </div>
