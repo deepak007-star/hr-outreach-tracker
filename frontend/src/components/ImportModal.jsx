@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 import { toast } from 'react-hot-toast';
+import { API_ROOT } from '../api/client.js';
 
 export default function ImportModal({ onClose, onImported }) {
   const [dragging, setDragging] = useState(false);
@@ -17,7 +18,7 @@ export default function ImportModal({ onClose, onImported }) {
     const fd = new FormData();
     fd.append('file', file);
     try {
-      const res  = await fetch('http://localhost:3001/api/contacts/import', { method: 'POST', body: fd });
+      const res  = await fetch(`${API_ROOT}/api/contacts/import`, { method: 'POST', body: fd });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Import failed');
       setResult(data);

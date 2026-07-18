@@ -166,6 +166,17 @@ async function initialize() {
       resume_uploaded_at TEXT,
       updated_at        TEXT NOT NULL DEFAULT (${NOW_EXPR})
     );
+
+    CREATE TABLE IF NOT EXISTS oauth_accounts (
+      user_id       TEXT NOT NULL REFERENCES users(id),
+      provider      TEXT NOT NULL,
+      email         TEXT NOT NULL,
+      refresh_token TEXT NOT NULL,
+      scope         TEXT,
+      created_at    TEXT NOT NULL DEFAULT (${NOW_EXPR}),
+      updated_at    TEXT NOT NULL DEFAULT (${NOW_EXPR}),
+      PRIMARY KEY (user_id, provider)
+    );
   `);
 
   const defaults = {

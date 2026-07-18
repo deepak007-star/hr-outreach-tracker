@@ -29,6 +29,11 @@ export default function SmtpSettingsModal({ onClose }) {
   const [testing,  setTesting]  = useState(false);
   const [saving,   setSaving]   = useState(false);
   const [testMsg,  setTestMsg]  = useState(null);
+  const [google,     setGoogle]     = useState(null); // { connected, email } | null while loading
+  const [connecting, setConnecting] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+
+  const refreshGoogleStatus = () => api.get('/oauth/status').then(r => setGoogle(r.google)).catch(() => setGoogle({ connected: false }));
 
   useEffect(() => {
     api.get('/settings').then(s => {
@@ -43,7 +48,32 @@ export default function SmtpSettingsModal({ onClose }) {
       } catch {}
       if (s.unsubscribe_footer_text) setFooter(s.unsubscribe_footer_text);
     }).catch(() => {});
+    refreshGoogleStatus();
   }, []);
+
+  const handleConnectGoogle = async () => {
+    setConnecting(true);
+    try {
+      const { url } = await api.get('/oauth/google/start');
+      window.location.href = url;
+    } catch {
+      toast.error('Could not start Google connection');
+      setConnecting(false);
+    }
+  };
+
+  const handleDisconnectGoogle = async () => {
+    setDisconnecting(true);
+    try {
+      await api.delete('/oauth/google');
+      await refreshGoogleStatus();
+      toast.success('Google account disconnected');
+    } catch {
+      toast.error('Failed to disconnect');
+    } finally {
+      setDisconnecting(false);
+    }
+  };
 
   const set = k => e => setSmtp(s => ({ ...s, [k]: e.target.value }));
 
@@ -99,68 +129,102 @@ export default function SmtpSettingsModal({ onClose }) {
         </div>
 
         <div className="p-6 space-y-5">
-          {/* Presets */}
+          {/* Google OAuth connect */}
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-2">Provider</label>
-            <div className="flex gap-2">
-              {Object.keys(PRESETS).map(key => (
-                <button key={key} type="button" onClick={() => applyPreset(key)}
-                  className={`flex-1 py-2 text-sm font-medium rounded-lg border transition capitalize
-                    ${preset === key
-                      ? 'bg-blue-600 text-white border-blue-600'
-                      : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
-                >
-                  {key}
+            <label className="block text-xs font-semibold text-gray-600 mb-2">Send from Google (recommended)</label>
+            {google === null ? (
+              <div className="text-sm text-gray-400 px-3 py-2">Checking connection…</div>
+            ) : google.connected ? (
+              <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg px-3 py-2.5">
+                <span className="text-sm text-green-800">✓ Connected as <strong>{google.email}</strong></span>
+                <button onClick={handleDisconnectGoogle} disabled={disconnecting}
+                  className="text-xs font-medium text-red-600 hover:text-red-700 disabled:opacity-50">
+                  {disconnecting ? 'Disconnecting…' : 'Disconnect'}
                 </button>
-              ))}
-            </div>
-            <p className="mt-2 text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 leading-relaxed">
-              {PRESETS[preset]?.hint}
+              </div>
+            ) : (
+              <button onClick={handleConnectGoogle} disabled={connecting}
+                className="w-full flex items-center justify-center gap-2 border border-gray-300 rounded-lg py-2.5 text-sm font-semibold hover:bg-gray-50 disabled:opacity-50 transition">
+                {connecting ? 'Redirecting…' : 'Connect Google Account'}
+              </button>
+            )}
+            <p className="mt-2 text-xs text-gray-500 leading-relaxed">
+              One click — sign in with Google and grant permission to send email on your behalf. No app password needed.
             </p>
           </div>
 
-          {/* Host + Port */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="col-span-2">
-              <label className="block text-xs font-semibold text-gray-600 mb-1">SMTP Host</label>
-              <input value={smtp.host} onChange={set('host')} placeholder="smtp.gmail.com" className={inp} />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1">Port</label>
-              <input value={smtp.port} onChange={set('port')} type="number" className={inp} />
-            </div>
-          </div>
+          <hr />
 
-          {/* Username */}
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Username / From Email</label>
-            <input value={smtp.user} onChange={set('user')} type="email"
-              placeholder="you@gmail.com" className={inp} />
-          </div>
+          {/* Manual SMTP fallback */}
+          <details open={!google?.connected}>
+            <summary className="text-xs font-semibold text-gray-600 cursor-pointer select-none">
+              Advanced: Manual SMTP (for non-Gmail providers, or as a fallback)
+            </summary>
+            <div className="space-y-5 mt-4">
+              {/* Presets */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-2">Provider</label>
+                <div className="flex gap-2">
+                  {Object.keys(PRESETS).map(key => (
+                    <button key={key} type="button" onClick={() => applyPreset(key)}
+                      className={`flex-1 py-2 text-sm font-medium rounded-lg border transition capitalize
+                        ${preset === key
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
+                    >
+                      {key}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-2 text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 leading-relaxed">
+                  {PRESETS[preset]?.hint}
+                </p>
+              </div>
 
-          {/* Password */}
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">
-              Password / App Password
-            </label>
-            <div className="relative">
-              <input value={smtp.pass} onChange={set('pass')}
-                type={showPass ? 'text' : 'password'}
-                placeholder="••••••••••••••••"
-                className={`${inp} pr-16`} />
-              <button type="button" onClick={() => setShowPass(s => !s)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-600">
-                {showPass ? 'Hide' : 'Show'}
-              </button>
+              {/* Host + Port */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-2">
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">SMTP Host</label>
+                  <input value={smtp.host} onChange={set('host')} placeholder="smtp.gmail.com" className={inp} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Port</label>
+                  <input value={smtp.port} onChange={set('port')} type="number" className={inp} />
+                </div>
+              </div>
+
+              {/* Username */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Username / From Email</label>
+                <input value={smtp.user} onChange={set('user')} type="email"
+                  placeholder="you@gmail.com" className={inp} />
+              </div>
+
+              {/* Password */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">
+                  Password / App Password
+                </label>
+                <div className="relative">
+                  <input value={smtp.pass} onChange={set('pass')}
+                    type={showPass ? 'text' : 'password'}
+                    placeholder="••••••••••••••••"
+                    className={`${inp} pr-16`} />
+                  <button type="button" onClick={() => setShowPass(s => !s)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-600">
+                    {showPass ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Display name */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Your Name (shown as sender)</label>
+                <input value={smtp.fromName} onChange={set('fromName')}
+                  placeholder="Vishal Choudhary" className={inp} />
+              </div>
             </div>
-          </div>
-
-          {/* Display name */}
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Your Name (shown as sender)</label>
-            <input value={smtp.fromName} onChange={set('fromName')}
-              placeholder="Vishal Choudhary" className={inp} />
-          </div>
+          </details>
 
           <hr />
 

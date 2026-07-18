@@ -21,7 +21,7 @@ import RateLimitBar      from './components/RateLimitBar.jsx';
 import Dashboard        from './components/Dashboard.jsx';
 import TemplatesPage    from './components/TemplatesPage.jsx';
 import AdminPanel       from './components/AdminPanel.jsx';
-import { api }          from './api/client.js';
+import { api, API_ROOT } from './api/client.js';
 
 const PLAN_LIMITS = { guest: 5, demo: 10, basic: 100, advanced: 999999 };
 const PLAN_NAMES  = { guest: 'Guest', demo: 'Demo', basic: 'Basic', advanced: 'Advanced' };
@@ -68,6 +68,20 @@ export default function App() {
   }, [search, statusFilter]);
 
   useEffect(() => { fetchContacts(); }, [fetchContacts]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get('oauth');
+    const error     = params.get('oauth_error');
+    if (connected === 'connected') toast.success('Google account connected!');
+    if (error) toast.error(`Google connection failed: ${error}`);
+    if (connected || error) {
+      params.delete('oauth');
+      params.delete('oauth_error');
+      const rest = params.toString();
+      window.history.replaceState({}, '', window.location.pathname + (rest ? `?${rest}` : ''));
+    }
+  }, []);
 
   useEffect(() => {
     api.get('/email/stats').then(setEmailStats).catch(() => {});
@@ -187,7 +201,7 @@ export default function App() {
 
   const handleExport = () => {
     if (!user) { setShowAuthModal(true); toast.error('Sign in to download the Excel file'); return; }
-    window.open('http://localhost:3001/api/contacts/export', '_blank');
+    window.open(`${API_ROOT}/api/contacts/export`, '_blank');
     toast('Excel download started');
   };
 

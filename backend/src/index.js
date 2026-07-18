@@ -32,6 +32,7 @@ async function main() {
   const { checkEmailDomain } = require('./routes/emailVerify');
   const emailVerifyRouter    = require('./routes/emailVerify');
   const adminRouter          = require('./routes/admin');
+  const oauthRouter          = require('./routes/oauth');
   const { performScrape, getSettings } = require('./routes/apify');
   const { sendReminderEmail } = require('./routes/reminder');
 
@@ -55,6 +56,7 @@ async function main() {
   app.use('/api/email-templates', emailTemplatesRouter);
   app.use('/api/email-verify',    emailVerifyRouter);
   app.use('/api/admin',           adminRouter);
+  app.use('/api/oauth',           oauthRouter);
   app.get('/api/health', (_, res) =>
     res.json({ status: 'ok', timestamp: new Date().toISOString() })
   );
@@ -121,7 +123,7 @@ async function main() {
         if (!user) continue;
 
         try {
-          await sendReminderEmail(user.email, user.name, config);
+          await sendReminderEmail(userId, user.email, user.name, config);
           await database.prepare(`
             INSERT INTO settings (key, value) VALUES (?, ?)
             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value

@@ -1,11 +1,13 @@
 const express    = require('express');
-const nodemailer = require('nodemailer');
 const crypto     = require('crypto');
 const db         = require('../db/database');
 const { syncExcel } = require('../services/excelSync');
 const { middleware: rlMiddleware } = require('../middleware/rateLimiter');
+const { requireAuth } = require('../middleware/auth');
+const { getTransportForUser, createLegacyTransport } = require('../services/mailTransport');
 
 const router = express.Router();
+router.use(requireAuth);
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -15,11 +17,6 @@ function renderTemplate(tpl, contact) {
     .replace(/\{\{company\}\}/gi, contact.company || '')
     .replace(/\{\{title\}\}/gi,   contact.title   || '')
     .replace(/\{\{email\}\}/gi,   contact.email   || '');
-}
-
-async function getSmtpConfig() {
-  const row = await db.prepare("SELECT value FROM settings WHERE key = 'smtp_config'").get();
-  try { return JSON.parse(row?.value || '{}'); } catch { return {}; }
 }
 
 async function getFooter() {
@@ -36,16 +33,6 @@ async function getSentToday() {
 async function getDailyCap() {
   const row = await db.prepare("SELECT value FROM settings WHERE key = 'daily_send_cap'").get();
   return parseInt(row?.value || '20');
-}
-
-function createTransport(smtp) {
-  return nodemailer.createTransport({
-    host:   smtp.host,
-    port:   parseInt(smtp.port) || 587,
-    secure: String(smtp.port) === '465',
-    auth:   { user: smtp.user, pass: smtp.pass },
-    tls:    { rejectUnauthorized: false },
-  });
 }
 
 async function wasRecentlySent(contactId) {
@@ -116,11 +103,12 @@ router.post('/send', rlMiddleware('email'), async (req, res) => {
   if (!Array.isArray(sends) || !sends.length)
     return res.status(400).json({ error: 'sends[] required' });
 
-  const smtp = await getSmtpConfig();
-  if (!smtp.host || !smtp.user || !smtp.pass)
+  const mail = await getTransportForUser(req.user.userId);
+  if (!mail)
     return res.status(400).json({
-      error: 'SMTP is not configured. Open SMTP Settings and save your credentials first.'
+      error: 'No email account connected. Connect Google or configure SMTP in Settings first.'
     });
+  const { transport, fromEmail, fromName } = mail;
 
   // Re-check daily cap server-side (defense-in-depth)
   const cap = await getDailyCap();
@@ -128,7 +116,6 @@ router.post('/send', rlMiddleware('email'), async (req, res) => {
     return res.status(429).json({ error: `Daily send cap of ${cap} reached. Try again tomorrow.` });
 
   const footer      = await getFooter();
-  const transport   = createTransport(smtp);
   const results     = [];
   let sentCount     = await getSentToday();
 
@@ -152,7 +139,7 @@ router.post('/send', rlMiddleware('email'), async (req, res) => {
     const htmlBody = textBody.split('\n').map(l => `<p style="margin:0 0 4px">${l}</p>`).join('');
 
     const mailOpts = {
-      from:    smtp.fromName ? `"${smtp.fromName}" <${smtp.user}>` : smtp.user,
+      from:    fromName ? `"${fromName}" <${fromEmail}>` : fromEmail,
       to:      contact.email,
       subject,
       text:    textBody,
@@ -201,7 +188,7 @@ router.post('/test', async (req, res) => {
     return res.status(400).json({ error: 'host, user, and pass are required' });
 
   try {
-    const t = createTransport({ host, port, user, pass });
+    const t = createLegacyTransport({ host, port, user, pass });
     await t.verify();
     res.json({ ok: true, message: `Connected to ${host}:${port || 587} — credentials valid` });
   } catch (err) {
@@ -215,9 +202,10 @@ router.post('/send-direct', rlMiddleware('email'), async (req, res) => {
   if (!to || !subject || !body)
     return res.status(400).json({ error: 'to, subject, and body are required.' });
 
-  const smtp = await getSmtpConfig();
-  if (!smtp.host || !smtp.user || !smtp.pass)
-    return res.status(400).json({ error: 'SMTP not configured. Open SMTP Settings first.' });
+  const mail = await getTransportForUser(req.user.userId);
+  if (!mail)
+    return res.status(400).json({ error: 'No email account connected. Connect Google or configure SMTP in Settings first.' });
+  const { transport, fromEmail, fromName } = mail;
 
   const cap = await getDailyCap();
   if (await getSentToday() >= cap)
@@ -228,9 +216,8 @@ router.post('/send-direct', rlMiddleware('email'), async (req, res) => {
   const htmlBody = fullBody.split('\n').map(l => `<p style="margin:0 0 4px">${l || '&nbsp;'}</p>`).join('');
 
   try {
-    const transport = createTransport(smtp);
     await transport.sendMail({
-      from:    smtp.fromName ? `"${smtp.fromName}" <${smtp.user}>` : smtp.user,
+      from:    fromName ? `"${fromName}" <${fromEmail}>` : fromEmail,
       to,
       subject,
       text:    fullBody,
