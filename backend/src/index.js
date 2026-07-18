@@ -61,6 +61,7 @@ async function main() {
   const githubBackupRouter   = require('./routes/github-backup');
   const referralsRouter      = require('./routes/referrals');
   const linkedinFeedRouter   = require('./routes/linkedin-feed');
+  const deliveryRouter       = require('./routes/delivery');
   const { performScrape, getSettings } = require('./routes/apify');
   const { sendReminderEmail } = require('./routes/reminder');
 
@@ -105,6 +106,7 @@ async function main() {
   app.use('/api/github-backup',   githubBackupRouter);
   app.use('/api/referrals',       referralsRouter);
   app.use('/api/linkedin-feed',   linkedinFeedRouter);
+  app.use('/api/delivery',        deliveryRouter);
   app.get('/api/health', (_, res) =>
     res.json({ status: 'ok', timestamp: new Date().toISOString() })
   );

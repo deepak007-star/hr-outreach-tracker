@@ -42,7 +42,13 @@ function PreviewCard({ p, index }) {
         </div>
         <div className="flex items-center gap-2 shrink-0 ml-2">
           {p.blocked
-            ? <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full whitespace-nowrap">⚠ {p.blockReason}</span>
+            ? <span className={`text-xs px-2 py-0.5 rounded-full whitespace-nowrap ${
+                p.blockType === 'hard_bounce' || p.blockType === 'flagged'
+                  ? 'bg-red-100 text-red-700'
+                  : 'bg-yellow-100 text-yellow-700'
+              }`}>
+                {p.blockType === 'hard_bounce' ? '⛔' : p.blockType === 'flagged' ? '🚫' : '⚠'} {p.blockReason}
+              </span>
             : <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✓ Send</span>
           }
           <span className="text-gray-400 text-xs">{expanded ? '▲' : '▼'}</span>
@@ -121,8 +127,10 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
       });
       if (sent > 0)    toast.success(`${sent} email${sent !== 1 ? 's' : ''} sent!`);
       if (failed > 0)  toast.error(`${failed} failed`);
-      const bounced = results.filter(r => r.bounced);
-      if (bounced.length) toast(`${bounced.length} bounced → marked Do Not Contact`, { icon: '⚠️' });
+      const bounced       = results.filter(r => r.bounced);
+      const undeliverable = results.filter(r => r.deliverable === false && !r.bounced);
+      if (bounced.length)       toast(`${bounced.length} bounced → marked Do Not Contact`, { icon: '⚠️' });
+      if (undeliverable.length) toast.error(`${undeliverable.length} blocked — email undeliverable`);
       onSent();
     } catch (err) { toast.error(err.response?.data?.error || 'Send failed'); }
     finally       { setSending(false); }

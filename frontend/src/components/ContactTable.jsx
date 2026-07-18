@@ -195,6 +195,9 @@ export default function ContactTable({
                         {c.email_verified === 'invalid'      && <span title="Email domain invalid (no MX record)"        className="text-red-500  text-xs">✗</span>}
                         {c.email_verified === 'unverifiable' && <span title="Could not verify (DNS timeout or protected)" className="text-gray-400 text-xs">?</span>}
                         {(!c.email_verified || c.email_verified === 'pending') && <span title="Verification pending" className="text-yellow-500 text-xs">⏳</span>}
+                        {c.email_deliverable === 'hard_bounce' && <span title={`Hard bounce — address does not exist${c.bounce_reason ? ': ' + c.bounce_reason : ''}`} className="text-red-500 text-xs font-bold">⛔</span>}
+                        {c.email_deliverable === 'flagged'     && <span title="Flagged undeliverable — bounced for another user" className="text-red-600 text-xs font-bold">🚫</span>}
+                        {c.email_deliverable === 'soft_bounce' && <span title={`Soft bounce — temporary issue${c.bounce_reason ? ': ' + c.bounce_reason : ''}`} className="text-orange-500 text-xs">⚠</span>}
                       </span>
                     ) : (
                       <button

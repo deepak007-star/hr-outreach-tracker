@@ -360,6 +360,47 @@ async function initialize() {
   await db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_leads_email_unique ON leads (email)`).catch(() => {});
   // Schema: add status column to referral_requests
   await addCol('referral_requests', 'status', `TEXT NOT NULL DEFAULT 'pending'`);
+  // Delivery tracking: email_log enrichment
+  await addCol('email_log', 'user_id',           `TEXT REFERENCES users(id)`);
+  await addCol('email_log', 'delivery_status',   `TEXT NOT NULL DEFAULT 'sent'`);
+  await addCol('email_log', 'message_id',        `TEXT`);
+  await addCol('email_log', 'bounce_reason',     `TEXT`);
+  await addCol('email_log', 'bounced_at',        `TEXT`);
+  // Delivery tracking: contact-level deliverability intelligence
+  await addCol('contacts', 'email_deliverable', `TEXT NOT NULL DEFAULT 'unknown'`);
+  await addCol('contacts', 'bounce_count',      `INTEGER NOT NULL DEFAULT 0`);
+  await addCol('contacts', 'last_bounce_at',    `TEXT`);
+  await addCol('contacts', 'bounce_reason',     `TEXT`);
+  // Delivery audit trail + billing foundation
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS email_delivery_events (
+      id             TEXT PRIMARY KEY,
+      email_log_id   TEXT REFERENCES email_log(id) ON DELETE CASCADE,
+      contact_id     TEXT REFERENCES contacts(id) ON DELETE SET NULL,
+      user_id        TEXT REFERENCES users(id),
+      event_type     TEXT NOT NULL,
+      message_id     TEXT,
+      bounce_reason  TEXT,
+      raw_data       TEXT NOT NULL DEFAULT '{}',
+      created_at     TEXT NOT NULL DEFAULT (${NOW_EXPR})
+    );
+    CREATE TABLE IF NOT EXISTS delivery_billing_stats (
+      id               TEXT PRIMARY KEY,
+      user_id          TEXT NOT NULL REFERENCES users(id),
+      billing_month    TEXT NOT NULL,
+      emails_sent      INTEGER NOT NULL DEFAULT 0,
+      emails_delivered INTEGER NOT NULL DEFAULT 0,
+      emails_bounced   INTEGER NOT NULL DEFAULT 0,
+      emails_failed    INTEGER NOT NULL DEFAULT 0,
+      updated_at       TEXT NOT NULL DEFAULT (${NOW_EXPR}),
+      UNIQUE (user_id, billing_month)
+    );
+  `);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_delivery_events_log     ON email_delivery_events (email_log_id)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_delivery_events_contact ON email_delivery_events (contact_id)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_delivery_billing_user   ON delivery_billing_stats (user_id, billing_month)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_email_log_delivery      ON email_log (delivery_status)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_contacts_deliverable    ON contacts (email_deliverable)`);
 
   // ── RBAC seed ────────────────────────────────────────────────────────────────
   const PERMISSIONS = [
