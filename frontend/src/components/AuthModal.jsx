@@ -3,14 +3,52 @@ import { toast } from 'react-hot-toast';
 import { api } from '../api/client.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 
+// ── Defined OUTSIDE AuthModal so its identity is stable across re-renders ──
+function Field({ label, fkey, type, placeholder, hint, form, errors, set, showPass, setShowPass }) {
+  const inputType = type === 'password' ? (showPass ? 'text' : 'password') : (type || 'text');
+  const hasError  = !!errors[fkey];
+
+  return (
+    <div>
+      <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
+      <div className="relative">
+        <input
+          type={inputType}
+          value={form[fkey]}
+          onChange={e => set(fkey, e.target.value)}
+          onBlur={e => set(fkey, e.target.value.trim())}
+          placeholder={placeholder}
+          autoComplete={type === 'password' ? 'current-password' : fkey === 'identifier' ? 'username email' : 'name'}
+          className={`w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 outline-none transition
+            ${hasError ? 'border-red-400 focus:ring-red-200 bg-red-50' : 'border-gray-300 focus:ring-blue-200'}`}
+        />
+        {type === 'password' && (
+          <button
+            type="button"
+            onClick={() => setShowPass(v => !v)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs select-none"
+          >
+            {showPass ? 'Hide' : 'Show'}
+          </button>
+        )}
+      </div>
+      {hasError
+        ? <p className="mt-1 text-xs text-red-500 font-medium">{errors[fkey]}</p>
+        : hint && <p className="mt-1 text-xs text-gray-400">{hint}</p>
+      }
+    </div>
+  );
+}
+
+// ── Main modal ──────────────────────────────────────────────────────────────
 export default function AuthModal({ onClose }) {
   const { login } = useAuth();
   const [tab,      setTab]      = useState('login');
   const [loading,  setLoading]  = useState(false);
   const [showPass, setShowPass] = useState(false);
   const [errors,   setErrors]   = useState({});
+  const [form,     setForm]     = useState({ name: '', identifier: '', password: '', confirm: '' });
 
-  const [form, setForm] = useState({ name: '', identifier: '', password: '', confirm: '' });
   const set = (k, v) => {
     setForm(f => ({ ...f, [k]: v }));
     setErrors(e => ({ ...e, [k]: '', general: '' }));
@@ -57,52 +95,29 @@ export default function AuthModal({ onClose }) {
       onClose();
     } catch (err) {
       const msg = err.response?.data?.error || 'Something went wrong. Please try again.';
-      // Map server error to inline field error where possible
-      if (msg.toLowerCase().includes('password'))       setErrors({ password: msg });
-      else if (msg.toLowerCase().includes('email') || msg.toLowerCase().includes('username'))
-                                                        setErrors({ identifier: msg });
-      else if (msg.toLowerCase().includes('already'))   setErrors({ identifier: msg });
-      else                                              setErrors({ general: msg });
+      if (msg.toLowerCase().includes('password'))                                  setErrors({ password: msg });
+      else if (msg.toLowerCase().includes('email') || msg.toLowerCase().includes('username')) setErrors({ identifier: msg });
+      else if (msg.toLowerCase().includes('already'))                              setErrors({ identifier: msg });
+      else                                                                         setErrors({ general: msg });
     } finally {
       setLoading(false);
     }
   };
 
-  const switchTab = (t) => { setTab(t); setForm({ name: '', identifier: '', password: '', confirm: '' }); setErrors({}); };
+  const switchTab = (t) => {
+    setTab(t);
+    setForm({ name: '', identifier: '', password: '', confirm: '' });
+    setErrors({});
+    setShowPass(false);
+  };
 
-  const Field = ({ label, fkey, type = 'text', placeholder, hint }) => (
-    <div>
-      <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
-      <div className="relative">
-        <input
-          type={type === 'password' ? (showPass ? 'text' : 'password') : type}
-          value={form[fkey]}
-          onChange={e => set(fkey, e.target.value)}
-          onBlur={e => set(fkey, e.target.value.trim())}
-          placeholder={placeholder}
-          autoComplete={type === 'password' ? 'current-password' : fkey === 'identifier' ? 'username email' : 'name'}
-          className={`w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 outline-none transition
-            ${errors[fkey] ? 'border-red-400 focus:ring-red-200 bg-red-50' : 'border-gray-300 focus:ring-blue-200'}`}
-        />
-        {type === 'password' && (
-          <button
-            type="button"
-            onClick={() => setShowPass(v => !v)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs select-none"
-          >
-            {showPass ? 'Hide' : 'Show'}
-          </button>
-        )}
-      </div>
-      {errors[fkey]
-        ? <p className="mt-1 text-xs text-red-500 font-medium">{errors[fkey]}</p>
-        : hint && <p className="mt-1 text-xs text-gray-400">{hint}</p>
-      }
-    </div>
-  );
+  const fieldProps = { form, errors, set, showPass, setShowPass };
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={e => e.target === e.currentTarget && onClose()}>
+    <div
+      className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
+      onClick={e => e.target === e.currentTarget && onClose()}
+    >
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
 
         {/* Header */}
@@ -136,22 +151,20 @@ export default function AuthModal({ onClose }) {
         <form onSubmit={handleSubmit} className="p-5 space-y-4" noValidate>
 
           {tab === 'register' && (
-            <Field
-              label="Full Name"
-              fkey="name"
-              placeholder="Vishal Choudhary"
-            />
+            <Field {...fieldProps} label="Full Name" fkey="name" placeholder="Vishal Choudhary" />
           )}
 
           <Field
+            {...fieldProps}
             label={tab === 'login' ? 'Email or Username' : 'Email'}
             fkey="identifier"
             type={tab === 'register' ? 'email' : 'text'}
             placeholder={tab === 'login' ? 'you@example.com or your name' : 'you@example.com'}
-            hint={tab === 'login' ? 'You can use your email address or your display name' : undefined}
+            hint={tab === 'login' ? 'Use your email address or display name' : undefined}
           />
 
           <Field
+            {...fieldProps}
             label="Password"
             fkey="password"
             type="password"
@@ -160,12 +173,7 @@ export default function AuthModal({ onClose }) {
           />
 
           {tab === 'register' && (
-            <Field
-              label="Confirm Password"
-              fkey="confirm"
-              type="password"
-              placeholder="Repeat password"
-            />
+            <Field {...fieldProps} label="Confirm Password" fkey="confirm" type="password" placeholder="Repeat password" />
           )}
 
           {errors.general && (
