@@ -1,13 +1,25 @@
 services:
+  # ── Backend API (Node/Express) ────────────────────────────────────────────
   - type: web
     name: hr-outreach-tracker
     env: node
     rootDir: backend
-    # npm install triggers the postinstall which runs scripts/install-browsers.js.
-    # That wrapper tries --with-deps, falls back to plain install, and never
-    # exits non-zero — so the build succeeds even if system packages can't be
-    # installed (Render's Ubuntu image already has the Chromium deps).
     buildCommand: npm install
     startCommand: node src/index.js
     healthCheckPath: /api/health
     autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+  # ── Frontend (Vite/React static site) ────────────────────────────────────
+  - type: web
+    name: hr-outreach-tracker-frontend
+    env: static
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    rootDir: frontend
+    autoDeploy: true
+    envVars:
+      - key: VITE_API_URL
+        value: https://hr-outreach-tracker.onrender.com

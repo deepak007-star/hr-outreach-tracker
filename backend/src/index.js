@@ -64,8 +64,15 @@ async function main() {
 
   const cookieParser = require('cookie-parser');
   const app = express();
+  // Accept multiple origins: env var (single or comma-separated), plus localhost fallback
+  const rawOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
+    .split(',').map(o => o.trim()).filter(Boolean);
   app.use(cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    origin: (origin, cb) => {
+      // Allow server-to-server requests (origin undefined) and any listed origin
+      if (!origin || rawOrigins.includes(origin)) return cb(null, true);
+      cb(new Error(`CORS: ${origin} not allowed`));
+    },
     credentials: true,
   }));
   app.use(cookieParser());
