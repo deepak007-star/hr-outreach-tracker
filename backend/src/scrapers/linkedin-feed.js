@@ -55,16 +55,14 @@ const hasContact = c => c.emails.length || c.gforms.length || c.phones.length ||
 // ─── Browser ──────────────────────────────────────────────────────────────────
 
 async function launchBrowser() {
+  const headless = process.env.NODE_ENV === 'production' || process.env.HEADLESS === '1';
+  const args     = ['--no-sandbox', '--disable-dev-shm-usage', '--disable-infobars'];
   for (const channel of ['msedge', 'chrome']) {
     try {
-      return await chromium.launch({
-        headless: false,
-        channel,
-        args: ['--no-sandbox', '--disable-infobars'],
-      });
+      return await chromium.launch({ headless, channel, args });
     } catch (_) {}
   }
-  return chromium.launch({ headless: false });
+  return chromium.launch({ headless, args });
 }
 
 // ─── URL decoding (Node.js context — Buffer available here) ──────────────────

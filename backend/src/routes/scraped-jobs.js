@@ -1,8 +1,10 @@
 'use strict';
 
-const express = require('express');
-const db      = require('../db/database');
+const express  = require('express');
+const crypto   = require('crypto');
+const db       = require('../db/database');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { getTransportForUser } = require('../services/mailTransport');
 
 const router = express.Router();
 
@@ -112,6 +114,119 @@ router.post('/purge', requireAdmin, async (req, res) => {
       .run('purge_config', JSON.stringify(cfg));
 
     res.json({ deleted: result.changes, cutoff, retention_days: days });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── GET /api/scraped-jobs/feed-contacts ──────────────────────────────────────
+// Email contacts from the linkedin-feed scraper, with per-user "already emailed"
+// flag. Used by the Gmail Tracking tab for auto-synced cold-email leads.
+// Query params: since (7d|14d|30d|90d), limit, page, search
+
+router.get('/feed-contacts', requireAuth, async (req, res) => {
+  try {
+    const { since = '30d', limit = '200', page = '1', search } = req.query;
+    const limitNum = Math.min(parseInt(limit) || 100, 500);
+    const pageNum  = Math.max(parseInt(page)  || 1,   1);
+    const offset   = (pageNum - 1) * limitNum;
+
+    const daysMap = { '1d': 1, '3d': 3, '7d': 7, '14d': 14, '30d': 30, '90d': 90 };
+    const cutoff  = new Date(Date.now() - (daysMap[since] || 30) * 86_400_000)
+      .toISOString().replace('T', ' ').slice(0, 19);
+
+    const params = [cutoff];
+    let q = `SELECT * FROM scraped_jobs
+             WHERE scraper_type = 'linkedin-feed'
+               AND contact_email IS NOT NULL
+               AND contact_email != ''
+               AND created_at >= ?`;
+
+    if (search) {
+      q += ` AND (title ILIKE ? OR company ILIKE ? OR contact_email ILIKE ? OR description ILIKE ?)`;
+      const s = `%${search}%`;
+      params.push(s, s, s, s);
+    }
+
+    q += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+    params.push(limitNum, offset);
+
+    const contacts = await db.prepare(q).all(...params);
+
+    // Mark which ones the current user has already emailed
+    if (contacts.length) {
+      const emails    = [...new Set(contacts.map(c => c.contact_email).filter(Boolean))];
+      const placeholders = emails.map(() => '?').join(',');
+      const emailed   = await db.prepare(
+        `SELECT DISTINCT contact_email FROM gmail_tracked_emails WHERE user_id = ? AND contact_email IN (${placeholders})`
+      ).all(req.user.userId, ...emails);
+      const emailedSet = new Set(emailed.map(r => r.contact_email));
+      contacts.forEach(c => { c.already_emailed = emailedSet.has(c.contact_email) ? 1 : 0; });
+    }
+
+    res.json({ contacts, page: pageNum, limit: limitNum });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /api/scraped-jobs/send-feed-emails ──────────────────────────────────
+// Sends one separate email per contact and records each in gmail_tracked_emails.
+// Body: { subject, body, contacts: [{ email, name, company, title }] }
+
+router.post('/send-feed-emails', requireAuth, async (req, res) => {
+  try {
+    const { subject, body, contacts } = req.body;
+    if (!Array.isArray(contacts) || !contacts.length)
+      return res.status(400).json({ error: 'contacts[] required' });
+    if (!subject?.trim() || !body?.trim())
+      return res.status(400).json({ error: 'subject and body required' });
+
+    const mail = await getTransportForUser(req.user.userId);
+    if (!mail)
+      return res.status(400).json({
+        error: 'No email account connected. Connect Gmail or configure SMTP in Settings first.',
+      });
+
+    const { transport, fromEmail, fromName } = mail;
+    const now     = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const results = [];
+    const htmlBody = body.trim()
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/\n/g, '<br>');
+
+    for (const contact of contacts) {
+      const { email, name = '', company = '' } = contact;
+      if (!email) { results.push({ email, ok: false, error: 'Missing email' }); continue; }
+
+      try {
+        await transport.sendMail({
+          from:    fromName ? `"${fromName}" <${fromEmail}>` : fromEmail,
+          to:      name ? `"${name}" <${email}>` : email,
+          subject: subject.trim(),
+          text:    body.trim(),
+          html:    `<div style="font-family:sans-serif;font-size:14px;line-height:1.7">${htmlBody}</div>`,
+        });
+
+        await db.prepare(`
+          INSERT INTO gmail_tracked_emails
+            (id, user_id, contact_email, contact_name, subject, body_snippet, full_body, sent_at, email_status)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'sent')
+          ON CONFLICT DO NOTHING
+        `).run(
+          crypto.randomUUID(), req.user.userId,
+          email, name,
+          subject.trim(), body.trim().slice(0, 200), body.trim(), now
+        );
+
+        results.push({ email, ok: true });
+      } catch (e) {
+        results.push({ email, ok: false, error: e.message });
+      }
+    }
+
+    const sent = results.filter(r => r.ok).length;
+    res.json({ sent, total: results.length, results });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

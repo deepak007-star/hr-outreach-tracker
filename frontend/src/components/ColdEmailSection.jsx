@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext.jsx';
-import GmailConnectCard from './GmailConnectCard.jsx';
-import GmailEmailList from './GmailEmailList.jsx';
-import LinkedInPosts from './LinkedInPosts.jsx';
+import GmailConnectCard  from './GmailConnectCard.jsx';
+import GmailEmailList    from './GmailEmailList.jsx';
+import LinkedInPosts     from './LinkedInPosts.jsx';
+import FeedContactsPanel from './FeedContactsPanel.jsx';
 
 const SUB_TABS = [
   { id: 'gmail',    label: '📧 Gmail Tracking',   desc: 'Emails sent to HRs tracked from your Gmail' },
-  { id: 'linkedin', label: '💼 LinkedIn Feed',     desc: 'HR hiring posts from LinkedIn' },
+  { id: 'linkedin', label: '💼 LinkedIn Feed',     desc: 'HR hiring posts from LinkedIn feed scraper' },
 ];
 
 export default function ColdEmailSection() {
@@ -57,24 +58,40 @@ export default function ColdEmailSection() {
         ))}
       </div>
 
-      {/* Gmail tracking sub-tab */}
+      {/* ── Gmail Tracking tab ──────────────────────────────────────────────── */}
       {subTab === 'gmail' && (
-        <div className="bg-white rounded-b-xl rounded-tr-xl border border-t-0 p-4">
+        <div className="bg-white rounded-b-xl rounded-tr-xl border border-t-0 p-4 space-y-6">
           {!user ? (
             <div className="text-center py-10 text-gray-500">
               <p className="text-3xl mb-2">🔒</p>
               <p className="text-sm">Sign in to view your Gmail outreach tracking</p>
             </div>
           ) : (
-            <GmailEmailList
-              refreshKey={gmailRefresh}
-              myName={user?.name || ''}
-            />
+            <>
+              <GmailEmailList refreshKey={gmailRefresh} myName={user?.name || ''} />
+
+              {/* ── Auto-synced LinkedIn Feed contacts ───────────────────── */}
+              <div className="border-t pt-5 space-y-3">
+                <div className="flex items-center gap-2">
+                  <h3 className="font-semibold text-gray-800 text-sm">
+                    💼 LinkedIn Feed Contacts
+                  </h3>
+                  <span className="text-xs bg-blue-50 text-blue-700 border border-blue-100 px-2 py-0.5 rounded-full font-medium">
+                    Auto-synced
+                  </span>
+                </div>
+                <p className="text-xs text-gray-400">
+                  Email contacts found by the LinkedIn Feed scraper. Updated automatically — no manual import needed.
+                  Select one or many and send individual emails directly.
+                </p>
+                <FeedContactsPanel />
+              </div>
+            </>
           )}
         </div>
       )}
 
-      {/* LinkedIn Feed sub-tab */}
+      {/* ── LinkedIn Feed tab ────────────────────────────────────────────── */}
       {subTab === 'linkedin' && (
         <div className="bg-white rounded-b-xl rounded-tr-xl border border-t-0 p-4">
           <LinkedInPosts />
