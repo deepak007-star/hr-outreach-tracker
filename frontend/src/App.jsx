@@ -51,7 +51,7 @@ export default function App() {
   const [showPlans,        setShowPlans]        = useState(false);
   // contacts section sub-tabs: 'my' | 'cold-email' | 'job-links'
   const [contactSubTab,    setContactSubTab]    = useState('my');
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
 
   // Unsaved-changes guard: ProfilePage reports dirty state here
   const profileDirtyRef   = useRef(false);
@@ -106,6 +106,16 @@ export default function App() {
   useEffect(() => {
     api.get('/email/stats').then(setEmailStats).catch(() => {});
   }, [contacts]); // refresh stats whenever contacts list refreshes
+
+  // Session-expired event: show toast so user knows why they got logged out
+  useEffect(() => {
+    const onExpired = () => {
+      toast.error('Your session has expired. Please sign in again.', { id: 'session-expired', duration: 5000 });
+      setShowAuthModal(true);
+    };
+    window.addEventListener('hr-session-expired', onExpired);
+    return () => window.removeEventListener('hr-session-expired', onExpired);
+  }, []);
 
   // Listen for login requests dispatched from child components (e.g. JobAnalyzer)
   useEffect(() => {
@@ -242,6 +252,18 @@ export default function App() {
   const handleSendEmail   = (c) => requireAuth(() => openCompose([c]));
   const handleBulkCompose = ()  => requireAuth(() => openCompose(contacts.filter(c => selected.includes(c.id))));
   const handleSent = () => { setShowCompose(false); setSelected([]); setActivityKey(k => k + 1); fetchContacts(); };
+
+  // Block rendering until we know the auth state (prevents "Sign In" flash for logged-in users)
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3 text-gray-400">
+          <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm">Loading…</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">

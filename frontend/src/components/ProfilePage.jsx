@@ -6,6 +6,25 @@ import { extractSkills } from '../data/techSkills.js';
 import ProfileAnalyzer from './ProfileAnalyzer.jsx';
 import { getSuggestedSkills } from '../data/skillSuggestions.js';
 import { useDraft, readDraft, clearDraft, useBeforeUnload } from '../hooks/useDraft.js';
+import { invalidateCache } from '../api/client.js';
+
+const PROFILE_CACHE_KEY = 'ss:profile';
+const PROFILE_CACHE_TTL = 5 * 60 * 1000; // 5 min
+
+function readProfileCache() {
+  try {
+    const raw = sessionStorage.getItem(PROFILE_CACHE_KEY);
+    if (!raw) return null;
+    const { data, ts } = JSON.parse(raw);
+    return Date.now() - ts < PROFILE_CACHE_TTL ? data : null;
+  } catch { return null; }
+}
+function writeProfileCache(data) {
+  try { sessionStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify({ data, ts: Date.now() })); } catch {}
+}
+function clearProfileCache() {
+  try { sessionStorage.removeItem(PROFILE_CACHE_KEY); } catch {}
+}
 
 // ── Detection helpers ─────────────────────────────────────────────────────────
 function detectName(t)  { const lines = t.split('\n').map(l=>l.trim()).filter(Boolean); for (const l of lines.slice(0,6)) if (/^[A-Z][a-z]+([\s-][A-Z][a-z]+){1,3}$/.test(l)) return l; return ''; }
@@ -525,8 +544,19 @@ export default function ProfilePage({ onDirtyChange }) {
   useDraft('profile:hero', editHero ? heroForm : undefined);
 
   useEffect(() => {
+    // Render from cache immediately (no loading flash on tab switch)
+    const cached = readProfileCache();
+    if (cached) {
+      setProfile(cached);
+      const base = { full_name: cached.full_name || '' };
+      heroBaseRef.current = base;
+      const draft = readDraft('profile:hero');
+      if (!draft || JSON.stringify(draft) === JSON.stringify(base)) setHeroForm(base);
+    }
+    // Always fetch fresh in background to pick up server-side changes
     api.get('/profile').then(p => {
       setProfile(p);
+      writeProfileCache(p);
       const base = { full_name: p.full_name || '' };
       heroBaseRef.current = base;
       const draft = readDraft('profile:hero');
@@ -542,6 +572,8 @@ export default function ProfilePage({ onDirtyChange }) {
     const merged = { ...profile, ...updates };
     await api.put('/profile', merged);
     setProfile(merged);
+    writeProfileCache(merged);      // keep cache warm with the latest save
+    invalidateCache('/profile');    // bust any stale API-level cache entries
   }
 
   async function saveHero() {

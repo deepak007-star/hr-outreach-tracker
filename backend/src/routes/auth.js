@@ -7,8 +7,46 @@ const { requireAuth, SECRET } = require('../middleware/auth');
 
 const router = express.Router();
 
+// ── Cookie config ──────────────────────────────────────────────────────────
+const isProd = process.env.NODE_ENV === 'production';
+const COOKIE_OPTS = {
+  httpOnly: true,           // not readable by JS — primary XSS protection
+  secure:   isProd,         // HTTPS only in production
+  sameSite: isProd ? 'none' : 'lax', // 'none' needed for cross-domain in production
+  maxAge:   30 * 24 * 60 * 60 * 1000, // 30 days in ms
+  path:     '/',
+};
+const CLEAR_COOKIE_OPTS = { httpOnly: true, secure: isProd, sameSite: isProd ? 'none' : 'lax', path: '/' };
+
+// ── Per-IP auth rate limiter (10 attempts / 15 min) ───────────────────────
+const _authAttempts = new Map(); // ip -> { count, resetAt }
+function checkAuthRate(ip) {
+  const now = Date.now();
+  const rec = _authAttempts.get(ip);
+  if (!rec || now > rec.resetAt) {
+    _authAttempts.set(ip, { count: 1, resetAt: now + 15 * 60 * 1000 });
+    return true;
+  }
+  if (rec.count >= 10) return false;
+  rec.count++;
+  return true;
+}
+// Clean up old entries every hour
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of _authAttempts) if (now > v.resetAt) _authAttempts.delete(k);
+}, 60 * 60 * 1000);
+
+function authRateLimit(req, res, next) {
+  const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+  if (!checkAuthRate(ip)) {
+    return res.status(429).json({ error: 'Too many login attempts. Please wait 15 minutes and try again.' });
+  }
+  next();
+}
+
 // ── POST /api/auth/register ────────────────────────────────────────────────
-router.post('/register', async (req, res) => {
+router.post('/register', authRateLimit, async (req, res) => {
   const { name, email, password } = req.body;
   if (!name?.trim())     return res.status(400).json({ error: 'Name is required.' });
   if (!email?.trim())    return res.status(400).json({ error: 'Email is required.' });
@@ -28,21 +66,20 @@ router.post('/register', async (req, res) => {
   await db.prepare('INSERT INTO users (id, name, email, password_hash, role) VALUES (?, ?, ?, ?, ?)')
     .run(id, name.trim(), email.toLowerCase().trim(), hash, role);
 
-  // Create empty profile row
   await db.prepare('INSERT INTO profiles (user_id, full_name) VALUES (?, ?)').run(id, name.trim());
 
   const token = jwt.sign({ userId: id, plan: 'demo', role }, SECRET, { expiresIn: '30d' });
+  res.cookie('hr_session', token, COOKIE_OPTS);
   res.status(201).json({ token, user: { id, name: name.trim(), email: email.toLowerCase().trim(), plan: 'demo', role } });
 });
 
 // ── POST /api/auth/login ───────────────────────────────────────────────────
-router.post('/login', async (req, res) => {
+router.post('/login', authRateLimit, async (req, res) => {
   const { email, password } = req.body;
   const identifier = email?.trim();
   if (!identifier || !password?.trim())
     return res.status(400).json({ error: 'Email/username and password are required.' });
 
-  // Try email first, then name (case-insensitive)
   let user = await db.prepare('SELECT * FROM users WHERE LOWER(email) = ?').get(identifier.toLowerCase());
   if (!user) {
     user = await db.prepare('SELECT * FROM users WHERE LOWER(name) = ?').get(identifier.toLowerCase());
@@ -52,24 +89,42 @@ router.post('/login', async (req, res) => {
   const ok = await bcrypt.compare(password, user.password_hash);
   if (!ok)  return res.status(401).json({ error: 'Incorrect password.' });
 
-  const role = user.role || 'user';
-  const token = jwt.sign({ userId: user.id, plan: user.plan || 'demo', role }, SECRET, { expiresIn: '30d' });
-  res.json({ token, user: { id: user.id, name: user.name, email: user.email, plan: user.plan || 'demo', role } });
+  const role  = user.role  || 'user';
+  const plan  = user.plan  || 'demo';
+  const token = jwt.sign({ userId: user.id, plan, role }, SECRET, { expiresIn: '30d' });
+  res.cookie('hr_session', token, COOKIE_OPTS);
+  res.json({ token, user: { id: user.id, name: user.name, email: user.email, plan, role } });
 });
 
-// ── GET /api/auth/me ─────────────────────────��─────────────────────────────
+// ── GET /api/auth/me ───────────────────────────────────────────────────────
+// Always issues a fresh token so the session stays alive as long as the user is active
 router.get('/me', requireAuth, async (req, res) => {
   const user = await db.prepare('SELECT id, name, email, plan, role, created_at FROM users WHERE id = ?').get(req.user.userId);
   if (!user) return res.status(404).json({ error: 'User not found.' });
-  res.json(user);
+
+  // Roll a fresh token — extends the session on every successful /me call
+  const freshToken = jwt.sign(
+    { userId: user.id, plan: user.plan, role: user.role },
+    SECRET,
+    { expiresIn: '30d' }
+  );
+  res.cookie('hr_session', freshToken, COOKIE_OPTS);
+  // Return the fresh token in the body so the frontend can update localStorage
+  res.json({ ...user, _token: freshToken });
 });
 
-// ── GET /api/auth/whoami  (no-auth debug — see exactly what DB has for any email)
+// ── POST /api/auth/logout ──────────────────────────────────────────────────
+router.post('/logout', (req, res) => {
+  res.clearCookie('hr_session', CLEAR_COOKIE_OPTS);
+  res.json({ success: true });
+});
+
+// ── GET /api/auth/whoami  (debug — no auth required) ──────────────────────
 router.get('/whoami', async (req, res) => {
   const { email } = req.query;
   if (!email) return res.status(400).json({ error: 'Pass ?email=... to check' });
   const user = await db.prepare('SELECT id, name, email, role, plan, created_at FROM users WHERE LOWER(email) = ?').get(email.toLowerCase().trim());
-  if (!user) return res.json({ found: false, email, message: 'No row in public.users for this email — wrong DB or user never registered via the app' });
+  if (!user) return res.json({ found: false, email, message: 'No row in public.users for this email' });
   res.json({ found: true, ...user });
 });
 

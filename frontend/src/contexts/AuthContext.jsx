@@ -1,59 +1,110 @@
-import { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { api } from '../api/client.js';
+import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import { api, invalidateCache } from '../api/client.js';
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user,    setUser]    = useState(null);
   const [loading, setLoading] = useState(true);
-  // keep a stable ref so event listeners always call the latest sync
   const syncRef = useRef(null);
 
+  // ── Core sync: fetch fresh user from /auth/me ────────────────────────────
+  // Also receives a fresh JWT from the server and updates localStorage so
+  // the session rolls forward on every active use (never expires mid-session).
+  const sync = useCallback(() =>
+    api.get('/auth/me')
+      .then(u => {
+        // Server returns _token when rolling a fresh JWT — persist it
+        if (u._token) {
+          localStorage.setItem('hr_token', u._token);
+          const { _token, ...userData } = u;
+          setUser(userData);
+        } else {
+          setUser(u);
+        }
+      })
+      .catch(err => {
+        const status = err?.response?.status;
+        // Only clear session on explicit auth rejection; ignore network errors
+        if (status === 401 || status === 403) {
+          localStorage.removeItem('hr_token');
+          setUser(null);
+        }
+      }),
+  []);
+
+  // Store stable ref so event listeners always call the latest sync
+  useEffect(() => { syncRef.current = sync; }, [sync]);
+
+  // ── Initial session restore ──────────────────────────────────────────────
   useEffect(() => {
     const token = localStorage.getItem('hr_token');
     if (!token) { setLoading(false); return; }
-
-    const sync = () =>
-      api.get('/auth/me')
-        .then(u => setUser(u))
-        .catch(err => {
-          // Only log out on auth errors — ignore network/server hiccups
-          const status = err?.response?.status;
-          if (status === 401 || status === 403) {
-            localStorage.removeItem('hr_token');
-            setUser(null);
-          }
-        });
-
-    syncRef.current = sync;
-
     sync().finally(() => setLoading(false));
 
-    // visibilitychange fires when switching browser tabs (focus only fires for window)
-    const onVisible = () => { if (document.visibilityState === 'visible') sync(); };
+    // Refresh when user comes back to the tab
+    const onVisible = () => { if (document.visibilityState === 'visible') syncRef.current?.(); };
     document.addEventListener('visibilitychange', onVisible);
-    window.addEventListener('focus', sync);
-    // Background poll — catches changes even if the tab stays open and focused
-    const interval = setInterval(sync, 30_000);
+    window.addEventListener('focus', () => syncRef.current?.());
+    // Background poll — ensures role/plan changes propagate within 30s
+    const interval = setInterval(() => syncRef.current?.(), 30_000);
 
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
-      window.removeEventListener('focus', sync);
+      window.removeEventListener('focus', () => syncRef.current?.());
       clearInterval(interval);
     };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Cross-tab session sync ───────────────────────────────────────────────
+  // If the user logs out in another tab, this tab clears immediately.
+  // If the user logs in in another tab, this tab picks it up.
+  useEffect(() => {
+    const onStorage = (e) => {
+      if (e.key !== 'hr_token') return;
+      if (!e.newValue) {
+        setUser(null); // logged out elsewhere
+      } else {
+        syncRef.current?.(); // logged in elsewhere — sync user data
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
   }, []);
 
-  const login = (token, userData) => {
+  // ── Global session-expired handler ──────────────────────────────────────
+  // The API client fires this event when any request returns 401 (except
+  // login/register which legitimately return 401 for wrong credentials).
+  useEffect(() => {
+    const onExpired = () => {
+      localStorage.removeItem('hr_token');
+      invalidateCache(); // clear all cached API responses
+      setUser(null);
+    };
+    window.addEventListener('hr-session-expired', onExpired);
+    return () => window.removeEventListener('hr-session-expired', onExpired);
+  }, []);
+
+  // ── login ────────────────────────────────────────────────────────────────
+  const login = useCallback((token, userData) => {
     localStorage.setItem('hr_token', token);
     setUser(userData);
-    // Immediately re-fetch from DB so role/plan are always fresh after login
-    api.get('/auth/me').then(u => setUser(u)).catch(() => {});
-  };
+    // Immediately re-fetch from DB to get the definitive role/plan
+    sync();
+  }, [sync]);
 
-  const logout = () => {
+  // ── logout ───────────────────────────────────────────────────────────────
+  const logout = useCallback(async () => {
+    try {
+      // Clear the httpOnly cookie on the server side
+      await api.post('/auth/logout');
+    } catch {
+      // Even if the server call fails, clear local state
+    }
     localStorage.removeItem('hr_token');
+    invalidateCache();
     setUser(null);
-  };
+  }, []);
 
   return (
     <AuthContext.Provider value={{ user, loading, login, logout }}>
