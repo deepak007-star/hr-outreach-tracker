@@ -13,8 +13,24 @@ async function main() {
   if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
   // Initialise DB before any routes touch it
+  const dbUrl = process.env.DATABASE_URL || 'postgres://localhost/hr_outreach_tracker';
+  const maskedUrl = dbUrl.replace(/:\/\/([^:]+):([^@]+)@/, '://$1:***@');
+  console.log(`[DB] Connecting to: ${maskedUrl}`);
   await database.initialize();
-  console.log('Database ready');
+  console.log('[DB] Ready');
+
+  // Log current user roles so we can verify data on startup
+  try {
+    const users = await database.prepare('SELECT email, role, plan FROM users ORDER BY created_at ASC').all();
+    if (users.length === 0) {
+      console.log('[DB] users table is EMPTY — no accounts exist yet');
+    } else {
+      console.log('[DB] Users in database:');
+      users.forEach(u => console.log(`  ${u.email}  role=${u.role}  plan=${u.plan}`));
+    }
+  } catch (e) {
+    console.error('[DB] Could not read users table:', e.message);
+  }
 
   // Wire permission cache to the live DB instance
   const { setPermCacheDb } = require('./middleware/auth');
