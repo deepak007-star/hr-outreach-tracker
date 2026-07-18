@@ -38,13 +38,19 @@ router.post('/register', async (req, res) => {
 // ── POST /api/auth/login ───────────────────────────────────────────────────
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
-  if (!email || !password) return res.status(400).json({ error: 'Email and password are required.' });
+  const identifier = email?.trim();
+  if (!identifier || !password?.trim())
+    return res.status(400).json({ error: 'Email/username and password are required.' });
 
-  const user = await db.prepare('SELECT * FROM users WHERE email = ?').get(email.toLowerCase().trim());
-  if (!user) return res.status(401).json({ error: 'Invalid email or password.' });
+  // Try email first, then name (case-insensitive)
+  let user = await db.prepare('SELECT * FROM users WHERE LOWER(email) = ?').get(identifier.toLowerCase());
+  if (!user) {
+    user = await db.prepare('SELECT * FROM users WHERE LOWER(name) = ?').get(identifier.toLowerCase());
+  }
+  if (!user) return res.status(401).json({ error: 'No account found with that email or username.' });
 
   const ok = await bcrypt.compare(password, user.password_hash);
-  if (!ok)  return res.status(401).json({ error: 'Invalid email or password.' });
+  if (!ok)  return res.status(401).json({ error: 'Incorrect password.' });
 
   const role = user.role || 'user';
   const token = jwt.sign({ userId: user.id, plan: user.plan || 'demo', role }, SECRET, { expiresIn: '30d' });
