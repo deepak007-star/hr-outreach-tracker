@@ -230,6 +230,28 @@ async function initialize() {
       last_synced_at   TEXT,
       created_at       TEXT NOT NULL DEFAULT (${NOW_EXPR})
     );
+
+    CREATE TABLE IF NOT EXISTS roles (
+      id          TEXT PRIMARY KEY,
+      name        TEXT UNIQUE NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      is_system   INTEGER NOT NULL DEFAULT 0,
+      created_at  TEXT NOT NULL DEFAULT (${NOW_EXPR})
+    );
+
+    CREATE TABLE IF NOT EXISTS permissions (
+      id          TEXT PRIMARY KEY,
+      name        TEXT UNIQUE NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      resource    TEXT NOT NULL DEFAULT '',
+      created_at  TEXT NOT NULL DEFAULT (${NOW_EXPR})
+    );
+
+    CREATE TABLE IF NOT EXISTS role_permissions (
+      role_id       TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+      permission_id TEXT NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+      PRIMARY KEY (role_id, permission_id)
+    );
   `);
 
   const defaults = {
@@ -266,7 +288,70 @@ async function initialize() {
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_gmail_tracked_user ON gmail_tracked_emails (user_id, sent_at)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_gmail_tracked_status ON gmail_tracked_emails (user_id, email_status)`);
 
-  // Promote first registered user to admin if no admin exists
+  // ── RBAC seed ────────────────────────────────────────────────────────────────
+  const PERMISSIONS = [
+    // Contacts
+    { id: 'perm_contacts_read',    name: 'contacts:read',    description: 'View contacts list',        resource: 'contacts' },
+    { id: 'perm_contacts_write',   name: 'contacts:write',   description: 'Add and edit contacts',     resource: 'contacts' },
+    { id: 'perm_contacts_delete',  name: 'contacts:delete',  description: 'Delete contacts',           resource: 'contacts' },
+    { id: 'perm_contacts_import',  name: 'contacts:import',  description: 'Import contacts from file', resource: 'contacts' },
+    { id: 'perm_contacts_export',  name: 'contacts:export',  description: 'Export contacts to Excel',  resource: 'contacts' },
+    // Email
+    { id: 'perm_email_send',       name: 'email:send',       description: 'Send outreach emails',      resource: 'email' },
+    { id: 'perm_email_templates',  name: 'email:templates',  description: 'Manage email templates',    resource: 'email' },
+    // Jobs & Scraper
+    { id: 'perm_scraper_run',      name: 'scraper:run',      description: 'Run job scrapers',          resource: 'jobs' },
+    { id: 'perm_jobs_read',        name: 'jobs:read',        description: 'View scraped jobs',         resource: 'jobs' },
+    { id: 'perm_gmail_connect',    name: 'gmail:connect',    description: 'Connect and sync Gmail',    resource: 'jobs' },
+    // Profile
+    { id: 'perm_profile_read',     name: 'profile:read',     description: 'View own profile',          resource: 'profile' },
+    { id: 'perm_profile_write',    name: 'profile:write',    description: 'Edit own profile',          resource: 'profile' },
+    // Admin
+    { id: 'perm_admin_access',     name: 'admin:access',     description: 'Access admin panel',        resource: 'admin' },
+    { id: 'perm_admin_users',      name: 'admin:users',      description: 'Manage users',              resource: 'admin' },
+    { id: 'perm_admin_roles',      name: 'admin:roles',      description: 'Manage roles & permissions',resource: 'admin' },
+    { id: 'perm_admin_settings',   name: 'admin:settings',   description: 'Manage system settings',    resource: 'admin' },
+    { id: 'perm_admin_data',       name: 'admin:data',       description: 'Manage data backup & purge',resource: 'admin' },
+  ];
+
+  const ROLES = [
+    {
+      id: 'role_admin', name: 'admin', description: 'Full system access', is_system: 1,
+      permissions: PERMISSIONS.map(p => p.id),
+    },
+    {
+      id: 'role_user', name: 'user', description: 'Standard user access', is_system: 1,
+      permissions: ['perm_contacts_read','perm_contacts_write','perm_contacts_delete',
+                    'perm_contacts_import','perm_contacts_export','perm_email_send',
+                    'perm_email_templates','perm_scraper_run','perm_jobs_read',
+                    'perm_gmail_connect','perm_profile_read','perm_profile_write'],
+    },
+    {
+      id: 'role_demo', name: 'demo', description: 'Limited demo access (10 contacts cap)', is_system: 1,
+      permissions: ['perm_contacts_read','perm_contacts_write','perm_jobs_read',
+                    'perm_profile_read','perm_profile_write'],
+    },
+    {
+      id: 'role_guest', name: 'guest', description: 'Read-only guest access (5 contacts cap)', is_system: 1,
+      permissions: ['perm_contacts_read','perm_jobs_read','perm_profile_read'],
+    },
+  ];
+
+  const insPerm = db.prepare('INSERT INTO permissions (id,name,description,resource) VALUES (?,?,?,?) ON CONFLICT (name) DO NOTHING');
+  for (const p of PERMISSIONS) await insPerm.run(p.id, p.name, p.description, p.resource);
+
+  const insRole = db.prepare('INSERT INTO roles (id,name,description,is_system) VALUES (?,?,?,?) ON CONFLICT (name) DO NOTHING');
+  for (const r of ROLES) {
+    await insRole.run(r.id, r.name, r.description, r.is_system);
+    // Seed permissions only if role has none yet
+    const existing = await db.prepare('SELECT COUNT(*) as n FROM role_permissions WHERE role_id = ?').get(r.id);
+    if (existing?.n === 0) {
+      const insRp = db.prepare('INSERT INTO role_permissions (role_id, permission_id) VALUES (?,?) ON CONFLICT DO NOTHING');
+      for (const pid of r.permissions) await insRp.run(r.id, pid);
+    }
+  }
+
+  // ── Promote first registered user to admin if no admin exists
   const adminExists = await db.prepare('SELECT id FROM users WHERE role = ?').get('admin');
   if (!adminExists) {
     const firstUser = await db.prepare('SELECT id FROM users ORDER BY created_at ASC LIMIT 1').get();

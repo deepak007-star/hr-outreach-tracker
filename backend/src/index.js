@@ -16,6 +16,10 @@ async function main() {
   await database.initialize();
   console.log('Database ready');
 
+  // Wire permission cache to the live DB instance
+  const { setPermCacheDb } = require('./middleware/auth');
+  setPermCacheDb(database);
+
   const contactsRouter       = require('./routes/contacts');
   const settingsRouter       = require('./routes/settings');
   const emailRouter          = require('./routes/email');
@@ -33,6 +37,7 @@ async function main() {
   const emailVerifyRouter    = require('./routes/emailVerify');
   const adminRouter          = require('./routes/admin');
   const oauthRouter          = require('./routes/oauth');
+  const rbacRouter           = require('./routes/rbac');
   const scraperRouter        = require('./routes/scraper');
   const scrapedJobsRouter    = require('./routes/scraped-jobs');
   const gmailRouter          = require('./routes/gmail');
@@ -61,6 +66,7 @@ async function main() {
   app.use('/api/email-verify',    emailVerifyRouter);
   app.use('/api/admin',           adminRouter);
   app.use('/api/oauth',           oauthRouter);
+  app.use('/api/rbac',            rbacRouter);
   app.use('/api/scraper',         scraperRouter);
   app.use('/api/scraped-jobs',    scrapedJobsRouter);
   app.use('/api/gmail',           gmailRouter);

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { toast } from 'react-hot-toast';
 import { api } from '../api/client.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
+import RolesPermissions from './RolesPermissions.jsx';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const PLANS  = ['guest', 'demo', 'basic', 'advanced'];
@@ -504,13 +505,20 @@ function LeadsSection() {
 // ── Users Section ──────────────────────────────────────────────────────────
 function UsersSection() {
   const { user: me }  = useAuth();
-  const [users,   setUsers]   = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [search,  setSearch]  = useState('');
+  const [users,     setUsers]     = useState([]);
+  const [allRoles,  setAllRoles]  = useState([]);
+  const [loading,   setLoading]   = useState(true);
+  const [search,    setSearch]    = useState('');
 
   const load = useCallback(() => {
     setLoading(true);
-    api.get('/admin/users').then(setUsers).catch(() => toast.error('Failed to load users')).finally(() => setLoading(false));
+    Promise.all([
+      api.get('/admin/users'),
+      api.get('/rbac/roles'),
+    ]).then(([u, r]) => {
+      setUsers(u);
+      setAllRoles(r.map(role => role.name));
+    }).catch(() => toast.error('Failed to load users')).finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -606,7 +614,7 @@ function UsersSection() {
                       ) : (
                         <select value={u.role} onChange={e => changeRole(u.id, e.target.value)}
                           className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-blue-300 cursor-pointer">
-                          {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                          {allRoles.map(r => <option key={r} value={r}>{r}</option>)}
                         </select>
                       )}
                     </td>
@@ -854,9 +862,10 @@ export default function AdminPanel() {
   }
 
   const TABS = [
-    { id: 'leads', icon: '🚀', label: 'Interest Leads'  },
-    { id: 'users', icon: '👥', label: 'User Management' },
-    { id: 'data',  icon: '🗄️', label: 'Data &amp; Backup' },
+    { id: 'leads', icon: '🚀', label: 'Interest Leads'       },
+    { id: 'users', icon: '👥', label: 'User Management'      },
+    { id: 'roles', icon: '🔐', label: 'Roles & Permissions'  },
+    { id: 'data',  icon: '🗄️', label: 'Data &amp; Backup'   },
   ];
 
   return (
@@ -890,6 +899,17 @@ export default function AdminPanel() {
 
       {tab === 'leads' && <LeadsSection />}
       {tab === 'users' && <UsersSection />}
+      {tab === 'roles' && (
+        <div className="bg-white border rounded-2xl p-5">
+          <div className="mb-4">
+            <h2 className="text-base font-bold text-gray-800">Roles & Permissions</h2>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Select a role on the left to view and edit its permissions. Changes take effect on the user's next request.
+            </p>
+          </div>
+          <RolesPermissions />
+        </div>
+      )}
       {tab === 'data'  && <DataManagementSection />}
     </div>
   );

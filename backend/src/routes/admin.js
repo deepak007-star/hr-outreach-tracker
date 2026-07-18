@@ -1,3 +1,5 @@
+'use strict';
+
 const express = require('express');
 const db      = require('../db/database');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
@@ -5,7 +7,6 @@ const { requireAuth, requireAdmin } = require('../middleware/auth');
 const router = express.Router();
 router.use(requireAuth, requireAdmin);
 
-const VALID_ROLES = ['admin', 'user'];
 const VALID_PLANS = ['guest', 'demo', 'basic', 'advanced'];
 
 // GET /api/admin/users
@@ -19,7 +20,10 @@ router.get('/users', async (req, res) => {
 // PUT /api/admin/users/:id/role
 router.put('/users/:id/role', async (req, res) => {
   const { role } = req.body;
-  if (!VALID_ROLES.includes(role)) return res.status(400).json({ error: 'Invalid role' });
+  if (!role?.trim()) return res.status(400).json({ error: 'Role is required' });
+  // Verify role exists in DB
+  const roleRow = await db.prepare('SELECT id FROM roles WHERE name = ?').get(role);
+  if (!roleRow) return res.status(400).json({ error: 'Invalid role — not found in roles table' });
   if (req.params.id === req.user.userId)
     return res.status(400).json({ error: "You can't change your own role" });
   await db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, req.params.id);
