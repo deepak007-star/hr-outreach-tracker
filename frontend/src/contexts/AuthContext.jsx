@@ -7,15 +7,26 @@ export function AuthProvider({ children }) {
   const [user,    setUser]    = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // On mount: validate saved token
   useEffect(() => {
     const token = localStorage.getItem('hr_token');
     if (!token) { setLoading(false); return; }
 
-    api.get('/auth/me')
-      .then(u => setUser(u))
-      .catch(() => localStorage.removeItem('hr_token'))
-      .finally(() => setLoading(false));
+    const sync = () =>
+      api.get('/auth/me')
+        .then(u => setUser(u))
+        .catch(() => { localStorage.removeItem('hr_token'); setUser(null); });
+
+    sync().finally(() => setLoading(false));
+
+    // Re-sync when user focuses the tab (catches manual DB updates instantly)
+    window.addEventListener('focus', sync);
+    // Background poll — keeps data fresh even without tab focus
+    const interval = setInterval(sync, 60_000);
+
+    return () => {
+      window.removeEventListener('focus', sync);
+      clearInterval(interval);
+    };
   }, []);
 
   const login = (token, userData) => {

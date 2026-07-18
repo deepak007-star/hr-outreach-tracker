@@ -26,15 +26,22 @@ async function getRolePermissions(roleName) {
   return set;
 }
 
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
   const token  = header.startsWith('Bearer ') ? header.slice(7) : null;
   if (!token) return res.status(401).json({ error: 'Authentication required.' });
   try {
-    req.user = jwt.verify(token, SECRET);
+    const decoded = jwt.verify(token, SECRET);
+    // Always read fresh role/plan from DB so manual DB updates are reflected immediately
+    if (_cacheDb) {
+      const row = await _cacheDb.prepare('SELECT role, plan FROM users WHERE id = ?').get(decoded.userId);
+      if (row) { decoded.role = row.role; decoded.plan = row.plan; }
+    }
+    req.user = decoded;
     next();
-  } catch {
-    res.status(401).json({ error: 'Invalid or expired token. Please log in again.' });
+  } catch (e) {
+    const authErr = e.name === 'JsonWebTokenError' || e.name === 'TokenExpiredError';
+    res.status(401).json({ error: authErr ? 'Invalid or expired token. Please log in again.' : 'Authentication failed.' });
   }
 }
 
