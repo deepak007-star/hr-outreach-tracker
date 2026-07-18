@@ -29,7 +29,7 @@ router.get('/', requireAuth, async (req, res) => {
     // Compute cutoff timestamp based on 'since' param
     function sinceToCutoff(s) {
       const now = Date.now();
-      const map = { '1d': 1, '3d': 3, '7d': 7, '24d': 24, '30d': 30 };
+      const map = { '1d': 1, '3d': 3, '7d': 7, '14d': 14, '30d': 30 };
       const days = map[s] || 7;
       return new Date(now - days * 86_400_000).toISOString().replace('T', ' ').slice(0, 19);
     }

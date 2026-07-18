@@ -264,12 +264,15 @@ export default function AskReferral() {
   const filtered = users.filter(u => {
     if (!search.trim()) return true;
     const q = search.toLowerCase();
+    let skills = [];
+    try { skills = JSON.parse(u.skills || '[]'); } catch {}
     return (
       u.name?.toLowerCase().includes(q) ||
       u.email?.toLowerCase().includes(q) ||
       u.current_title?.toLowerCase().includes(q) ||
       u.current_company?.toLowerCase().includes(q) ||
-      u.location?.toLowerCase().includes(q)
+      u.location?.toLowerCase().includes(q) ||
+      skills.some(s => s.toLowerCase().includes(q))
     );
   });
 

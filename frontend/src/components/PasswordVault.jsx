@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { toast } from 'react-hot-toast';
 import { api } from '../api/client.js';
 
 const CATEGORIES = ['general', 'job-board', 'social', 'email', 'banking', 'work', 'other'];
@@ -191,7 +192,9 @@ function VaultCard({ entry, onEdit, onDelete, revealEndpoint }) {
             <p className="text-xs text-gray-500 truncate">{entry.username}</p>
           )}
           {entry.url && (
-            <p className="text-xs text-gray-400 truncate">{entry.url}</p>
+            <a href={/^https?:\/\//.test(entry.url) ? entry.url : `https://${entry.url}`}
+               target="_blank" rel="noopener noreferrer"
+               className="text-xs text-blue-500 hover:underline truncate block">{entry.url}</a>
           )}
         </div>
         <div className="flex gap-1 shrink-0">
@@ -273,8 +276,8 @@ export default function PasswordVault({ isAdmin = false }) {
   useEffect(() => { load(); }, [load]);
 
   const handleSave = async (form) => {
-    if (!form.title.trim()) return alert('Title is required');
-    if (!editing && !form.password.trim()) return alert('Password is required');
+    if (!form.title.trim()) return toast.error('Title is required');
+    if (!editing && !form.password.trim()) return toast.error('Password is required');
     setSaving(true);
     try {
       if (editing) {
@@ -285,20 +288,22 @@ export default function PasswordVault({ isAdmin = false }) {
       await load();
       setShowForm(false);
       setEditing(null);
+      toast.success(editing ? 'Entry updated' : 'Entry saved');
     } catch (e) {
-      alert(e?.response?.data?.error || 'Failed to save entry');
+      toast.error(e?.response?.data?.error || 'Failed to save entry');
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (entry) => {
-    if (!confirm(`Delete "${entry.title}"? This cannot be undone.`)) return;
+    if (!window.confirm(`Delete "${entry.title}"? This cannot be undone.`)) return;
     try {
       await api.delete(`/vault/${entry.id}`);
       setEntries(es => es.filter(e => e.id !== entry.id));
+      toast.success('Entry deleted');
     } catch (e) {
-      alert(e?.response?.data?.error || 'Failed to delete');
+      toast.error(e?.response?.data?.error || 'Failed to delete');
     }
   };
 

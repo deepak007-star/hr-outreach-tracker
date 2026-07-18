@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import PrepHub from './PrepHub.jsx';
 
@@ -89,6 +89,57 @@ function ImpactCard({ icon, value, label, sub, gradient, accent }) {
 }
 
 
+// ── Checklist (persisted to localStorage) ─────────────────────────────────
+const CHECKLIST_ITEMS = [
+  { check: 'ATS-optimised resume ready',        link: null },
+  { check: 'LinkedIn profile 90%+ complete',    link: 'https://www.linkedin.com' },
+  { check: 'GitHub projects with README',       link: 'https://github.com' },
+  { check: '50+ LeetCode problems solved',      link: 'https://leetcode.com' },
+  { check: 'System Design mock done',           link: null },
+  { check: '6 STAR stories prepared',           link: null },
+  { check: 'Negotiation range researched',      link: 'https://www.levels.fyi' },
+  { check: 'References / referrals lined up',   link: null },
+  { check: 'Email outreach templates ready',    link: null },
+];
+const CHECKLIST_KEY = 'hr_checklist_v1';
+
+function ChecklistItems() {
+  const [checked, setChecked] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(CHECKLIST_KEY) || '[]'); } catch { return []; }
+  });
+
+  const toggle = useCallback((i) => {
+    setChecked(prev => {
+      const next = prev.includes(i) ? prev.filter(x => x !== i) : [...prev, i];
+      localStorage.setItem(CHECKLIST_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      {CHECKLIST_ITEMS.map((item, i) => (
+        <label key={i} className="flex items-center gap-2.5 cursor-pointer group">
+          <input
+            type="checkbox"
+            checked={checked.includes(i)}
+            onChange={() => toggle(i)}
+            className="w-4 h-4 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-400 shrink-0"
+          />
+          {item.link ? (
+            <a href={item.link} target="_blank" rel="noopener noreferrer"
+              className="text-sm text-indigo-700 group-hover:underline font-medium">
+              {item.check} ↗
+            </a>
+          ) : (
+            <span className={`text-sm font-medium ${checked.includes(i) ? 'line-through text-indigo-400' : 'text-indigo-700'}`}>{item.check}</span>
+          )}
+        </label>
+      ))}
+    </div>
+  );
+}
+
 // ── Dashboard ──────────────────────────────────────────────────────────────
 export default function Dashboard({
   contacts = [],
@@ -117,8 +168,10 @@ export default function Dashboard({
   const dailyCap    = emailStats?.dailyCap  ?? 20;
   const interviews  = pipeline.Interview || 0;
   const replied     = pipeline.Replied || 0;
-  const sent        = (pipeline.Sent || 0) + (pipeline.Opened || 0) + replied + interviews;
-  const responseRate = sent > 0 ? Math.round(((replied + interviews) / sent) * 100) : 0;
+  // Denominator = only contacts actively emailed (Sent/Opened), not those who already responded
+  const emailed     = (pipeline.Sent || 0) + (pipeline.Opened || 0);
+  const sent        = emailed + replied + interviews;
+  const responseRate = emailed > 0 ? Math.round(((replied + interviews) / emailed) * 100) : 0;
   const activeOutreach = (pipeline.Sent || 0) + (pipeline.Opened || 0) + replied;
 
   const recent = useMemo(() =>
@@ -567,31 +620,7 @@ export default function Dashboard({
           <span className="text-2xl">✅</span>
           <h2 className="text-base font-bold text-indigo-900">Application Readiness Checklist</h2>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {[
-            { check: 'ATS-optimised resume ready',            link: null },
-            { check: 'LinkedIn profile 90%+ complete',        link: 'https://www.linkedin.com' },
-            { check: 'GitHub projects with README',           link: 'https://github.com' },
-            { check: '50+ LeetCode problems solved',          link: 'https://leetcode.com' },
-            { check: 'System Design mock done',               link: null },
-            { check: '6 STAR stories prepared',               link: null },
-            { check: 'Negotiation range researched',          link: 'https://www.levels.fyi' },
-            { check: 'References / referrals lined up',       link: null },
-            { check: 'Email outreach templates ready',        link: null },
-          ].map((item, i) => (
-            <label key={i} className="flex items-center gap-2.5 cursor-pointer group">
-              <input type="checkbox" className="w-4 h-4 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-400 shrink-0" />
-              {item.link ? (
-                <a href={item.link} target="_blank" rel="noopener noreferrer"
-                  className="text-sm text-indigo-700 group-hover:underline font-medium">
-                  {item.check} ↗
-                </a>
-              ) : (
-                <span className="text-sm text-indigo-700 font-medium">{item.check}</span>
-              )}
-            </label>
-          ))}
-        </div>
+        <ChecklistItems />
       </div>
 
       {/* ── Footer ───────────────────────────────────────────────────── */}

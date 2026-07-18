@@ -347,6 +347,19 @@ async function initialize() {
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_password_vault_user ON password_vault (user_id)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_referral_requests_from ON referral_requests (from_user_id)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_referral_requests_to ON referral_requests (to_user_id)`);
+  // Performance: email_log queries for daily cap and stats
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_email_log_sent_at ON email_log (sent_at)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_email_log_contact_id ON email_log (contact_id)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_email_log_user_id ON email_log (user_id)`);
+  // Performance: contacts search and filter
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_contacts_status ON contacts (status)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_contacts_company ON contacts (company)`);
+  // Performance: notifications per user
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications (user_id)`);
+  // Schema: add unique constraint to leads.email if missing
+  await db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_leads_email_unique ON leads (email)`).catch(() => {});
+  // Schema: add status column to referral_requests
+  await addCol('referral_requests', 'status', `TEXT NOT NULL DEFAULT 'pending'`);
 
   // ── RBAC seed ────────────────────────────────────────────────────────────────
   const PERMISSIONS = [

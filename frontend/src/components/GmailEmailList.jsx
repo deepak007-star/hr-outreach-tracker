@@ -102,7 +102,7 @@ export default function GmailEmailList({ refreshKey, myName = '' }) {
 
         {repliedInMonth > 0 && (
           <span className="ml-auto bg-purple-100 text-purple-800 text-xs font-semibold px-3 py-1.5 rounded-full border border-purple-200">
-            🚩 {repliedInMonth} replied recently
+            🚩 {repliedInMonth} replied (this page)
           </span>
         )}
       </div>

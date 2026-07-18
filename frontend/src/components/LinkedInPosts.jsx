@@ -258,7 +258,7 @@ function PostCard({ post, selected, onSelect, onWorkflow, onSingleEmail, onStatu
           </select>
         )}
         {post.likes > 0 && (
-          <span className="text-xs text-gray-400 ml-auto">👍 {post.likes}  💬 {post.comments}</span>
+          <span className="text-xs text-gray-400 ml-auto">👍 {post.likes}{post.comments != null ? `  💬 ${post.comments}` : ''}</span>
         )}
       </div>
     </div>
@@ -338,6 +338,14 @@ export default function LinkedInPosts() {
         },
         body: JSON.stringify({ scraper: 'linkedin-feed', titles, location, limit: 30 }),
       });
+
+      if (!resp.ok) {
+        let msg = `Scraper error (${resp.status})`;
+        try { const d = await resp.json(); msg = d.error || msg; } catch {}
+        addLog('error', msg);
+        setScraping(false);
+        return;
+      }
 
       const reader  = resp.body.getReader();
       const decoder = new TextDecoder();

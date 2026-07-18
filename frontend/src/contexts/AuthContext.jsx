@@ -44,14 +44,18 @@ export function AuthProvider({ children }) {
 
     // Refresh when user comes back to the tab
     const onVisible = () => { if (document.visibilityState === 'visible') syncRef.current?.(); };
+    // Use a named function so removeEventListener can match the exact reference
+    const onFocus = () => syncRef.current?.();
     document.addEventListener('visibilitychange', onVisible);
-    window.addEventListener('focus', () => syncRef.current?.());
-    // Background poll — ensures role/plan changes propagate within 30s
-    const interval = setInterval(() => syncRef.current?.(), 30_000);
+    window.addEventListener('focus', onFocus);
+    // Background poll — only fires when a token exists; stops itself after logout
+    const interval = setInterval(() => {
+      if (localStorage.getItem('hr_token')) syncRef.current?.();
+    }, 30_000);
 
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
-      window.removeEventListener('focus', () => syncRef.current?.());
+      window.removeEventListener('focus', onFocus);
       clearInterval(interval);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps

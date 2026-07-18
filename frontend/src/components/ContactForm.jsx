@@ -28,7 +28,7 @@ export default function ContactForm({ contact, onSave, onClose }) {
     source_url:        contact?.source_url       || '',
     status:            contact?.status           || 'New',
     notes:             contact?.notes            || '',
-    tags:              (contact?.tags || []).join(', '),
+    tags:              (Array.isArray(contact?.tags) ? contact.tags : []).join(', '),
   });
 
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));

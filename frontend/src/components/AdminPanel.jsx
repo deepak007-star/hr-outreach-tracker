@@ -150,7 +150,7 @@ function OutreachButtons({ lead }) {
     lead.mobile       && { icon: '📞', label: 'Call',     href: `tel:${lead.mobile}`,                                             title: lead.mobile,                     cls: 'bg-teal-50 hover:bg-teal-100 text-teal-700 border-teal-200' },
     lead.linkedin_url && { icon: '💼', label: 'LinkedIn', href: lead.linkedin_url,                                                title: 'Open LinkedIn profile',         cls: 'bg-sky-50 hover:bg-sky-100 text-sky-700 border-sky-200' },
     lead.twitter_handle && { icon: '🐦', label: 'Twitter', href: `https://twitter.com/${lead.twitter_handle}`,                   title: `@${lead.twitter_handle}`,       cls: 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200' },
-    lead.github_url   && { icon: '🐙', label: 'GitHub',   href: `https://github.com/${lead.github_url}`,                        title: `github.com/${lead.github_url}`, cls: 'bg-gray-50 hover:bg-gray-100 text-gray-700 border-gray-200' },
+    lead.github_url   && { icon: '🐙', label: 'GitHub',   href: /^https?:\/\//.test(lead.github_url) ? lead.github_url : `https://github.com/${lead.github_url}`,  title: lead.github_url, cls: 'bg-gray-50 hover:bg-gray-100 text-gray-700 border-gray-200' },
   ].filter(Boolean);
 
   return (
@@ -354,7 +354,10 @@ function LeadsSection() {
 
   const load = useCallback(() => {
     setLoading(true);
-    api.get('/leads').then(setLeads).catch(() => toast.error('Failed to load leads')).finally(() => setLoading(false));
+    api.get('/leads')
+      .then(data => setLeads(Array.isArray(data) ? data : (data?.leads || [])))
+      .catch(() => toast.error('Failed to load leads'))
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -603,10 +606,10 @@ function UsersSection() {
     setLoading(true);
     Promise.all([
       api.get('/admin/users'),
-      api.get('/rbac/roles'),
+      api.get('/rbac/roles').catch(() => []),
     ]).then(([u, r]) => {
-      setUsers(u);
-      setAllRoles(r.map(role => role.name));
+      setUsers(Array.isArray(u) ? u : []);
+      setAllRoles(Array.isArray(r) && r.length > 0 ? r.map(role => role.name) : ['admin', 'user', 'viewer']);
     }).catch(() => toast.error('Failed to load users')).finally(() => setLoading(false));
   }, []);
 
@@ -845,10 +848,10 @@ function DataManagementSection() {
           </label>
           <button
             onClick={savePurgeConfig}
-            disabled={purging || saving}
+            disabled={saving}
             className="px-5 py-2 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 disabled:opacity-60 transition-colors pb-2"
           >
-            {purging ? 'Purging…' : `Purge Now (>${purge.retention_days}d)`}
+            {saving ? 'Purging…' : `Purge Now (>${purge.retention_days}d)`}
           </button>
         </div>
         {ghStatus?.jobs_to_purge > 0 && (
@@ -964,7 +967,7 @@ export default function AdminPanel() {
     { id: 'users',     icon: '👥', label: 'User Management'      },
     { id: 'roles',     icon: '🛡️', label: 'Roles & Permissions'  },
     { id: 'passwords', icon: '🔐', label: 'Password Vault'       },
-    { id: 'data',      icon: '🗄️', label: 'Data &amp; Backup'   },
+    { id: 'data',      icon: '🗄️', label: 'Data & Backup'       },
   ];
 
   return (
@@ -991,7 +994,7 @@ export default function AdminPanel() {
             className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all ${
               tab === t.id ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'
             }`}>
-            <span>{t.icon}</span><span dangerouslySetInnerHTML={{ __html: t.label }} />
+            <span>{t.icon}</span><span>{t.label}</span>
           </button>
         ))}
       </div>

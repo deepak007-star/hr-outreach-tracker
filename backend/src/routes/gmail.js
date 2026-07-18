@@ -182,6 +182,7 @@ router.post('/sync', requireAuth, async (req, res) => {
 
     let imported = 0;
     const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const tokenRow = await db.prepare('SELECT gmail_email FROM gmail_tokens WHERE user_id = ?').get(userId);
 
     for (const msg of messages) {
       try {
@@ -224,8 +225,13 @@ router.post('/sync', requireAuth, async (req, res) => {
 
         const threadMessages = threadDetail.data.messages || [];
         if (threadMessages.length > 1) {
-          // There's at least one reply
-          const replyMsg = threadMessages.find(m => m.id !== msg.id);
+          // Find a reply that is NOT from the user themselves (not from userEmail)
+          const userEmail = tokenRow?.gmail_email || '';
+          const replyMsg  = threadMessages.find(m => {
+            if (m.id === msg.id) return false;
+            const from = m.payload?.headers?.find(h => h.name === 'From')?.value || '';
+            return !from.toLowerCase().includes(userEmail.toLowerCase());
+          });
           if (replyMsg) {
             emailStatus  = 'replied';
             const replyDate = replyMsg.payload?.headers?.find(h => h.name === 'Date')?.value;

@@ -2,6 +2,11 @@ import { useState, useRef } from 'react';
 import { toast } from 'react-hot-toast';
 import { API_ROOT } from '../api/client.js';
 
+function getAuthHeaders() {
+  const token = localStorage.getItem('hr_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export default function ImportModal({ onClose, onImported }) {
   const [dragging, setDragging] = useState(false);
   const [result,   setResult]   = useState(null);
@@ -15,12 +20,18 @@ export default function ImportModal({ onClose, onImported }) {
       return;
     }
     setLoading(true);
+    if (inputRef.current) inputRef.current.value = '';
     const fd = new FormData();
     fd.append('file', file);
     try {
-      const res  = await fetch(`${API_ROOT}/api/contacts/import`, { method: 'POST', body: fd });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Import failed');
+      const res = await fetch(`${API_ROOT}/api/contacts/import`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: fd,
+      });
+      let data;
+      try { data = await res.json(); } catch { data = {}; }
+      if (!res.ok) throw new Error(data.error || `Import failed (${res.status})`);
       setResult(data);
       toast.success(`Imported ${data.imported} contact${data.imported !== 1 ? 's' : ''} — Excel updated`);
     } catch (err) {

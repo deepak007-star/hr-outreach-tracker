@@ -164,9 +164,14 @@ export default function FeedContactsPanel() {
     : contacts;
 
   const timeSince = lastSync
-    ? Math.floor((Date.now() - lastSync.getTime()) / 1000) < 10
-      ? 'just now'
-      : `${Math.floor((Date.now() - lastSync.getTime()) / 60000)} min ago`
+    ? (() => {
+        const secs = Math.floor((Date.now() - lastSync.getTime()) / 1000);
+        if (secs < 10)  return 'just now';
+        if (secs < 60)  return `${secs}s ago`;
+        const mins = Math.floor(secs / 60);
+        if (mins < 60)  return `${mins} min ago`;
+        return `${Math.floor(mins / 60)}h ago`;
+      })()
     : '';
 
   if (loading) {

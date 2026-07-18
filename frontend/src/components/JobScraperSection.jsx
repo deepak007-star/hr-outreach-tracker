@@ -125,6 +125,14 @@ export default function JobScraperSection() {
         body: JSON.stringify(body),
       });
 
+      if (!resp.ok) {
+        let msg = `Scraper error (${resp.status})`;
+        try { const d = await resp.json(); msg = d.error || msg; } catch {}
+        setLogs(prev => [...prev, { type: 'error', text: msg }]);
+        setScaping(false);
+        return;
+      }
+
       const reader   = resp.body.getReader();
       const decoder  = new TextDecoder();
       let   buffer   = '';
