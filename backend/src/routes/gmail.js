@@ -8,14 +8,14 @@ const { requireAuth } = require('../middleware/auth');
 const router = express.Router();
 
 // ─── Google OAuth helper ──────────────────────────────────────────────────────
-// Requires env vars: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI
+// Requires env vars: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GMAIL_REDIRECT_URI
 
 function getOAuthClient() {
   const { google } = require('googleapis');
   return new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
-    process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3001/api/gmail/callback'
+    process.env.GMAIL_REDIRECT_URI || 'http://localhost:3001/api/gmail/callback'
   );
 }
 
