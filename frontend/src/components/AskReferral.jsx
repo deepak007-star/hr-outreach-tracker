@@ -142,7 +142,8 @@ function ComposeModal({ target, myUser, myProfile, onClose, onSent }) {
 function UserCard({ user, onAsk, sent }) {
   const skills = (() => {
     try {
-      const arr = typeof user.skills === 'string' ? JSON.parse(user.skills || '[]') : (user.skills || []);
+      const raw = typeof user.skills === 'string' ? JSON.parse(user.skills || '[]') : (user.skills || []);
+      const arr = Array.isArray(raw) ? raw : [];
       return arr.slice(0, 4);
     } catch { return []; }
   })();
