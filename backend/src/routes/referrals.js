@@ -111,11 +111,9 @@ router.post('/ask/:targetUserId', async (req, res) => {
     const finalSubject = subject?.trim() || `Referral Request from ${sender.name}`;
     const finalMessage = message.trim();
 
-    // Write DB record first — if email fails we can retry; if DB fails email would have no record
-    await db.prepare(
-      'INSERT INTO referral_requests (id, from_user_id, to_user_id, subject, message) VALUES (?, ?, ?, ?, ?)'
-    ).run(crypto.randomUUID(), myId, targetUserId, finalSubject, finalMessage);
-
+    // Send first, then record — if the send fails we must not leave a row
+    // behind, or the duplicate-request guard above would permanently block
+    // every retry even though no email ever went out.
     await transport.sendMail({
       from:    fromName ? `"${fromName}" <${fromEmail}>` : fromEmail,
       to:      `"${target.name}" <${target.email}>`,
@@ -123,6 +121,10 @@ router.post('/ask/:targetUserId', async (req, res) => {
       text:    finalMessage,
       html:    `<div style="font-family:sans-serif;font-size:14px;line-height:1.7;white-space:pre-wrap">${finalMessage.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>')}</div>`,
     });
+
+    await db.prepare(
+      'INSERT INTO referral_requests (id, from_user_id, to_user_id, subject, message) VALUES (?, ?, ?, ?, ?)'
+    ).run(crypto.randomUUID(), myId, targetUserId, finalSubject, finalMessage);
 
     res.json({ ok: true, to: target.name });
   } catch (err) {

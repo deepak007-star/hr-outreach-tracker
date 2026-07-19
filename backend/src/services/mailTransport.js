@@ -39,6 +39,27 @@ async function getTransportForUser(userId) {
     return { transport, fromEmail: oauthRow.email, fromName: null };
   }
 
+  // Fall back to a Gmail connected via the separate "Gmail Sync" flow
+  // (routes/gmail.js, gmail_tokens table) — different table, same gmail.send
+  // scope, so it can send mail even though it wasn't connected through Settings.
+  const gmailTokenRow = await db.prepare(
+    'SELECT gmail_email, refresh_token FROM gmail_tokens WHERE user_id = ?'
+  ).get(userId);
+
+  if (gmailTokenRow) {
+    const transport = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        type:         'OAuth2',
+        user:         gmailTokenRow.gmail_email,
+        clientId:     process.env.GOOGLE_CLIENT_ID,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+        refreshToken: gmailTokenRow.refresh_token,
+      },
+    });
+    return { transport, fromEmail: gmailTokenRow.gmail_email, fromName: null };
+  }
+
   const smtp = await getLegacySmtpConfig();
   if (smtp.host && smtp.user && smtp.pass) {
     return { transport: createLegacyTransport(smtp), fromEmail: smtp.user, fromName: smtp.fromName || null };
