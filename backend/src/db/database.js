@@ -299,6 +299,17 @@ async function initialize() {
       created_at   TEXT NOT NULL DEFAULT (${NOW_EXPR}),
       UNIQUE(from_user_id, to_user_id)
     );
+
+    CREATE TABLE IF NOT EXISTS resume_versions (
+      id          TEXT PRIMARY KEY,
+      user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      label       TEXT NOT NULL DEFAULT 'Untitled Version',
+      resume_text TEXT NOT NULL DEFAULT '',
+      target_role TEXT NOT NULL DEFAULT '',
+      skills      TEXT NOT NULL DEFAULT '[]',
+      auto_saved  INTEGER NOT NULL DEFAULT 0,
+      created_at  TEXT NOT NULL DEFAULT (${NOW_EXPR})
+    );
   `);
 
   const defaults = {
@@ -347,6 +358,7 @@ async function initialize() {
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_password_vault_user ON password_vault (user_id)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_referral_requests_from ON referral_requests (from_user_id)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_referral_requests_to ON referral_requests (to_user_id)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_resume_versions_user ON resume_versions (user_id, created_at)`);
   // Performance: email_log queries for daily cap and stats
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_email_log_sent_at ON email_log (sent_at)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_email_log_contact_id ON email_log (contact_id)`);

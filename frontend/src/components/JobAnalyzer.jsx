@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { toast } from 'react-hot-toast';
 import { api } from '../api/client.js';
 import { extractSkills } from '../data/techSkills.js';
@@ -66,9 +66,28 @@ export default function JobAnalyzer() {
   const missingSkills = useMemo(() => jobSkills.filter(k => !resumeSkills.includes(k)),  [jobSkills, resumeSkills]);
   const presentSkills = useMemo(() => jobSkills.filter(k =>  resumeSkills.includes(k)),  [jobSkills, resumeSkills]);
 
+  // Vault suggestion: fire after jobSkills is derived
+  useEffect(() => {
+    setSuggestDismiss(false);
+    setVaultSuggest(null);
+    if (!user || jobSkills.length === 0) return;
+    api.post('/resume-versions/suggest', { jobSkills, jobTitle })
+      .then(r => { if (r.match) setVaultSuggest(r); })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobSkills, user]);
+
   // Selection
   const [selectedSkills, setSelectedSkills] = useState(new Set());
   const [addedSkills,    setAddedSkills]    = useState([]);
+
+  // Resume Vault suggestion
+  const [vaultSuggest,   setVaultSuggest]   = useState(null);  // { match, matchCount, totalJobSkills }
+  const [suggestDismiss, setSuggestDismiss] = useState(false);
+  const [showSaveVault,  setShowSaveVault]  = useState(false);
+  const [saveVaultLabel, setSaveVaultLabel] = useState('');
+  const [saveVaultRole,  setSaveVaultRole]  = useState('');
+  const [savingVault,    setSavingVault]    = useState(false);
 
   const modifiedText = useMemo(
     () => modifyResume(resumeText, addedSkills),
@@ -134,6 +153,37 @@ export default function JobAnalyzer() {
   const handleDownloadPdf  = () => downloadAsPdf(modifiedText, 'modified_resume');
   const handleDownloadWord = () => downloadAsWord(modifiedText, 'modified_resume');
 
+  const handleSaveVault = async () => {
+    if (!modifiedText.trim()) return;
+    setSavingVault(true);
+    try {
+      await api.post('/resume-versions', {
+        label:      saveVaultLabel.trim() || `${jobTitle || 'Modified Resume'} — ${new Date().toLocaleDateString('en-IN')}`,
+        resumeText: modifiedText,
+        targetRole: saveVaultRole.trim() || jobTitle,
+        skills:     [...resumeSkills, ...addedSkills],
+        autoSaved:  false,
+      });
+      toast.success('Saved to Resume Vault!');
+      setShowSaveVault(false);
+      setSaveVaultLabel('');
+      setSaveVaultRole('');
+    } catch (e) {
+      toast.error(e.response?.data?.error || 'Failed to save to vault');
+    } finally {
+      setSavingVault(false);
+    }
+  };
+
+  const applyVaultResume = (resumeText) => {
+    setResumeText(resumeText);
+    setUsingProfileResume(false);
+    setAddedSkills([]);
+    setSelectedSkills(new Set());
+    setSuggestDismiss(true);
+    toast.success('Vault resume loaded!');
+  };
+
   const hasJobContent   = jobContent.trim().length > 50;
   const hasResumeText   = resumeText.trim().length > 50;
   const showComparison  = hasJobContent && hasResumeText;
@@ -141,6 +191,37 @@ export default function JobAnalyzer() {
 
   return (
     <div className="space-y-4">
+
+      {/* ── Resume Vault suggestion banner ─────────────────────────────────── */}
+      {vaultSuggest && !suggestDismiss && (
+        <div className="bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-xl px-5 py-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-start gap-3 min-w-0">
+            <span className="text-2xl shrink-0">📂</span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-gray-800">
+                Resume Match Found — <span className="text-purple-700">{vaultSuggest.match.label}</span>
+              </p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Covers <strong>{vaultSuggest.matchCount}/{vaultSuggest.totalJobSkills}</strong> required skills
+                {vaultSuggest.match.target_role && <> · Target: {vaultSuggest.match.target_role}</>}
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2 shrink-0">
+            <button
+              onClick={() => {
+                api.get(`/resume-versions/${vaultSuggest.match.id}/text`)
+                  .then(r => applyVaultResume(r.resume_text))
+                  .catch(() => toast.error('Failed to load vault resume'));
+              }}
+              className="px-4 py-1.5 bg-purple-600 text-white text-xs font-semibold rounded-lg hover:bg-purple-700 transition whitespace-nowrap"
+            >
+              Use This Resume
+            </button>
+            <button onClick={() => setSuggestDismiss(true)} className="text-gray-400 hover:text-gray-600 text-sm px-2">✕</button>
+          </div>
+        </div>
+      )}
 
       {/* ── Two-column layout ──────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
@@ -388,6 +469,9 @@ export default function JobAnalyzer() {
                 <div className="flex gap-2 flex-wrap">
                   <button onClick={handleDownloadPdf}  className="text-xs text-red-600   hover:text-red-800   font-medium border border-red-200   rounded px-2 py-1 hover:bg-red-50   transition">⬇ PDF</button>
                   <button onClick={handleDownloadWord} className="text-xs text-blue-700  hover:text-blue-900  font-medium border border-blue-200  rounded px-2 py-1 hover:bg-blue-50  transition">⬇ Word</button>
+                  {user && (
+                    <button onClick={() => { setSaveVaultLabel(jobTitle || ''); setSaveVaultRole(jobTitle || ''); setShowSaveVault(true); }} className="text-xs text-purple-700 hover:text-purple-900 font-medium border border-purple-200 rounded px-2 py-1 hover:bg-purple-50 transition">📂 Save to Vault</button>
+                  )}
                 </div>
               </div>
               <p className="text-xs text-gray-400">
@@ -398,6 +482,47 @@ export default function JobAnalyzer() {
           )}
         </div>
       </div>
+
+      {/* ── Save to Vault modal ───────────────────────────────────────────── */}
+      {showSaveVault && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={e => e.target === e.currentTarget && setShowSaveVault(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="px-6 py-4 border-b">
+              <h3 className="font-bold text-gray-900">📂 Save Modified Resume to Vault</h3>
+              <p className="text-xs text-gray-500 mt-0.5">Saves the resume with the {addedSkills.length} skill(s) you added</p>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Version Label</label>
+                <input
+                  value={saveVaultLabel}
+                  onChange={e => setSaveVaultLabel(e.target.value)}
+                  placeholder={`e.g. ${jobTitle || 'Backend Role'} — modified`}
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+                  maxLength={80}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Target Role</label>
+                <input
+                  value={saveVaultRole}
+                  onChange={e => setSaveVaultRole(e.target.value)}
+                  placeholder="e.g. Senior Backend Engineer"
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+                  maxLength={80}
+                />
+              </div>
+              <p className="text-xs text-gray-400">Skills saved: {[...resumeSkills, ...addedSkills].slice(0, 6).join(', ')}{([...resumeSkills, ...addedSkills].length > 6 ? ` +${[...resumeSkills, ...addedSkills].length - 6} more` : '')}</p>
+            </div>
+            <div className="flex gap-3 px-6 pb-5">
+              <button onClick={() => setShowSaveVault(false)} className="flex-1 border rounded-lg py-2.5 text-sm font-medium hover:bg-gray-50 transition">Cancel</button>
+              <button onClick={handleSaveVault} disabled={savingVault} className="flex-1 bg-purple-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-purple-700 disabled:opacity-50 transition">
+                {savingVault ? 'Saving…' : 'Save to Vault'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Apply bar ─────────────────────────────────────────────────────── */}
       {jobUrl && hasJobContent && (

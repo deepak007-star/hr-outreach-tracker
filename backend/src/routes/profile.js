@@ -3,8 +3,34 @@ const multer   = require('multer');
 const path     = require('path');
 const os       = require('os');
 const fs       = require('fs');
+const crypto   = require('crypto');
 const db       = require('../db/database');
 const { requireAuth } = require('../middleware/auth');
+
+const MAX_VAULT = 5;
+async function autoSaveToVault(userId, resumeText, filename) {
+  try {
+    const { cnt } = await db.prepare(
+      'SELECT COUNT(*) AS cnt FROM resume_versions WHERE user_id = ?'
+    ).get(userId);
+    if (cnt >= MAX_VAULT) return; // user has manual control from here
+
+    // Use current profile skills for matching
+    const profile = await db.prepare('SELECT skills FROM profiles WHERE user_id = ?').get(userId);
+    const skills  = profile?.skills || '[]';
+
+    // Auto-label based on count
+    const label = `Upload #${cnt + 1}${filename ? ' — ' + filename : ''}`.slice(0, 80);
+    const now   = new Date().toISOString().replace('T', ' ').slice(0, 19);
+
+    await db.prepare(`
+      INSERT INTO resume_versions (id, user_id, label, resume_text, target_role, skills, auto_saved, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+    `).run(crypto.randomUUID(), userId, label, resumeText.trim(), '', skills, now);
+  } catch (e) {
+    console.warn('[profile] auto-save to vault failed (non-fatal):', e.message);
+  }
+}
 
 const router = express.Router();
 const upload = multer({ dest: os.tmpdir(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -89,6 +115,9 @@ router.post('/resume', upload.single('resume'), async (req, res) => {
         resume_uploaded_at = excluded.resume_uploaded_at,
         updated_at = excluded.updated_at
     `).run(req.user.userId, text, req.file.originalname, now, now);
+
+    // Auto-save first 5 uploads to vault (non-blocking, non-fatal)
+    autoSaveToVault(req.user.userId, text, req.file.originalname);
 
     res.json({ text, filename: req.file.originalname });
   } catch (err) {
