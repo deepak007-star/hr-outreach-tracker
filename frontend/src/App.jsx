@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, Component } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './contexts/AuthContext.jsx';
 import Header            from './components/Header.jsx';
@@ -26,6 +26,29 @@ import UnsavedChangesModal from './components/UnsavedChangesModal.jsx';
 import AskReferral        from './components/AskReferral.jsx';
 import { clearDraft } from './hooks/useDraft.js';
 import { api, API_ROOT } from './api/client.js';
+
+class TabErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(err) { return { error: err }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex flex-col items-center justify-center h-64 gap-4 text-center">
+          <span className="text-4xl">⚠️</span>
+          <p className="text-gray-700 font-medium">Something went wrong loading this section.</p>
+          <p className="text-sm text-gray-400">{this.state.error.message}</p>
+          <button
+            onClick={() => this.setState({ error: null })}
+            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const PLAN_LIMITS = { guest: 5, demo: 10, basic: 100, advanced: 999999 };
 const PLAN_NAMES  = { guest: 'Guest', demo: 'Demo', basic: 'Basic', advanced: 'Advanced' };
@@ -331,7 +354,11 @@ export default function App() {
         {activeTab === 'admin' && <AdminPanel />}
 
         {/* ── Ask Referral tab ──────────────────────────────────── */}
-        {activeTab === 'referrals' && user && <AskReferral />}
+        {activeTab === 'referrals' && user && (
+          <TabErrorBoundary>
+            <AskReferral />
+          </TabErrorBoundary>
+        )}
         {activeTab === 'referrals' && !user && (
           <div className="flex flex-col items-center justify-center h-48 gap-3">
             <p className="text-gray-500 text-sm">Sign in to access the referral network.</p>
