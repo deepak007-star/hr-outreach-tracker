@@ -266,14 +266,17 @@ export default function AskReferral() {
     if (!search.trim()) return true;
     const q = search.toLowerCase();
     let skills = [];
-    try { skills = JSON.parse(u.skills || '[]'); } catch {}
+    try {
+      const parsed = JSON.parse(u.skills || '[]');
+      skills = Array.isArray(parsed) ? parsed : [];
+    } catch {}
     return (
       u.name?.toLowerCase().includes(q) ||
       u.email?.toLowerCase().includes(q) ||
       u.current_title?.toLowerCase().includes(q) ||
       u.current_company?.toLowerCase().includes(q) ||
       u.location?.toLowerCase().includes(q) ||
-      skills.some(s => s.toLowerCase().includes(q))
+      skills.some(s => typeof s === 'string' && s.toLowerCase().includes(q))
     );
   });
 
