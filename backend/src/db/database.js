@@ -350,7 +350,6 @@ async function initialize() {
   // Performance: email_log queries for daily cap and stats
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_email_log_sent_at ON email_log (sent_at)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_email_log_contact_id ON email_log (contact_id)`);
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_email_log_user_id ON email_log (user_id)`);
   // Performance: contacts search and filter
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_contacts_status ON contacts (status)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_contacts_company ON contacts (company)`);
@@ -400,6 +399,7 @@ async function initialize() {
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_delivery_events_contact ON email_delivery_events (contact_id)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_delivery_billing_user   ON delivery_billing_stats (user_id, billing_month)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_email_log_delivery      ON email_log (delivery_status)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_email_log_user_id       ON email_log (user_id)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_contacts_deliverable    ON contacts (email_deliverable)`);
 
   // ── RBAC seed ────────────────────────────────────────────────────────────────
