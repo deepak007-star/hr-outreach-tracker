@@ -16,27 +16,27 @@ export default function GmailConnectCard({ onStatusChange }) {
 
   useEffect(() => { loadStatus(); }, []);
 
-  // Check URL params for OAuth callback result
+  // Check URL params for OAuth callback result (redirected back from /api/oauth/google/callback)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get('gmail_connected') === '1') {
+    if (params.get('oauth') === 'connected') {
       toast.success('Gmail connected successfully!');
       // Remove the param from URL
       window.history.replaceState({}, '', window.location.pathname);
       loadStatus();
     }
-    if (params.get('gmail_error')) {
-      toast.error('Gmail connection failed: ' + decodeURIComponent(params.get('gmail_error')));
+    if (params.get('oauth_error')) {
+      toast.error('Gmail connection failed: ' + decodeURIComponent(params.get('oauth_error')));
       window.history.replaceState({}, '', window.location.pathname);
     }
   }, []);
 
   async function handleConnect() {
     try {
-      const { url } = await api.get('/gmail/auth-url');
+      const { url } = await api.get('/oauth/google/start');
       window.location.href = url;
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Could not get Gmail OAuth URL');
+      toast.error(err.response?.data?.error || 'Could not get Google OAuth URL');
     }
   }
 

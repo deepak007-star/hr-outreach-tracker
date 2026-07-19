@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import { toast } from 'react-hot-toast';
 import { api, invalidateCache } from '../api/client.js';
 
 const AuthContext = createContext(null);
@@ -35,6 +36,25 @@ export function AuthProvider({ children }) {
 
   // Store stable ref so event listeners always call the latest sync
   useEffect(() => { syncRef.current = sync; }, [sync]);
+
+  // ── "Continue with Google" redirect landing ──────────────────────────────
+  // /api/oauth/google/callback redirects here with ?google_login_token=... on
+  // success (a full 30-day session token, same as email/password login) or
+  // ?google_login_error=... on failure. Runs before the session-restore
+  // effect below so the fresh token is in localStorage in time to be picked up.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token  = params.get('google_login_token');
+    const error  = params.get('google_login_error');
+    if (token) {
+      localStorage.setItem('hr_token', token);
+      window.history.replaceState({}, '', window.location.pathname);
+      toast.success('Signed in with Google!');
+    } else if (error) {
+      window.history.replaceState({}, '', window.location.pathname);
+      toast.error('Google sign-in failed: ' + decodeURIComponent(error));
+    }
+  }, []);
 
   // ── Initial session restore ──────────────────────────────────────────────
   useEffect(() => {
