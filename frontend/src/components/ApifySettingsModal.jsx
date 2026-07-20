@@ -3,12 +3,10 @@ import { toast } from 'react-hot-toast';
 import { api } from '../api/client.js';
 
 const DEFAULT_QUERIES = [
-  'hiring software developer Noida',
-  'hiring full stack developer Delhi',
-  'software engineer job Noida hiring',
-  'fullstack developer jobs Delhi NCR',
-  'looking for MERN developer Noida',
-  'urgent hiring software developer Delhi',
+  'Java Developer', 'SDE 1', 'SDE 2', 'SDE 3', 'Python Developer',
+  'Backend Developer', 'MERN Stack Developer', 'Frontend Developer',
+  'React JS Developer', 'DevOps Developer', 'Java Backend Developer',
+  'Full Stack Developer', 'Node.js Developer',
 ];
 
 const POSTED_LIMITS = ['1h', '6h', '12h', '24h', '3d', '7d'];
@@ -124,7 +122,7 @@ export default function ApifySettingsModal({ onClose, onSaved }) {
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">Max Posts</label>
               <input
-                type="number" min="5" max="200"
+                type="number" min="5" max="500"
                 value={form.maxPosts}
                 onChange={e => set('maxPosts', parseInt(e.target.value))}
                 className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none"

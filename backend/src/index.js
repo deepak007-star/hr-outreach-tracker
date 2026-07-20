@@ -63,7 +63,7 @@ async function main() {
   const resumeVersionsRouter = require('./routes/resume-versions');
   const linkedinFeedRouter   = require('./routes/linkedin-feed');
   const deliveryRouter       = require('./routes/delivery');
-  const { performScrape, getSettings } = require('./routes/apify');
+  const { getSettings } = require('./routes/apify');
   const { sendReminderEmail } = require('./routes/reminder');
 
   const cookieParser = require('cookie-parser');
@@ -122,29 +122,46 @@ async function main() {
     console.log(`HR Outreach Tracker backend → http://localhost:${PORT}`)
   );
 
-  // 24h auto-fetch: check every hour, run if >23h since last scrape
+  // Daily 7 AM IST prefetch (automatic): LinkedIn feed Playwright scraper only.
+  // Apify is NOT run automatically — it only runs when an admin manually clicks
+  // "Scrape Now (Apify)" in the Admin Panel. Regular users never trigger
+  // scraping themselves — this is the sole automatic source of fresh data for
+  // the user-facing feed.
   const { randomUUID } = require('crypto');
+  const IST_OFFSET_MS  = 19_800_000; // +5:30
   setInterval(async () => {
     try {
-      const lastVal = (await database.prepare('SELECT value FROM settings WHERE key = ?').get('apify_last_scrape'))?.value;
-      if (lastVal) {
-        const hoursSince = (Date.now() - new Date(lastVal).getTime()) / 3_600_000;
-        if (hoursSince < 23) return;
+      const ist = new Date(Date.now() + IST_OFFSET_MS); // use UTC getters for IST wall-clock
+      if (ist.getUTCHours() !== 7) return;
+
+      const istDateStr = ist.toISOString().slice(0, 10);
+      const doneKey     = `scrape_done_${istDateStr}`;
+      const already = await database.prepare('SELECT value FROM settings WHERE key = ?').get(doneKey);
+      if (already) return;
+
+      console.log(`[Daily scrape] 7 AM IST — starting LinkedIn feed prefetch for ${istDateStr}`);
+
+      let feedStored = 0;
+      try {
+        const s = await getSettings();
+        const result = await scraperRouter.runScraperHeadless('linkedin-feed', { titles: s.searchQueries, limit: 25 });
+        feedStored = result.stored;
+      } catch (e) {
+        console.log('[Daily scrape] LinkedIn feed scraper skipped:', e.message);
       }
-      const s = await getSettings();
-      if (!s.apiKey || !s.actorId || !s.searchQueries?.length) return;
-      console.log('[Auto-scrape] 24h elapsed — starting scheduled LinkedIn fetch…');
-      const result = await performScrape();
-      if (result.error) { console.log('[Auto-scrape] Skipped:', result.error); return; }
+
       await database.prepare(`
         INSERT INTO settings (key, value) VALUES (?, ?)
         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-      `).run('apify_last_scrape', new Date().toISOString());
+      `).run(doneKey, '1');
+
       await database.prepare('INSERT INTO notifications (id, user_id, type, title, body) VALUES (?, ?, ?, ?, ?)')
-        .run(randomUUID(), null, 'info', 'LinkedIn posts updated', `Auto-sync imported ${result.imported} new job posts from LinkedIn.`);
-      console.log(`[Auto-scrape] Done — imported ${result.imported}/${result.total} posts`);
-    } catch (e) { console.error('[Auto-scrape] Failed:', e.message); }
-  }, 3_600_000); // every 1h
+        .run(randomUUID(), null, 'info', 'Daily job feed updated',
+          `Morning prefetch imported ${feedStored} LinkedIn feed posts.`);
+
+      console.log(`[Daily scrape] Done — ${feedStored} LinkedIn feed posts`);
+    } catch (e) { console.error('[Daily scrape] Failed:', e.message); }
+  }, 5 * 60_000); // every 5 minutes
 
   // Reminder email scheduler — fires every minute
   const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];

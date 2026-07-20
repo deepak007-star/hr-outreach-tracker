@@ -487,6 +487,19 @@ async function initialize() {
     }
   }
 
+  // ── Seed default LinkedIn scrape config (idempotent — never overwrites admin edits)
+  const SCRAPE_DEFAULTS = {
+    apify_search_queries: JSON.stringify([
+      'Java Developer', 'SDE 1', 'SDE 2', 'SDE 3', 'Python Developer',
+      'Backend Developer', 'MERN Stack Developer', 'Frontend Developer',
+      'React JS Developer', 'DevOps Developer', 'Java Backend Developer',
+      'Full Stack Developer', 'Node.js Developer',
+    ]),
+    apify_max_posts: '300',
+  };
+  const insSetting = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING');
+  for (const [key, value] of Object.entries(SCRAPE_DEFAULTS)) await insSetting.run(key, value);
+
   // ── Promote first registered user to admin if no admin exists
   const adminExists = await db.prepare('SELECT id FROM users WHERE role = ?').get('admin');
   if (!adminExists) {

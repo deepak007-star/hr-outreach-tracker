@@ -13,6 +13,19 @@ const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
+const IST_OFFSET_MS = 19_800_000; // +5:30
+
+// Most recently-passed 7 AM IST boundary, as a 'YYYY-MM-DD HH:MM:SS' UTC string
+// (matches the TEXT-column date format used throughout this app). If it's
+// currently before 7 AM IST, this is yesterday's 7 AM IST; otherwise today's.
+function getIst7amCutoff() {
+  const ist = new Date(Date.now() + IST_OFFSET_MS);
+  const istHour   = ist.getUTCHours();
+  const todayAt7  = Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate(), 7, 0, 0) - IST_OFFSET_MS;
+  const boundary  = istHour < 7 ? todayAt7 - 86_400_000 : todayAt7;
+  return new Date(boundary).toISOString().replace('T', ' ').slice(0, 19);
+}
+
 // ─── Normalise ────────────────────────────────────────────────────────────────
 
 function fromApify(p) {
@@ -77,15 +90,17 @@ function fromScraper(p) {
 // source param: 'scraper' (default) = scraper-only; 'all' = scraper + Apify merged
 router.get('/', requireAuth, async (req, res) => {
   try {
-    const { search, hiring_only, since = 'all', limit = '200', page = '1', source = 'scraper' } = req.query;
+    const { search, hiring_only, since = 'today', limit = '200', page = '1', source = 'scraper' } = req.query;
     const limitNum   = Math.min(parseInt(limit) || 200, 1000);
     const pageNum    = Math.max(parseInt(page)  || 1,   1);
     const includeApify = source === 'all';
 
     const daysMap = { '1d': 1, '3d': 3, '7d': 7, '14d': 14, '30d': 30, '90d': 90 };
-    const cutoff  = daysMap[since]
-      ? new Date(Date.now() - daysMap[since] * 86_400_000).toISOString().replace('T', ' ').slice(0, 19)
-      : null;
+    const cutoff  = since === 'today'
+      ? getIst7amCutoff()
+      : daysMap[since]
+        ? new Date(Date.now() - daysMap[since] * 86_400_000).toISOString().replace('T', ' ').slice(0, 19)
+        : null;
 
     // ── 1. Scraper posts (always fetched — primary source) ────────────────────
     let scraperPosts = [];

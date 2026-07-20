@@ -6,7 +6,7 @@ const path     = require('path');
 const fs       = require('fs');
 const crypto   = require('crypto');
 const db       = require('../db/database');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireAdmin } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -102,13 +102,52 @@ async function storeScrapedJobs(scraperType, category, outDir) {
   return stored;
 }
 
-// ─── POST /api/scraper/run — SSE streaming scrape ─────────────────────────────
+// ─── Headless runner (no SSE) — used by the SSE route below and the daily cron ─
+// Spawns the scraper script, waits for it to exit, stores results, and resolves
+// { code, stored }. Optional onLog(type, text) callback for streaming consumers.
+// Kills the child after a 10-minute safety timeout since Playwright automation
+// has no other upper bound.
 
-router.post('/run', requireAuth, (req, res) => {
-  const { scraper } = req.body;
+function runScraperHeadless(scraper, body, onLog = () => {}) {
   const cfg = SCRAPER_CONFIGS[scraper];
+  if (!cfg) return Promise.reject(new Error(`Unknown scraper: ${scraper}. Valid: ${Object.keys(SCRAPER_CONFIGS).join(', ')}`));
 
-  if (!cfg) {
+  return new Promise((resolve) => {
+    const args = buildArgs(cfg.script, body);
+    const cwd  = path.join(__dirname, '..');
+
+    onLog('log', `$ node ${args.join(' ')}\n`);
+
+    const proc = spawn('node', args, {
+      cwd,
+      env: { ...process.env, SCRAPER_NO_OPEN: '1', FORCE_COLOR: '0' },
+    });
+
+    const killTimer = setTimeout(() => {
+      onLog('err', 'Scraper exceeded 10-minute safety timeout — killing process.\n');
+      proc.kill();
+    }, 10 * 60_000);
+
+    proc.stdout.on('data', d => onLog('log', d.toString('utf8')));
+    proc.stderr.on('data', d => onLog('err', d.toString('utf8')));
+
+    proc.on('close', async (code) => {
+      clearTimeout(killTimer);
+      let stored = 0;
+      if (code === 0) {
+        try { stored = await storeScrapedJobs(scraper, cfg.category, cfg.outDir); }
+        catch (e) { onLog('err', `DB store failed: ${e.message}\n`); }
+      }
+      resolve({ code, stored });
+    });
+  });
+}
+
+// ─── POST /api/scraper/run — SSE streaming scrape (admin only) ────────────────
+
+router.post('/run', requireAuth, requireAdmin, (req, res) => {
+  const { scraper } = req.body;
+  if (!SCRAPER_CONFIGS[scraper]) {
     return res.status(400).json({ error: `Unknown scraper: ${scraper}. Valid: ${Object.keys(SCRAPER_CONFIGS).join(', ')}` });
   }
 
@@ -127,34 +166,13 @@ router.post('/run', requireAuth, (req, res) => {
     if (!res.writableEnded) res.write(': ping\n\n');
   }, 5000);
 
-  const args = buildArgs(cfg.script, req.body);
-  const cwd  = path.join(__dirname, '..');
-
-  send('log', `$ node ${args.join(' ')}\n`);
-
-  const proc = spawn('node', args, {
-    cwd,
-    env: { ...process.env, SCRAPER_NO_OPEN: '1', FORCE_COLOR: '0' },
-  });
-
-  proc.stdout.on('data', d => send('log', d.toString('utf8')));
-  proc.stderr.on('data', d => send('err', d.toString('utf8')));
-
-  proc.on('close', async (code) => {
+  runScraperHeadless(scraper, req.body, send).then(({ code, stored }) => {
     clearInterval(hb);
-    let stored = 0;
-    if (code === 0) {
-      try { stored = await storeScrapedJobs(scraper, cfg.category, cfg.outDir); }
-      catch (e) { send('err', `DB store failed: ${e.message}\n`); }
-    }
     send('done', { code, stored });
     res.end();
   });
 
-  res.on('close', () => {
-    clearInterval(hb);
-    if (!proc.killed && proc.exitCode == null) proc.kill();
-  });
+  res.on('close', () => clearInterval(hb));
 });
 
 // ─── GET /api/scraper/configs ─────────────────────────────────────────────────
@@ -168,4 +186,5 @@ router.get('/configs', (req, res) => {
 });
 
 module.exports = router;
-module.exports.storeScrapedJobs = storeScrapedJobs;
+module.exports.storeScrapedJobs     = storeScrapedJobs;
+module.exports.runScraperHeadless   = runScraperHeadless;

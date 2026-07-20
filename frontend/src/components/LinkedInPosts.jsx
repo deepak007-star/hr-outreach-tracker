@@ -3,6 +3,7 @@ import { toast } from 'react-hot-toast';
 import { api, API_ROOT } from '../api/client.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import PostWorkflowModal from './PostWorkflowModal.jsx';
+import { computeJobMatch } from '../utils/jobMatch.js';
 
 // ─── Confidence badge ─────────────────────────────────────────────────────────
 function ConfidenceBadge({ score }) {
@@ -99,9 +100,19 @@ function BulkEmailModal({ contacts, onClose, onSent }) {
   );
 }
 
+// ─── Skill-match badge ────────────────────────────────────────────────────────
+function MatchBadge({ matchPercent }) {
+  if (matchPercent == null) return null;
+  const cls = matchPercent >= 70 ? 'text-green-700 bg-green-50 border-green-200'
+            : matchPercent >= 50 ? 'text-yellow-700 bg-yellow-50 border-yellow-200'
+            :                      'text-gray-500 bg-gray-50 border-gray-200';
+  return <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${cls}`}>{matchPercent}% match</span>;
+}
+
 // ─── Individual post card ─────────────────────────────────────────────────────
-function PostCard({ post, selected, onSelect, onWorkflow, onSingleEmail, onStatusChange }) {
+function PostCard({ post, selected, onSelect, onWorkflow, onSingleEmail, onStatusChange, profileSkills }) {
   const hasContact = post.contact_email || post.contact_phone || post.google_form_link || post.whatsapp_link;
+  const { matchPercent } = computeJobMatch(post, profileSkills);
   const allContacts = (() => {
     try { return JSON.parse(post.all_contacts || '{}'); } catch { return {}; }
   })();
@@ -129,6 +140,7 @@ function PostCard({ post, selected, onSelect, onWorkflow, onSingleEmail, onStatu
           <div className="flex items-center flex-wrap gap-1.5">
             <p className="font-semibold text-gray-900 truncate max-w-xs">{post.title || 'LinkedIn Post'}</p>
             {isApify && <ConfidenceBadge score={post.confidence_score} />}
+            <MatchBadge matchPercent={matchPercent} />
             {post.is_hiring === 1 && (
               <span className="text-[10px] bg-green-100 text-green-700 border border-green-200 px-1.5 py-0.5 rounded-full font-semibold">
                 #Hiring
@@ -268,10 +280,17 @@ function PostCard({ post, selected, onSelect, onWorkflow, onSingleEmail, onStatu
 // ─── Main component ───────────────────────────────────────────────────────────
 
 const SINCE_OPTS = [
+  { value: 'today', label: 'Today (last 24h)' },
   { value: 'all', label: 'All time'     },
   { value: '7d',  label: 'Last 7 days'  },
   { value: '30d', label: 'Last 30 days' },
   { value: '90d', label: 'Last 90 days' },
+];
+
+const MATCH_OPTS = [
+  { value: 0,  label: 'Any match'  },
+  { value: 50, label: '≥ 50% match' },
+  { value: 70, label: '≥ 70% match' },
 ];
 
 export default function LinkedInPosts() {
@@ -282,10 +301,11 @@ export default function LinkedInPosts() {
   const [scraperLogs,   setLogs]       = useState([]);
   const [showLogs,      setShowLogs]   = useState(false);
   const [search,        setSearch]     = useState('');
-  const [since,         setSince]      = useState('all');
+  const [since,         setSince]      = useState('today');
   const [hiringOnly,    setHiringOnly] = useState(false);
   const [filter,        setFilter]     = useState('all'); // 'all' | 'email' | 'phone'
-  const [includeApify,  setIncludeApify] = useState(false);
+  const [minMatch,      setMinMatch]  = useState(0);
+  const [includeApify,  setIncludeApify] = useState(true);
   const [selected,      setSelected]   = useState(new Set());
   const [composeTo,     setComposeTo]  = useState(null);
   const [activePost,    setActivePost] = useState(null);
@@ -410,10 +430,15 @@ export default function LinkedInPosts() {
   };
 
   // ── Filter ───────────────────────────────────────────────────────────────────
+  const profileSkills = profile?.skills || [];
   const filtered = posts.filter(p => {
     if (filter === 'email') return !!p.contact_email;
     if (filter === 'phone') return !!p.contact_phone;
     return true;
+  }).filter(p => {
+    if (!minMatch) return true;
+    const { matchPercent } = computeJobMatch(p, profileSkills);
+    return matchPercent != null && matchPercent >= minMatch;
   });
 
   const withEmail = posts.filter(p => p.contact_email).length;
@@ -432,6 +457,10 @@ export default function LinkedInPosts() {
                 className="border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none bg-white">
           {SINCE_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
+        <select value={minMatch} onChange={e => setMinMatch(Number(e.target.value))}
+                className="border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none bg-white">
+          {MATCH_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
         <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer select-none">
           <input type="checkbox" checked={hiringOnly} onChange={e => setHiringOnly(e.target.checked)} className="rounded" />
           Hiring only
@@ -446,10 +475,10 @@ export default function LinkedInPosts() {
             <input type="checkbox" checked={includeApify} onChange={e => setIncludeApify(e.target.checked)} className="rounded accent-blue-600" />
             Include Apify posts
           </label>
-          {user && (
+          {user?.role === 'admin' && (
             <button onClick={runScraper} disabled={scraping}
                     className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 transition">
-              {scraping ? '⏳ Scraping…' : '🔍 Scrape LinkedIn Feed'}
+              {scraping ? '⏳ Scraping…' : '🔍 Scrape Now (admin)'}
             </button>
           )}
         </div>
@@ -473,16 +502,19 @@ export default function LinkedInPosts() {
       {!loading && posts.length === 0 && (
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 text-center space-y-3">
           <p className="text-3xl">💼</p>
-          <p className="font-semibold text-gray-800">No scraped posts yet</p>
+          <p className="font-semibold text-gray-800">No posts in this range yet</p>
           <p className="text-sm text-gray-500">
-            Click <strong>Scrape LinkedIn Feed</strong> to find HR hiring posts with email addresses, phone numbers, and Google Forms.
-            Results are stored in the DB and visible to all users instantly.
-            Toggle <em>Include Apify posts</em> above to also see posts fetched via the Apify API.
+            The feed refreshes automatically every morning at 7:00 AM IST with new HR hiring posts —
+            email addresses, phone numbers, and Google Forms. Apify-sourced listings are added
+            whenever an admin runs a manual Apify scrape.
+            Try a wider date range above, or check back after the next morning refresh.
           </p>
-          <button onClick={runScraper} disabled={scraping}
-                  className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50">
-            {scraping ? '⏳ Scraping…' : '🔍 Scrape LinkedIn Feed'}
-          </button>
+          {user?.role === 'admin' && (
+            <button onClick={runScraper} disabled={scraping}
+                    className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50">
+              {scraping ? '⏳ Scraping…' : '🔍 Scrape Now (admin)'}
+            </button>
+          )}
         </div>
       )}
 
@@ -539,6 +571,7 @@ export default function LinkedInPosts() {
               onWorkflow={setActivePost}
               onSingleEmail={p => setComposeTo({ single: true, contacts: [p] })}
               onStatusChange={handleStatusChange}
+              profileSkills={profileSkills}
             />
           ))}
         </div>

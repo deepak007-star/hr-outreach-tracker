@@ -128,8 +128,8 @@ export default function JobScraperSection() {
       if (!resp.ok) {
         let msg = `Scraper error (${resp.status})`;
         try { const d = await resp.json(); msg = d.error || msg; } catch {}
-        setLogs(prev => [...prev, { type: 'error', text: msg }]);
-        setScaping(false);
+        setScraperLogs(prev => [...prev, { type: 'error', text: msg }]);
+        setScraping(false);
         return;
       }
 
@@ -245,15 +245,15 @@ export default function JobScraperSection() {
             <span className="px-5 py-2.5 bg-gray-200 text-gray-500 rounded-xl text-sm font-semibold cursor-not-allowed">
               Coming Soon
             </span>
-          ) : (
+          ) : user?.role === 'admin' ? (
             <button
               onClick={runAllScrapers}
               disabled={scraping}
               className="px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
             >
-              {scraping ? '⏳ Scraping…' : '🔍 Scrape Now'}
+              {scraping ? '⏳ Scraping…' : '🔍 Scrape Now (admin)'}
             </button>
-          )}
+          ) : null}
           <button
             onClick={fetchJobs}
             disabled={loading}
@@ -341,7 +341,11 @@ export default function JobScraperSection() {
         <div className="flex flex-col items-center justify-center py-16 text-gray-400">
           <span className="text-4xl mb-3">🔍</span>
           <p className="text-sm font-semibold">No jobs in this time range</p>
-          <p className="text-xs mt-1">Click "Scrape Now" to fetch the latest jobs from {cat.desc}</p>
+          <p className="text-xs mt-1">
+            {user?.role === 'admin'
+              ? `Click "Scrape Now" to fetch the latest jobs from ${cat.desc}`
+              : 'Jobs refresh automatically every morning — try a wider time range above.'}
+          </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">

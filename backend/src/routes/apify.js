@@ -31,8 +31,8 @@ async function getSettings() {
   };
 }
 
-// ── GET /api/apify/settings ────────────────────────────────────────────────
-router.get('/settings', async (_, res) => {
+// ── GET /api/apify/settings (admin only) ───────────────────────────────────
+router.get('/settings', requireAuth, requireAdmin, async (_, res) => {
   const s = await getSettings();
   res.json({
     apiKey:        s.apiKey ? '••••••••' + s.apiKey.slice(-4) : '',
@@ -45,8 +45,8 @@ router.get('/settings', async (_, res) => {
   });
 });
 
-// ── PUT /api/apify/settings ────────────────────────────────────────────────
-router.put('/settings', async (req, res) => {
+// ── PUT /api/apify/settings (admin only) ───────────────────────────────────
+router.put('/settings', requireAuth, requireAdmin, async (req, res) => {
   const set = async (k, v) => {
     if (v !== undefined && v !== null)
       await db.prepare(`
@@ -280,7 +280,7 @@ router.post('/scrape', requireAuth, requireAdmin, async (req, res) => {
 });
 
 // ── GET /api/apify/posts ───────────────────────────────────────────────────
-router.get('/posts', async (req, res) => {
+router.get('/posts', requireAuth, async (req, res) => {
   const { search, hiring_only } = req.query;
   const wheres = [];
   const params = [];
@@ -328,7 +328,7 @@ router.patch('/posts/:id/status', softAuth, async (req, res) => {
 });
 
 // ── DELETE /api/apify/posts — admin-only manual clear ─────────────────────
-router.delete('/posts', requireAdmin, async (_, res) => {
+router.delete('/posts', requireAuth, requireAdmin, async (_, res) => {
   await db.exec('DELETE FROM linkedin_posts');
   res.json({ success: true });
 });

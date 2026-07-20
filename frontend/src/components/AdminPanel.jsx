@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { toast } from 'react-hot-toast';
-import { api } from '../api/client.js';
+import { api, API_ROOT } from '../api/client.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import RolesPermissions from './RolesPermissions.jsx';
 import PasswordVault from './PasswordVault.jsx';
+import ApifySettingsModal from './ApifySettingsModal.jsx';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const PLANS  = ['guest', 'demo', 'basic', 'advanced'];
@@ -948,6 +949,150 @@ function DataManagementSection() {
   );
 }
 
+// ── Job Scraper Section (Apify + LinkedIn feed, admin-only manual trigger) ──
+function ScraperSection() {
+  const [showConfig,   setShowConfig]   = useState(false);
+  const [apifyRunning, setApifyRunning] = useState(false);
+  const [feedRunning,  setFeedRunning]  = useState(false);
+  const [feedLogs,     setFeedLogs]     = useState([]);
+  const [showFeedLogs, setShowFeedLogs] = useState(false);
+  const [queries,      setQueries]      = useState([]);
+  const logsEndRef = useRef(null);
+
+  useEffect(() => {
+    api.get('/apify/settings').then(s => setQueries(s.searchQueries || [])).catch(() => {});
+  }, [showConfig]);
+
+  useEffect(() => {
+    if (showFeedLogs) logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [feedLogs]);
+
+  async function runApifyNow() {
+    setApifyRunning(true);
+    try {
+      const r = await api.post('/apify/scrape');
+      toast.success(`Apify scrape complete — ${r.imported}/${r.total} posts imported`);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Apify scrape failed');
+    } finally { setApifyRunning(false); }
+  }
+
+  async function runFeedScraperNow() {
+    setFeedRunning(true);
+    setFeedLogs([]);
+    setShowFeedLogs(true);
+    try {
+      const resp = await fetch(`${API_ROOT}/api/scraper/run`, {
+        method:  'POST',
+        headers: {
+          'Content-Type':  'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('hr_token')}`,
+        },
+        body: JSON.stringify({ scraper: 'linkedin-feed', titles: queries, limit: 25 }),
+      });
+
+      if (!resp.ok) {
+        let msg = `Scraper error (${resp.status})`;
+        try { const d = await resp.json(); msg = d.error || msg; } catch {}
+        setFeedLogs(prev => [...prev, { type: 'err', text: msg }]);
+        return;
+      }
+
+      const reader  = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let   buffer  = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue;
+          try {
+            const msg = JSON.parse(line.slice(5).trim());
+            if (msg.type === 'log' || msg.type === 'err') {
+              setFeedLogs(prev => [...prev, { type: msg.type, text: msg.data }]);
+            } else if (msg.type === 'done') {
+              if (msg.data.code === 0) toast.success(`LinkedIn feed scrape complete — ${msg.data.stored || 0} jobs stored`);
+              else toast.error('Scraper exited with errors — check logs');
+            }
+          } catch {}
+        }
+      }
+    } catch (err) {
+      toast.error('Scraper failed: ' + err.message);
+    } finally {
+      setFeedRunning(false);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white border rounded-2xl p-5 space-y-4">
+        <div>
+          <h3 className="font-bold text-gray-800 flex items-center gap-2">🔍 Job Scraper</h3>
+          <p className="text-sm text-gray-500 mt-1">
+            The LinkedIn Feed scraper runs automatically every morning at 7:00 AM IST across the configured role queries.
+            Apify does <strong>not</strong> run automatically — trigger it manually below whenever you want a fresh Apify pull.
+            Regular users only ever see prefetched results — scraping is admin-only.
+          </p>
+        </div>
+
+        {queries.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {queries.map(q => (
+              <span key={q} className="text-xs bg-gray-100 text-gray-600 border rounded-full px-2.5 py-1">{q}</span>
+            ))}
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-3 pt-1">
+          <button
+            onClick={() => setShowConfig(true)}
+            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-xl text-sm font-semibold hover:bg-gray-50 transition-colors"
+          >
+            ⚙️ Edit Query List / Config
+          </button>
+          <button
+            onClick={runApifyNow}
+            disabled={apifyRunning}
+            className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 disabled:opacity-60 transition-colors"
+          >
+            {apifyRunning ? '⏳ Running…' : '🚀 Scrape Now (Apify)'}
+          </button>
+          <button
+            onClick={runFeedScraperNow}
+            disabled={feedRunning}
+            className="px-4 py-2 bg-purple-600 text-white rounded-xl text-sm font-semibold hover:bg-purple-700 disabled:opacity-60 transition-colors"
+          >
+            {feedRunning ? '⏳ Running…' : '🚀 Scrape Now (LinkedIn Feed)'}
+          </button>
+        </div>
+
+        {showFeedLogs && (
+          <div className="bg-gray-900 rounded-xl border border-gray-700 p-4 space-y-1 max-h-48 overflow-y-auto">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-gray-400">LinkedIn Feed Scraper Output</span>
+              <button onClick={() => setShowFeedLogs(false)} className="text-gray-500 hover:text-gray-300 text-xs">Hide</button>
+            </div>
+            {feedLogs.map((l, i) => (
+              <p key={i} className={`text-xs font-mono whitespace-pre-wrap ${l.type === 'err' ? 'text-red-400' : 'text-green-300'}`}>{l.text}</p>
+            ))}
+            <div ref={logsEndRef} />
+          </div>
+        )}
+      </div>
+
+      {showConfig && (
+        <ApifySettingsModal onClose={() => setShowConfig(false)} onSaved={() => setShowConfig(false)} />
+      )}
+    </div>
+  );
+}
+
 // ── Main AdminPanel ────────────────────────────────────────────────────────
 export default function AdminPanel() {
   const { user } = useAuth();
@@ -967,6 +1112,7 @@ export default function AdminPanel() {
     { id: 'users',     icon: '👥', label: 'User Management'      },
     { id: 'roles',     icon: '🛡️', label: 'Roles & Permissions'  },
     { id: 'passwords', icon: '🔐', label: 'Password Vault'       },
+    { id: 'scraper',   icon: '🔍', label: 'Job Scraper'          },
     { id: 'data',      icon: '🗄️', label: 'Data & Backup'       },
   ];
 
@@ -1024,6 +1170,7 @@ export default function AdminPanel() {
           <PasswordVault isAdmin={true} />
         </div>
       )}
+      {tab === 'scraper' && <ScraperSection />}
       {tab === 'data'  && <DataManagementSection />}
     </div>
   );
