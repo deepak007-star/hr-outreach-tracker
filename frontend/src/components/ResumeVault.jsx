@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { api, API_ROOT } from '../api/client.js';
 import toast from 'react-hot-toast';
 
@@ -89,36 +89,84 @@ function PreviewModal({ version, onClose }) {
 
 // ── Add Modal ─────────────────────────────────────────────────────────────────
 
+const ADD_TABS = [
+  { id: 'profile', label: 'Profile Resume' },
+  { id: 'upload',  label: 'Upload File' },
+  { id: 'drive',   label: 'Google Drive' },
+  { id: 'paste',   label: 'Paste Text' },
+];
+
 function AddModal({ profileResume, vaultCount, onClose, onSaved }) {
-  const [tab,        setTab]        = useState(profileResume?.resume_text ? 'profile' : 'paste');
-  const [label,      setLabel]      = useState('');
-  const [targetRole, setTargetRole] = useState('');
-  const [pasteText,  setPasteText]  = useState('');
-  const [saving,     setSaving]     = useState(false);
+  const [tab,          setTab]          = useState(profileResume?.resume_text ? 'profile' : 'upload');
+  const [label,        setLabel]        = useState('');
+  const [targetRole,   setTargetRole]   = useState('');
+  const [pasteText,    setPasteText]    = useState('');
+  const [driveUrl,     setDriveUrl]     = useState('');
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [saving,       setSaving]       = useState(false);
+  const fileRef = useRef(null);
 
   const willReplaceOldest = vaultCount >= MAX;
 
-  const getResumeText = () => tab === 'paste' ? pasteText.trim() : (profileResume?.resume_text || '');
-  const getSkills     = () => tab === 'paste' ? [] : (Array.isArray(profileResume?.skills) ? profileResume.skills : []);
-  const canSave       = () => tab === 'paste' ? pasteText.trim().length > 0 : !!profileResume?.resume_text;
+  const canSave = () => {
+    if (tab === 'profile') return !!profileResume?.resume_text;
+    if (tab === 'paste')   return pasteText.trim().length > 0;
+    if (tab === 'upload')  return !!selectedFile;
+    if (tab === 'drive')   return driveUrl.trim().length > 0;
+    return false;
+  };
 
   const handleSave = async () => {
-    const resumeText = getResumeText();
-    if (!resumeText) return;
+    if (!canSave()) return;
     setSaving(true);
     try {
-      const saved = await api.post('/resume-versions', {
-        label:       label.trim() || `Version ${vaultCount >= MAX ? MAX : vaultCount + 1}`,
-        resumeText,
-        targetRole:  targetRole.trim(),
-        skills:      getSkills(),
-        autoSaved:   false,
-        fromProfile: tab === 'profile',  // server will link the stored resume file
-      });
+      let saved;
+
+      if (tab === 'profile') {
+        saved = await api.post('/resume-versions', {
+          label:       label.trim() || `Profile Backup v${vaultCount + 1}`,
+          resumeText:  profileResume.resume_text,
+          targetRole:  targetRole.trim(),
+          skills:      Array.isArray(profileResume?.skills) ? profileResume.skills : [],
+          autoSaved:   false,
+          fromProfile: true,
+        });
+
+      } else if (tab === 'paste') {
+        saved = await api.post('/resume-versions', {
+          label:      label.trim() || `Paste v${vaultCount + 1}`,
+          resumeText: pasteText.trim(),
+          targetRole: targetRole.trim(),
+          skills:     [],
+          autoSaved:  false,
+        });
+
+      } else if (tab === 'upload') {
+        const formData = new FormData();
+        formData.append('resume', selectedFile);
+        formData.append('label', label.trim() || selectedFile.name);
+        formData.append('targetRole', targetRole.trim());
+        const token = localStorage.getItem('hr_token');
+        const res = await fetch(`${API_ROOT}/api/resume-versions/upload`, {
+          method:  'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body:    formData,
+        });
+        if (!res.ok) throw new Error((await res.json()).error || 'Upload failed');
+        saved = await res.json();
+
+      } else if (tab === 'drive') {
+        saved = await api.post('/resume-versions/from-drive', {
+          driveUrl:   driveUrl.trim(),
+          label:      label.trim() || 'Drive Import',
+          targetRole: targetRole.trim(),
+        });
+      }
+
       toast.success('Resume saved to vault!');
       onSaved(saved);
     } catch (e) {
-      toast.error(e.response?.data?.error || 'Failed to save');
+      toast.error(e.response?.data?.error || e.message || 'Failed to save');
     } finally {
       setSaving(false);
     }
@@ -127,89 +175,119 @@ function AddModal({ profileResume, vaultCount, onClose, onSaved }) {
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
-        <div className="px-6 py-4 border-b">
+        <div className="px-6 py-4 border-b flex items-center justify-between">
           <h3 className="font-bold text-gray-900">Save Resume to Vault</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
         </div>
 
         {/* Tabs */}
         <div className="flex border-b">
-          <button
-            onClick={() => setTab('profile')}
-            className={`flex-1 py-2.5 text-sm font-medium transition ${tab === 'profile' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
-          >
-            From Profile Resume
-          </button>
-          <button
-            onClick={() => setTab('paste')}
-            className={`flex-1 py-2.5 text-sm font-medium transition ${tab === 'paste' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
-          >
-            Paste Text
-          </button>
+          {ADD_TABS.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className={`flex-1 py-2.5 text-xs font-semibold transition ${
+                tab === t.id ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500 hover:text-gray-700'
+              }`}>
+              {t.label}
+            </button>
+          ))}
         </div>
 
         <div className="p-6 space-y-4">
           {willReplaceOldest && (
             <div className="text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded-lg p-3">
-              ⚠ Vault is full (5/5). The oldest version will be automatically removed to make room.
+              Vault is full (5/5). The oldest version will be automatically removed to make room.
             </div>
           )}
 
-          {tab === 'profile' ? (
+          {/* Profile tab */}
+          {tab === 'profile' && (
             profileResume?.resume_text ? (
-              <p className="text-xs text-gray-500 bg-gray-50 border rounded-lg px-3 py-2">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-sm text-blue-800">
                 Uses your Profile resume: <strong>{profileResume.resume_filename || 'current resume'}</strong>
-              </p>
+                <p className="text-xs text-blue-500 mt-1">Skills from your profile will be saved for auto-matching.</p>
+              </div>
             ) : (
               <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-4">
-                No resume found in your Profile. Upload one on the <strong>Profile</strong> tab, or switch to <strong>Paste Text</strong> to add manually.
+                No resume found in your Profile. Upload one on the <strong>Profile</strong> tab, or use <strong>Upload File</strong> here.
               </div>
             )
-          ) : (
+          )}
+
+          {/* Upload file tab */}
+          {tab === 'upload' && (
             <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Paste your resume text</label>
-              <textarea
-                value={pasteText}
-                onChange={e => setPasteText(e.target.value)}
-                rows={9}
-                placeholder="Paste your resume content here (plain text)…"
-                className="w-full border rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-300 outline-none resize-y"
-              />
+              <p className="text-xs text-gray-500 mb-3">Upload a PDF, DOCX, or TXT resume file from your device. Text will be extracted automatically.</p>
+              <input ref={fileRef} type="file" accept=".pdf,.docx,.doc,.txt" className="hidden"
+                onChange={e => { if (e.target.files[0]) { setSelectedFile(e.target.files[0]); if (!label.trim()) setLabel(e.target.files[0].name.replace(/\.[^.]+$/, '')); } }} />
+              {selectedFile ? (
+                <div className="flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <span className="text-2xl">📄</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-green-800 truncate">{selectedFile.name}</p>
+                    <p className="text-xs text-green-600">{(selectedFile.size / 1024).toFixed(0)} KB</p>
+                  </div>
+                  <button onClick={() => setSelectedFile(null)} className="text-green-600 hover:text-red-500 text-sm">✕</button>
+                </div>
+              ) : (
+                <button onClick={() => fileRef.current?.click()}
+                  className="w-full py-6 border-2 border-dashed border-gray-300 rounded-xl text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50/50 transition text-center">
+                  <div className="text-3xl mb-1">📤</div>
+                  <div className="font-medium">Click to browse files</div>
+                  <div className="text-xs text-gray-400 mt-1">PDF, DOCX, DOC, TXT (max 10 MB)</div>
+                </button>
+              )}
             </div>
           )}
 
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1.5">Version Label</label>
-            <input
-              value={label}
-              onChange={e => setLabel(e.target.value)}
-              placeholder={`e.g. Backend Dev v${vaultCount + 1}, Java + Microservices`}
-              className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
-              maxLength={80}
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1.5">Target Role / Job Type</label>
-            <input
-              value={targetRole}
-              onChange={e => setTargetRole(e.target.value)}
-              placeholder="e.g. Senior Backend Engineer, Fullstack Developer"
-              className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
-              maxLength={80}
-            />
-          </div>
-          {tab === 'profile' && (
-            <p className="text-xs text-gray-400">Skills from your profile will be saved with this version for auto-matching.</p>
+          {/* Google Drive tab */}
+          {tab === 'drive' && (
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Google Drive Share Link</label>
+                <input value={driveUrl} onChange={e => setDriveUrl(e.target.value)}
+                  placeholder="https://drive.google.com/file/d/..."
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none" />
+              </div>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700">
+                The file must be shared as <strong>"Anyone with the link"</strong> in Google Drive. Works with PDF and DOCX files.
+              </div>
+            </div>
           )}
+
+          {/* Paste text tab */}
+          {tab === 'paste' && (
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Paste your resume text</label>
+              <textarea value={pasteText} onChange={e => setPasteText(e.target.value)} rows={9}
+                placeholder="Paste your resume content here (plain text)…"
+                className="w-full border rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-300 outline-none resize-y" />
+            </div>
+          )}
+
+          {/* Common label + role fields */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Version Label</label>
+              <input value={label} onChange={e => setLabel(e.target.value)}
+                placeholder="e.g. Java Backend v2"
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none" maxLength={80} />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Target Role</label>
+              <input value={targetRole} onChange={e => setTargetRole(e.target.value)}
+                placeholder="e.g. Senior Backend Engineer"
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none" maxLength={80} />
+            </div>
+          </div>
         </div>
 
         <div className="flex gap-3 px-6 pb-5">
           <button onClick={onClose} className="flex-1 border rounded-lg py-2.5 text-sm font-medium hover:bg-gray-50 transition">Cancel</button>
-          <button
-            onClick={handleSave}
-            disabled={saving || !canSave()}
-            className="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition"
-          >
-            {saving ? 'Saving…' : 'Save to Vault'}
+          <button onClick={handleSave} disabled={saving || !canSave()}
+            className="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition">
+            {saving
+              ? (tab === 'drive' ? 'Importing from Drive…' : tab === 'upload' ? 'Uploading…' : 'Saving…')
+              : 'Save to Vault'}
           </button>
         </div>
       </div>
@@ -428,7 +506,7 @@ export default function ResumeVault() {
         <div className="text-sm text-blue-800 space-y-1">
           <p><strong>How it works:</strong> Save different resume versions here — each tailored for a specific job type or company.</p>
           <p>In <strong>Job Analyzer</strong>, the vault auto-suggests whichever version covers the most required skills for that role.</p>
-          <p className="text-blue-600 text-xs">Add from your Profile resume or paste any text directly. First 5 Profile uploads are auto-saved.</p>
+          <p className="text-blue-600 text-xs">Add from your Profile resume, upload a file (PDF/DOCX), import from Google Drive, or paste text directly.</p>
         </div>
       </div>
 

@@ -1,6 +1,8 @@
 const express    = require('express');
 const crypto     = require('crypto');
 const fs         = require('fs');
+const https      = require('https');
+const http       = require('http');
 const db         = require('../db/database');
 const { syncExcel } = require('../services/excelSync');
 const { middleware: rlMiddleware } = require('../middleware/rateLimiter');
@@ -18,6 +20,33 @@ function renderTemplate(tpl, contact) {
     .replace(/\{\{company\}\}/gi, contact.company || '')
     .replace(/\{\{title\}\}/gi,   contact.title   || '')
     .replace(/\{\{email\}\}/gi,   contact.email   || '');
+}
+
+function getDriveFileId(url) {
+  const m1 = (url || '').match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+  if (m1) return m1[1];
+  const m2 = (url || '').match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (m2) return m2[1];
+  return null;
+}
+
+function fetchUrl(urlStr, redirects = 5) {
+  return new Promise((resolve, reject) => {
+    if (redirects < 0) return reject(new Error('Too many redirects'));
+    const lib = urlStr.startsWith('https') ? https : http;
+    const req = lib.get(urlStr, { headers: { 'User-Agent': 'Mozilla/5.0' } }, res => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        return fetchUrl(res.headers.location, redirects - 1).then(resolve).catch(reject);
+      }
+      if (res.statusCode !== 200) { res.resume(); return reject(new Error(`HTTP ${res.statusCode}`)); }
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => resolve({ buffer: Buffer.concat(chunks), contentType: res.headers['content-type'] || '' }));
+      res.on('error', reject);
+    });
+    req.on('error', reject);
+    req.setTimeout(30000, () => { req.destroy(); reject(new Error('Timeout')); });
+  });
 }
 
 function stripHtml(html) {
@@ -67,6 +96,16 @@ async function resolveAttachment(attachment, userId) {
         filename:    attachment.filename || 'resume',
         content:     Buffer.from(attachment.data, 'base64'),
         contentType: attachment.mimeType || 'application/octet-stream',
+      }];
+    } else if (attachment.type === 'drive' && attachment.driveUrl) {
+      const fileId = getDriveFileId(attachment.driveUrl);
+      if (!fileId) throw new Error('Invalid Drive URL');
+      const downloadLink = `https://drive.google.com/uc?export=download&id=${fileId}&confirm=t`;
+      const { buffer, contentType } = await fetchUrl(downloadLink);
+      return [{
+        filename:    attachment.filename || 'resume.pdf',
+        content:     buffer,
+        contentType: contentType || 'application/pdf',
       }];
     }
   } catch (e) {

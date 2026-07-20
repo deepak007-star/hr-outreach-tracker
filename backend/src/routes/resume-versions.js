@@ -4,6 +4,10 @@ const express = require('express');
 const crypto  = require('crypto');
 const fs      = require('fs');
 const path    = require('path');
+const os      = require('os');
+const https   = require('https');
+const http    = require('http');
+const multer  = require('multer');
 const db      = require('../db/database');
 const { requireAuth } = require('../middleware/auth');
 
@@ -12,6 +16,97 @@ router.use(requireAuth);
 
 const MAX_VERSIONS = 5;
 const NOW = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
+
+// ── File storage helpers ───────────────────────────────────────────────────────
+
+const RESUME_DIR = path.join(__dirname, '../../uploads/resumes');
+if (!fs.existsSync(RESUME_DIR)) fs.mkdirSync(RESUME_DIR, { recursive: true });
+
+const upload = multer({ dest: os.tmpdir(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+function storeVaultFile(tmpPath, userId, ext) {
+  const userDir = path.join(RESUME_DIR, userId);
+  if (!fs.existsSync(userDir)) fs.mkdirSync(userDir, { recursive: true });
+  const dest = path.join(userDir, `${crypto.randomUUID()}${ext}`);
+  fs.copyFileSync(tmpPath, dest);
+  return dest;
+}
+
+async function parseFileToText(filePath, ext) {
+  if (ext === '.pdf') {
+    const pdfParse = require('pdf-parse');
+    const data = await pdfParse(fs.readFileSync(filePath));
+    return { text: data.text, mimeType: 'application/pdf' };
+  }
+  if (ext === '.docx' || ext === '.doc') {
+    const mammoth = require('mammoth');
+    const result = await mammoth.extractRawText({ path: filePath });
+    return {
+      text: result.value,
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    };
+  }
+  if (ext === '.txt') {
+    return { text: fs.readFileSync(filePath, 'utf8'), mimeType: 'text/plain' };
+  }
+  throw new Error('Unsupported file type. Use PDF, DOCX, or TXT.');
+}
+
+function getDriveFileId(url) {
+  const m1 = (url || '').match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+  if (m1) return m1[1];
+  const m2 = (url || '').match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (m2) return m2[1];
+  return null;
+}
+
+function fetchUrl(urlStr, redirects = 5) {
+  return new Promise((resolve, reject) => {
+    if (redirects < 0) return reject(new Error('Too many redirects'));
+    const lib = urlStr.startsWith('https') ? https : http;
+    const req = lib.get(urlStr, { headers: { 'User-Agent': 'Mozilla/5.0' } }, res => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        return fetchUrl(res.headers.location, redirects - 1).then(resolve).catch(reject);
+      }
+      if (res.statusCode !== 200) {
+        res.resume();
+        return reject(new Error(`HTTP ${res.statusCode}`));
+      }
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => resolve({ buffer: Buffer.concat(chunks), contentType: res.headers['content-type'] || '' }));
+      res.on('error', reject);
+    });
+    req.on('error', reject);
+    req.setTimeout(30000, () => { req.destroy(); reject(new Error('Request timeout')); });
+  });
+}
+
+async function saveVaultVersion(userId, text, storedPath, mimeType, label, targetRole) {
+  const { cnt } = await db.prepare(
+    'SELECT COUNT(*) AS cnt FROM resume_versions WHERE user_id = ?'
+  ).get(userId);
+  if (cnt >= MAX_VERSIONS) {
+    const oldest = await db.prepare(
+      'SELECT id FROM resume_versions WHERE user_id = ? ORDER BY created_at ASC LIMIT 1'
+    ).get(userId);
+    if (oldest) await db.prepare('DELETE FROM resume_versions WHERE id = ?').run(oldest.id);
+  }
+  const id = crypto.randomUUID();
+  const profileSkills = (await db.prepare(
+    'SELECT skills FROM profiles WHERE user_id = ?'
+  ).get(userId))?.skills || '[]';
+  await db.prepare(`
+    INSERT INTO resume_versions (id, user_id, label, resume_text, target_role, skills, auto_saved, file_path, mime_type, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+  `).run(id, userId, label.slice(0, 80), text.trim(), (targetRole || '').slice(0, 80), profileSkills, storedPath, mimeType, NOW());
+  const saved = await db.prepare(
+    'SELECT id, user_id, label, target_role, skills, auto_saved, created_at, mime_type FROM resume_versions WHERE id = ?'
+  ).get(id);
+  saved.skills = parseSkills(saved.skills);
+  saved.has_file = !!(storedPath && fs.existsSync(storedPath));
+  return saved;
+}
 
 function parseSkills(json) {
   try { const v = JSON.parse(json || '[]'); return Array.isArray(v) ? v : []; }
@@ -22,12 +117,12 @@ function parseSkills(json) {
 router.get('/', async (req, res) => {
   try {
     const rows = await db.prepare(
-      'SELECT id, user_id, label, target_role, skills, auto_saved, created_at, mime_type FROM resume_versions WHERE user_id = ? ORDER BY created_at DESC'
+      'SELECT id, user_id, label, target_role, skills, auto_saved, created_at, mime_type, file_path FROM resume_versions WHERE user_id = ? ORDER BY created_at DESC'
     ).all(req.user.userId);
     rows.forEach(r => {
       r.skills = parseSkills(r.skills);
-      // Expose whether a physical file is available (don't leak server paths)
       r.has_file = !!(r.file_path && fs.existsSync(r.file_path));
+      delete r.file_path; // don't expose server path to client
     });
     res.json(rows);
   } catch (err) {
@@ -57,6 +152,8 @@ router.post('/', async (req, res) => {
     const { label, resumeText, targetRole, skills, autoSaved = false, filePath, mimeType, fromProfile } = req.body;
     if (!resumeText?.trim()) return res.status(400).json({ error: 'Resume text is required' });
 
+    const userId = req.user.userId;
+
     // When saving from the profile's current resume, look up the stored file server-side
     let actualFilePath = filePath || null;
     let actualMimeType = mimeType || null;
@@ -67,8 +164,6 @@ router.post('/', async (req, res) => {
         actualMimeType = prof.resume_mime_type;
       }
     }
-
-    const userId = req.user.userId;
 
     // Count existing versions
     const { cnt } = await db.prepare(
@@ -149,6 +244,61 @@ router.delete('/:id', async (req, res) => {
   } catch (err) {
     console.error('[resume-versions] DELETE /:id error:', err);
     res.status(500).json({ error: 'Failed to delete version' });
+  }
+});
+
+// POST /api/resume-versions/upload  — upload a resume file from device
+router.post('/upload', upload.single('resume'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  const { label = '', targetRole = '' } = req.body;
+  const userId = req.user.userId;
+  const tmpPath = req.file.path;
+  const ext = path.extname(req.file.originalname || '').toLowerCase();
+  const cleanup = () => { try { fs.unlinkSync(tmpPath); } catch {} };
+  try {
+    if (!['.pdf', '.docx', '.doc', '.txt'].includes(ext)) {
+      cleanup();
+      return res.status(400).json({ error: 'Unsupported file type. Use PDF, DOCX, or TXT.' });
+    }
+    const { text, mimeType } = await parseFileToText(tmpPath, ext);
+    if (!text?.trim()) { cleanup(); return res.status(400).json({ error: 'Could not extract text from the file.' }); }
+    const storedPath = storeVaultFile(tmpPath, userId, ext);
+    cleanup();
+    const finalLabel = (label.trim() || req.file.originalname || 'Uploaded Resume').slice(0, 80);
+    const saved = await saveVaultVersion(userId, text, storedPath, mimeType, finalLabel, targetRole);
+    res.json(saved);
+  } catch (err) {
+    cleanup();
+    res.status(500).json({ error: `Upload failed: ${err.message}` });
+  }
+});
+
+// POST /api/resume-versions/from-drive  — import from a public Google Drive share link
+router.post('/from-drive', async (req, res) => {
+  const { driveUrl, label = '', targetRole = '' } = req.body;
+  if (!driveUrl?.trim()) return res.status(400).json({ error: 'Drive URL is required' });
+  const fileId = getDriveFileId(driveUrl);
+  if (!fileId) return res.status(400).json({ error: 'Could not extract file ID. Use a standard Google Drive share link.' });
+  const userId = req.user.userId;
+  let tmpPath = null;
+  try {
+    const downloadLink = `https://drive.google.com/uc?export=download&id=${fileId}&confirm=t`;
+    const { buffer, contentType } = await fetchUrl(downloadLink);
+    let ext = '.pdf';
+    if (contentType.includes('wordprocessingml') || contentType.includes('msword')) ext = '.docx';
+    else if (contentType.includes('text/plain')) ext = '.txt';
+    tmpPath = path.join(os.tmpdir(), `drive-${crypto.randomUUID()}${ext}`);
+    fs.writeFileSync(tmpPath, buffer);
+    const { text, mimeType } = await parseFileToText(tmpPath, ext);
+    if (!text?.trim()) return res.status(400).json({ error: 'Could not extract text. Make sure the file is a PDF or DOCX and publicly shared.' });
+    const storedPath = storeVaultFile(tmpPath, userId, ext);
+    const finalLabel = (label.trim() || 'Drive Import').slice(0, 80);
+    const saved = await saveVaultVersion(userId, text, storedPath, mimeType, finalLabel, targetRole);
+    res.json(saved);
+  } catch (err) {
+    res.status(500).json({ error: `Drive import failed: ${err.message}` });
+  } finally {
+    if (tmpPath) try { fs.unlinkSync(tmpPath); } catch {}
   }
 });
 

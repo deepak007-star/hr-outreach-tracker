@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '../api/client.js';
 import { toast } from 'react-hot-toast';
 import RichEditor, { toHtml } from './RichEditor.jsx';
+import AttachmentPicker from './AttachmentPicker.jsx';
 
 const CATEGORIES = [
   { id: 'all',           label: 'All' },
@@ -120,9 +121,11 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
   const [saving,      setSaving]      = useState(false);
   const [dirty,       setDirty]       = useState(false);
   const [profile,     setProfile]     = useState(null);
-  const [search,      setSearch]      = useState('');
-  const [category,    setCategory]    = useState('all');
-  const [previewMode, setPreviewMode] = useState(false);
+  const [search,           setSearch]           = useState('');
+  const [category,         setCategory]         = useState('all');
+  const [previewMode,      setPreviewMode]       = useState(false);
+  const [selectAttachment, setSelectAttachment] = useState(null);
+  const [showAttachPicker, setShowAttachPicker] = useState(false);
   const bodyEditorRef = useRef(null);
 
   useEffect(() => {
@@ -230,8 +233,9 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
   function handleSelect(t) {
     if (mode !== 'select' || !onSelect) return;
     onSelect({
-      subject: substituteVars(t.subject || '', varMap),
-      body:    substituteVars(t.body    || '', varMap),
+      subject:    substituteVars(t.subject || '', varMap),
+      body:       substituteVars(t.body    || '', varMap),
+      attachment: selectAttachment || null,
     });
     onClose();
   }
@@ -240,6 +244,14 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
   const previewSubject = substituteVars(form.subject || '', varMap);
 
   return (
+    <>
+    {showAttachPicker && (
+      <AttachmentPicker
+        profile={profile}
+        onSelect={a => { setSelectAttachment(a); setShowAttachPicker(false); }}
+        onClose={() => setShowAttachPicker(false)}
+      />
+    )}
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-2xl flex flex-col w-full max-w-5xl h-[90vh] overflow-hidden">
 
@@ -313,7 +325,7 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
                 return (
                   <div
                     key={t.id}
-                    onClick={() => mode === 'select' ? handleSelect(t) : openTemplate(t)}
+                    onClick={() => openTemplate(t)}
                     className={`px-4 py-3 border-b cursor-pointer transition-colors ${
                       selected?.id === t.id
                         ? 'bg-blue-50 border-l-2 border-l-blue-500'
@@ -481,21 +493,43 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
                 </div>
 
                 {/* Footer */}
-                <div className="px-5 py-3 border-t bg-gray-50 flex justify-between items-center">
+                <div className="px-5 py-3 border-t bg-gray-50 space-y-2">
                   {mode === 'select' ? (
                     <>
-                      <span className="text-xs text-gray-400">
-                        Profile vars ({Object.values(varMap).filter(Boolean).length > 0 ? 'auto-filled' : 'not set'})
-                      </span>
-                      <button
-                        onClick={() => handleSelect({ subject: form.subject, body: form.body })}
-                        className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition"
-                      >
-                        Use this Template →
-                      </button>
+                      {/* Attachment row */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-500 shrink-0">Attach resume:</span>
+                        {selectAttachment ? (
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <span className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded px-2 py-0.5 truncate flex-1">
+                              {selectAttachment.label}
+                            </span>
+                            <button onClick={() => setSelectAttachment(null)} className="text-xs text-red-400 hover:text-red-600 shrink-0">✕</button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setShowAttachPicker(true)}
+                            className="text-xs px-2.5 py-1 border border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-blue-400 hover:text-blue-600 transition"
+                          >
+                            + Pick resume
+                          </button>
+                        )}
+                      </div>
+                      {/* Action row */}
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs text-gray-400">
+                          Profile vars ({Object.values(varMap).filter(Boolean).length > 0 ? 'auto-filled' : 'not set'})
+                        </span>
+                        <button
+                          onClick={() => handleSelect({ subject: form.subject, body: form.body })}
+                          className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition"
+                        >
+                          Use this Template →
+                        </button>
+                      </div>
                     </>
                   ) : (
-                    <>
+                    <div className="flex justify-between items-center">
                       <span className="text-xs text-gray-400">
                         {dirty ? 'Unsaved changes' : selected?._new ? 'New template' : 'All saved'}
                       </span>
@@ -506,7 +540,7 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
                       >
                         {saving ? 'Saving…' : 'Save Template'}
                       </button>
-                    </>
+                    </div>
                   )}
                 </div>
               </div>
@@ -515,5 +549,6 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
         </div>
       </div>
     </div>
+    </>
   );
 }

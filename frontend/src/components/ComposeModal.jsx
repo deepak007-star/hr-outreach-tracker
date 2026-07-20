@@ -3,6 +3,7 @@ import { toast } from 'react-hot-toast';
 import { api } from '../api/client.js';
 import EmailTemplatesModal from './EmailTemplatesModal.jsx';
 import RichEditor from './RichEditor.jsx';
+import AttachmentPicker from './AttachmentPicker.jsx';
 
 const VARS = [
   { label: '{{name}}',    hint: 'Contact full name' },
@@ -22,93 +23,6 @@ Thanks for your time,
 Vishal`;
 
 const DEFAULT_SUBJECT = 'Hi {{name}}, quick question about opportunities at {{company}}';
-
-// ── Attachment picker modal ───────────────────────────────────────────────────
-function AttachmentPicker({ profile, onSelect, onClose }) {
-  const [vaultVersions, setVaultVersions] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const fileRef = useRef(null);
-
-  useEffect(() => {
-    api.get('/resume-versions')
-      .then(data => setVaultVersions(Array.isArray(data) ? data : []))
-      .finally(() => setLoading(false));
-  }, []);
-
-  function handleFile(file) {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64 = reader.result.split(',')[1];
-      onSelect({ type: 'local', label: file.name, data: base64, mimeType: file.type });
-    };
-    reader.readAsDataURL(file);
-  }
-
-  const hasProfile  = profile?.has_resume_file;
-  const vaultFiles  = vaultVersions.filter(v => v.has_file);
-  const hasAnything = hasProfile || vaultFiles.length > 0;
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b">
-          <h3 className="font-semibold text-gray-800 text-sm">Choose Resume to Attach</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-xl leading-none">✕</button>
-        </div>
-
-        <div className="p-4 space-y-3 max-h-[60vh] overflow-y-auto">
-          {/* Profile resume */}
-          {hasProfile && (
-            <button
-              onClick={() => onSelect({ type: 'profile', label: profile.resume_filename || 'Profile Resume' })}
-              className="w-full text-left p-3 bg-blue-50 border border-blue-200 rounded-xl hover:bg-blue-100 transition"
-            >
-              <div className="text-sm font-semibold text-blue-700">Profile Resume</div>
-              <div className="text-xs text-blue-500 mt-0.5">{profile.resume_filename || 'Your uploaded resume'}</div>
-            </button>
-          )}
-
-          {/* Vault versions with files */}
-          {loading ? (
-            <p className="text-xs text-gray-400 text-center py-2">Loading vault…</p>
-          ) : vaultFiles.length > 0 ? (
-            <div>
-              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Resume Vault</p>
-              <div className="space-y-2">
-                {vaultFiles.map(v => (
-                  <button
-                    key={v.id}
-                    onClick={() => onSelect({ type: 'vault', vaultId: v.id, label: v.label })}
-                    className="w-full text-left p-3 border rounded-xl hover:bg-gray-50 transition"
-                  >
-                    <div className="text-sm font-medium text-gray-700">{v.label}</div>
-                    {v.target_role && <div className="text-xs text-gray-400 mt-0.5">{v.target_role}</div>}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : !hasProfile ? (
-            <p className="text-xs text-gray-400 text-center py-2">No saved resume files found in vault.</p>
-          ) : null}
-
-          {/* Upload from device */}
-          <div>
-            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Upload from Device</p>
-            <input ref={fileRef} type="file" accept=".pdf,.docx,.doc" className="hidden"
-              onChange={e => e.target.files[0] && handleFile(e.target.files[0])} />
-            <button
-              onClick={() => fileRef.current?.click()}
-              className="w-full py-2.5 border border-dashed border-gray-300 rounded-xl text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 transition text-center"
-            >
-              Browse files (PDF, DOCX)
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ── Variable chip ─────────────────────────────────────────────────────────────
 function VarChip({ label, hint, onInsert }) {
@@ -403,7 +317,12 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
       <EmailTemplatesModal
         mode="select"
         onClose={() => setShowTemplates(false)}
-        onSelect={({ subject: s, body: b }) => { setSubject(s); setBody(b); setShowTemplates(false); }}
+        onSelect={({ subject: s, body: b, attachment: a }) => {
+          setSubject(s);
+          setBody(b);
+          if (a) setAttachment(a);
+          setShowTemplates(false);
+        }}
       />
     )}
 
