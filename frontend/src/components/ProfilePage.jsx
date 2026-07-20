@@ -319,7 +319,7 @@ function ResumeFilePreviewModal({ filename, onClose }) {
           {loading ? (
             <div className="flex items-center justify-center h-full text-gray-400 text-sm">Loading preview…</div>
           ) : blobUrl ? (
-            <iframe src={blobUrl} className="w-full h-full border-0" title="Resume" sandbox="allow-same-origin allow-popups" />
+            <iframe src={blobUrl} className="w-full h-full border-0" title="Resume" />
           ) : (
             <div className="flex items-center justify-center h-full text-gray-500 text-sm">{fallback}</div>
           )}

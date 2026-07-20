@@ -74,7 +74,6 @@ function PreviewModal({ version, onClose }) {
               src={blobUrl}
               className="w-full h-full border-0"
               title="Resume Preview"
-              sandbox="allow-same-origin allow-popups"
             />
           ) : (
             <div className="h-full overflow-y-auto p-6">

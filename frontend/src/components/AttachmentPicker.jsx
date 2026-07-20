@@ -14,25 +14,34 @@ import { api } from '../api/client.js';
  *   onClose   — fn()
  */
 export default function AttachmentPicker({ profile, onSelect, onClose }) {
-  const [tab,           setTab]           = useState('profile');
+  const [tab,           setTab]           = useState('device');
   const [vaultVersions, setVaultVersions] = useState([]);
   const [loading,       setLoading]       = useState(true);
   const [driveUrl,      setDriveUrl]      = useState('');
   const [driveErr,      setDriveErr]      = useState('');
-  const fileRef = useRef(null);
+  const fileRef    = useRef(null);
+  const userTabRef = useRef(false); // true once user manually selects a tab
 
+  // Fetch vault once on mount; pick the best initial tab from what's available
   useEffect(() => {
     api.get('/resume-versions')
       .then(data => {
         const arr = Array.isArray(data) ? data : [];
         setVaultVersions(arr);
-        // Default to best available tab
-        if (!profile?.has_resume_file) {
-          setTab(arr.some(v => v.has_file) ? 'vault' : 'device');
+        if (!userTabRef.current) {
+          if (profile?.has_resume_file) setTab('profile');
+          else if (arr.some(v => v.has_file)) setTab('vault');
         }
       })
       .finally(() => setLoading(false));
-  }, [profile]);
+  }, []); // run once — profile is captured in closure; see effect below for late-loading case
+
+  // If parent's profile finishes loading AFTER vault data already arrived, upgrade to profile tab
+  useEffect(() => {
+    if (!loading && !userTabRef.current && profile?.has_resume_file) {
+      setTab('profile');
+    }
+  }, [profile, loading]);
 
   function handleFile(file) {
     if (!file) return;
@@ -78,7 +87,7 @@ export default function AttachmentPicker({ profile, onSelect, onClose }) {
         {/* Tabs */}
         <div className="flex border-b">
           {TABS.map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)}
+            <button key={t.id} onClick={() => { userTabRef.current = true; setTab(t.id); }}
               className={`flex-1 py-2.5 text-xs font-semibold transition ${
                 tab === t.id
                   ? 'border-b-2 border-blue-600 text-blue-600'
