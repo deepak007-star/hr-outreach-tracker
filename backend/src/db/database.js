@@ -352,8 +352,12 @@ async function initialize() {
   await addCol('leads',    'preferred_contact',`TEXT`);
   await addCol('profiles', 'notice_period',       `TEXT`);
   await addCol('profiles', 'preferred_location',  `TEXT`);
+  await addCol('profiles', 'resume_file_path',    `TEXT`);
+  await addCol('profiles', 'resume_mime_type',    `TEXT`);
   await addCol('email_templates', 'category',     `TEXT NOT NULL DEFAULT 'general'`);
   await addCol('email_templates', 'tags',         `TEXT NOT NULL DEFAULT '[]'`);
+  await addCol('resume_versions', 'file_path',    `TEXT`);
+  await addCol('resume_versions', 'mime_type',    `TEXT`);
   // scraped_jobs index for fast date-range queries
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_scraped_jobs_created_at ON scraped_jobs (created_at)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_scraped_jobs_category ON scraped_jobs (job_category)`);

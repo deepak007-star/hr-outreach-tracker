@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { toast } from 'react-hot-toast';
-import { api } from '../api/client.js';
+import { api, API_ROOT } from '../api/client.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { extractSkills } from '../data/techSkills.js';
 import ProfileAnalyzer from './ProfileAnalyzer.jsx';
@@ -84,16 +84,18 @@ const JOB_TITLE_OPTIONS = [
 
 function profileToOverviewForm(p) {
   return {
-    current_title:    p?.current_title    || '',
-    current_company:  p?.current_company  || '',
-    location:         p?.location         || '',
-    phone:            p?.phone            || '',
-    total_experience: p?.total_experience || '',
-    summary:          p?.summary          || '',
-    job_title_1:      p?.job_title_1      || '',
-    job_title_2:      p?.job_title_2      || '',
-    job_title_3:      p?.job_title_3      || '',
-    preferred_city:   p?.preferred_city   || '',
+    current_title:      p?.current_title      || '',
+    current_company:    p?.current_company    || '',
+    location:           p?.location           || '',
+    phone:              p?.phone              || '',
+    total_experience:   p?.total_experience   || '',
+    summary:            p?.summary            || '',
+    notice_period:      p?.notice_period      || '',
+    preferred_location: p?.preferred_location || '',
+    job_title_1:        p?.job_title_1        || '',
+    job_title_2:        p?.job_title_2        || '',
+    job_title_3:        p?.job_title_3        || '',
+    preferred_city:     p?.preferred_city     || '',
   };
 }
 
@@ -195,11 +197,13 @@ function OverviewTab({ profile, onSave, onDirtyChange }) {
       <div>
         <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Basic Information</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <InfoField label="Job Title"        value={form.current_title}    editing={editing} onChange={v => set('current_title', v)}    placeholder="e.g. Senior Backend Engineer" />
-          <InfoField label="Company"          value={form.current_company}  editing={editing} onChange={v => set('current_company', v)}  placeholder="e.g. Google" />
-          <InfoField label="Location"         value={form.location}         editing={editing} onChange={v => set('location', v)}          placeholder="e.g. Bangalore, India" />
-          <InfoField label="Phone"            value={form.phone}            editing={editing} onChange={v => set('phone', v)}             placeholder="+91 98765 43210" type="tel" />
-          <InfoField label="Total Experience" value={form.total_experience} editing={editing} onChange={v => set('total_experience', v)} placeholder="e.g. 4.5 years" />
+          <InfoField label="Job Title"           value={form.current_title}      editing={editing} onChange={v => set('current_title', v)}      placeholder="e.g. Senior Backend Engineer" />
+          <InfoField label="Company"             value={form.current_company}    editing={editing} onChange={v => set('current_company', v)}    placeholder="e.g. Google" />
+          <InfoField label="Location"            value={form.location}           editing={editing} onChange={v => set('location', v)}            placeholder="e.g. Bangalore, India" />
+          <InfoField label="Phone"               value={form.phone}              editing={editing} onChange={v => set('phone', v)}               placeholder="+91 98765 43210" type="tel" />
+          <InfoField label="Total Experience"    value={form.total_experience}   editing={editing} onChange={v => set('total_experience', v)}   placeholder="e.g. 4.5 years" />
+          <InfoField label="Notice Period"       value={form.notice_period}      editing={editing} onChange={v => set('notice_period', v)}      placeholder="e.g. 30 days / Immediate" />
+          <InfoField label="Preferred Location"  value={form.preferred_location} editing={editing} onChange={v => set('preferred_location', v)} placeholder="e.g. Noida, Gurugram, Remote" />
         </div>
       </div>
 
@@ -272,10 +276,64 @@ function OverviewTab({ profile, onSave, onDirtyChange }) {
   );
 }
 
+// ── Resume file preview modal ─────────────────────────────────────────────────
+function ResumeFilePreviewModal({ filename, onClose }) {
+  const [blobUrl,  setBlobUrl]  = useState(null);
+  const [fallback, setFallback] = useState('');
+  const [loading,  setLoading]  = useState(true);
+
+  useEffect(() => {
+    let objUrl = null;
+    (async () => {
+      try {
+        const token = localStorage.getItem('hr_token');
+        const resp  = await fetch(`${API_ROOT}/api/profile/resume/file`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (resp.ok) {
+          const blob = await resp.blob();
+          objUrl = URL.createObjectURL(blob);
+          setBlobUrl(objUrl);
+        } else {
+          setFallback('Resume file not available for preview.');
+        }
+      } catch {
+        setFallback('Failed to load resume preview.');
+      }
+      setLoading(false);
+    })();
+    return () => { if (objUrl) URL.revokeObjectURL(objUrl); };
+  }, []);
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[92vh] flex flex-col">
+        <div className="flex items-center justify-between px-6 py-4 border-b shrink-0">
+          <div>
+            <h3 className="font-bold text-gray-900">{filename || 'Resume Preview'}</h3>
+            <p className="text-xs text-gray-400 mt-0.5">Your uploaded resume</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-xl leading-none">✕</button>
+        </div>
+        <div className="flex-1 min-h-0 overflow-hidden rounded-b-2xl">
+          {loading ? (
+            <div className="flex items-center justify-center h-full text-gray-400 text-sm">Loading preview…</div>
+          ) : blobUrl ? (
+            <iframe src={blobUrl} className="w-full h-full border-0" title="Resume" sandbox="allow-same-origin allow-popups" />
+          ) : (
+            <div className="flex items-center justify-center h-full text-gray-500 text-sm">{fallback}</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Resume & Skills tab ───────────────────────────────────────────────────────
 function ResumeSkillsTab({ profile, onSave }) {
-  const [newSkill,  setNewSkill]  = useState('');
-  const [uploading, setUploading] = useState(false);
+  const [newSkill,    setNewSkill]    = useState('');
+  const [uploading,   setUploading]   = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
   const fileRef = useRef(null);
 
   const skills = useMemo(() => { try { return JSON.parse(profile?.skills || '[]'); } catch { return []; } }, [profile?.skills]);
@@ -341,10 +399,18 @@ function ResumeSkillsTab({ profile, onSave }) {
                 </p>
               )}
             </div>
-            <button onClick={() => fileRef.current?.click()} disabled={uploading}
-              className="shrink-0 px-4 py-2 border border-blue-300 text-blue-700 text-xs font-semibold rounded-lg hover:bg-blue-100 disabled:opacity-50">
-              {uploading ? '⏳ Parsing…' : '↺ Update'}
-            </button>
+            <div className="flex gap-2 shrink-0">
+              {profile.has_resume_file && (
+                <button onClick={() => setShowPreview(true)}
+                  className="px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition">
+                  👁 Preview
+                </button>
+              )}
+              <button onClick={() => fileRef.current?.click()} disabled={uploading}
+                className="px-4 py-2 border border-blue-300 text-blue-700 text-xs font-semibold rounded-lg hover:bg-blue-100 disabled:opacity-50">
+                {uploading ? '⏳ Parsing…' : '↺ Update'}
+              </button>
+            </div>
           </div>
         ) : (
           <button onClick={() => fileRef.current?.click()} disabled={uploading}
@@ -390,6 +456,10 @@ function ResumeSkillsTab({ profile, onSave }) {
           </div>
         )}
       </div>
+
+      {showPreview && (
+        <ResumeFilePreviewModal filename={profile?.resume_filename} onClose={() => setShowPreview(false)} />
+      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { api } from '../api/client.js';
+import { api, API_ROOT } from '../api/client.js';
 import toast from 'react-hot-toast';
 
 const MAX = 5;
@@ -16,27 +16,70 @@ const CARD_COLORS = ['bg-blue-600', 'bg-purple-600', 'bg-green-600', 'bg-orange-
 
 // ── Preview Modal ─────────────────────────────────────────────────────────────
 
-function PreviewModal({ versionId, onClose }) {
-  const [text, setText]       = useState('');
-  const [loading, setLoading] = useState(true);
+function PreviewModal({ version, onClose }) {
+  const [blobUrl,  setBlobUrl]  = useState(null);
+  const [fallback, setFallback] = useState('');
+  const [loading,  setLoading]  = useState(true);
+
   useEffect(() => {
-    api.get(`/resume-versions/${versionId}/text`)
-      .then(r => setText(r.resume_text || ''))
-      .catch(() => setText('Failed to load resume text.'))
-      .finally(() => setLoading(false));
-  }, [versionId]);
+    let objUrl = null;
+
+    async function load() {
+      setLoading(true);
+      // Try rich file preview first when the version has a stored file
+      if (version.has_file) {
+        try {
+          const token = localStorage.getItem('hr_token');
+          const resp = await fetch(`${API_ROOT}/api/resume-versions/${version.id}/file`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (resp.ok) {
+            const blob = await resp.blob();
+            objUrl = URL.createObjectURL(blob);
+            setBlobUrl(objUrl);
+            setLoading(false);
+            return;
+          }
+        } catch { /* fall through to text */ }
+      }
+      // Fall back to extracted plain text
+      try {
+        const r = await api.get(`/resume-versions/${version.id}/text`);
+        setFallback(r.resume_text || '');
+      } catch {
+        setFallback('Failed to load resume preview.');
+      }
+      setLoading(false);
+    }
+
+    load();
+    return () => { if (objUrl) URL.revokeObjectURL(objUrl); };
+  }, [version.id, version.has_file]);
+
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b shrink-0">
-          <h3 className="font-bold text-gray-900">Resume Preview</h3>
+          <div>
+            <h3 className="font-bold text-gray-900">{version.label || 'Resume Preview'}</h3>
+            {version.target_role && <p className="text-xs text-gray-400 mt-0.5">Target: {version.target_role}</p>}
+          </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-xl leading-none">✕</button>
         </div>
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 min-h-0 overflow-hidden rounded-b-2xl">
           {loading ? (
-            <div className="text-center py-12 text-gray-400">Loading…</div>
+            <div className="flex items-center justify-center h-full text-gray-400 text-sm">Loading preview…</div>
+          ) : blobUrl ? (
+            <iframe
+              src={blobUrl}
+              className="w-full h-full border-0"
+              title="Resume Preview"
+              sandbox="allow-same-origin allow-popups"
+            />
           ) : (
-            <pre className="text-xs font-mono text-gray-700 whitespace-pre-wrap leading-relaxed">{text}</pre>
+            <div className="h-full overflow-y-auto p-6">
+              <pre className="text-xs font-mono text-gray-700 whitespace-pre-wrap leading-relaxed">{fallback}</pre>
+            </div>
           )}
         </div>
       </div>
@@ -65,11 +108,12 @@ function AddModal({ profileResume, vaultCount, onClose, onSaved }) {
     setSaving(true);
     try {
       const saved = await api.post('/resume-versions', {
-        label:      label.trim() || `Version ${vaultCount >= MAX ? MAX : vaultCount + 1}`,
+        label:       label.trim() || `Version ${vaultCount >= MAX ? MAX : vaultCount + 1}`,
         resumeText,
-        targetRole: targetRole.trim(),
-        skills:     getSkills(),
-        autoSaved:  false,
+        targetRole:  targetRole.trim(),
+        skills:      getSkills(),
+        autoSaved:   false,
+        fromProfile: tab === 'profile',  // server will link the stored resume file
       });
       toast.success('Resume saved to vault!');
       onSaved(saved);
@@ -300,11 +344,11 @@ function AddSlot({ onClick, disabled }) {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function ResumeVault() {
-  const [versions,      setVersions]      = useState([]);
-  const [profileResume, setProfileResume] = useState(null);
-  const [loading,       setLoading]       = useState(true);
-  const [showAdd,       setShowAdd]       = useState(false);
-  const [previewId,     setPreviewId]     = useState(null);
+  const [versions,       setVersions]       = useState([]);
+  const [profileResume,  setProfileResume]  = useState(null);
+  const [loading,        setLoading]        = useState(true);
+  const [showAdd,        setShowAdd]        = useState(false);
+  const [previewVersion, setPreviewVersion] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -398,7 +442,7 @@ export default function ResumeVault() {
               key={v.id}
               version={v}
               index={i}
-              onPreview={() => setPreviewId(v.id)}
+              onPreview={() => setPreviewVersion(v)}
               onDelete={() => handleDelete(v.id)}
               onRename={handleRename}
             />
@@ -428,8 +472,8 @@ export default function ResumeVault() {
         />
       )}
 
-      {previewId && (
-        <PreviewModal versionId={previewId} onClose={() => setPreviewId(null)} />
+      {previewVersion && (
+        <PreviewModal version={previewVersion} onClose={() => setPreviewVersion(null)} />
       )}
     </div>
   );

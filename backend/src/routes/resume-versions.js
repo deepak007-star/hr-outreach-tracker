@@ -2,6 +2,8 @@
 
 const express = require('express');
 const crypto  = require('crypto');
+const fs      = require('fs');
+const path    = require('path');
 const db      = require('../db/database');
 const { requireAuth } = require('../middleware/auth');
 
@@ -20,9 +22,13 @@ function parseSkills(json) {
 router.get('/', async (req, res) => {
   try {
     const rows = await db.prepare(
-      'SELECT id, user_id, label, target_role, skills, auto_saved, created_at FROM resume_versions WHERE user_id = ? ORDER BY created_at DESC'
+      'SELECT id, user_id, label, target_role, skills, auto_saved, created_at, mime_type FROM resume_versions WHERE user_id = ? ORDER BY created_at DESC'
     ).all(req.user.userId);
-    rows.forEach(r => { r.skills = parseSkills(r.skills); });
+    rows.forEach(r => {
+      r.skills = parseSkills(r.skills);
+      // Expose whether a physical file is available (don't leak server paths)
+      r.has_file = !!(r.file_path && fs.existsSync(r.file_path));
+    });
     res.json(rows);
   } catch (err) {
     console.error('[resume-versions] GET / error:', err);
@@ -48,8 +54,19 @@ router.get('/:id/text', async (req, res) => {
 // POST /api/resume-versions  — save a new version (auto-prunes oldest if at cap)
 router.post('/', async (req, res) => {
   try {
-    const { label, resumeText, targetRole, skills, autoSaved = false } = req.body;
+    const { label, resumeText, targetRole, skills, autoSaved = false, filePath, mimeType, fromProfile } = req.body;
     if (!resumeText?.trim()) return res.status(400).json({ error: 'Resume text is required' });
+
+    // When saving from the profile's current resume, look up the stored file server-side
+    let actualFilePath = filePath || null;
+    let actualMimeType = mimeType || null;
+    if (fromProfile) {
+      const prof = await db.prepare('SELECT resume_file_path, resume_mime_type FROM profiles WHERE user_id = ?').get(userId);
+      if (prof?.resume_file_path && fs.existsSync(prof.resume_file_path)) {
+        actualFilePath = prof.resume_file_path;
+        actualMimeType = prof.resume_mime_type;
+      }
+    }
 
     const userId = req.user.userId;
 
@@ -68,8 +85,8 @@ router.post('/', async (req, res) => {
 
     const id = crypto.randomUUID();
     await db.prepare(`
-      INSERT INTO resume_versions (id, user_id, label, resume_text, target_role, skills, auto_saved, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO resume_versions (id, user_id, label, resume_text, target_role, skills, auto_saved, file_path, mime_type, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id, userId,
       (label || 'Untitled Version').slice(0, 80),
@@ -77,11 +94,13 @@ router.post('/', async (req, res) => {
       (targetRole || '').slice(0, 80),
       JSON.stringify(Array.isArray(skills) ? skills : []),
       autoSaved ? 1 : 0,
+      actualFilePath,
+      actualMimeType,
       NOW(),
     );
 
     const saved = await db.prepare(
-      'SELECT id, user_id, label, target_role, skills, auto_saved, created_at FROM resume_versions WHERE id = ?'
+      'SELECT id, user_id, label, target_role, skills, auto_saved, created_at, mime_type FROM resume_versions WHERE id = ?'
     ).get(id);
     saved.skills = parseSkills(saved.skills);
     res.json(saved);
@@ -169,6 +188,50 @@ router.post('/suggest', async (req, res) => {
     res.status(500).json({ error: 'Suggestion failed' });
   }
 });
+
+// GET /api/resume-versions/:id/file  — stream the stored original file for formatted preview
+router.get('/:id/file', async (req, res) => {
+  try {
+    const row = await db.prepare(
+      'SELECT file_path, mime_type, label FROM resume_versions WHERE id = ? AND user_id = ?'
+    ).get(req.params.id, req.user.userId);
+
+    if (!row?.file_path || !fs.existsSync(row.file_path)) {
+      return res.status(404).json({ error: 'No file stored for this version' });
+    }
+
+    const mime = row.mime_type || '';
+
+    if (mime.includes('wordprocessingml') || mime.includes('msword')) {
+      const mammoth = require('mammoth');
+      const result  = await mammoth.convertToHtml({ path: row.file_path });
+      const html    = wrapDocxHtml(result.value);
+      res.set('Content-Type', 'text/html; charset=utf-8');
+      return res.send(html);
+    }
+
+    res.set('Content-Type', mime || 'application/octet-stream');
+    res.set('Content-Disposition', `inline; filename="${encodeURIComponent(row.label || 'resume')}"`);
+    fs.createReadStream(row.file_path).pipe(res);
+  } catch (err) {
+    console.error('[resume-versions] GET /:id/file error:', err);
+    res.status(500).json({ error: `Failed to serve resume file: ${err.message}` });
+  }
+});
+
+function wrapDocxHtml(body) {
+  return `<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>
+  body { font-family: Calibri, Arial, sans-serif; margin: 32px 40px; line-height: 1.7; color: #1a1a1a; max-width: 860px; }
+  h1, h2, h3 { color: #111; margin: 1.2em 0 0.4em; }
+  p { margin: 0.3em 0; }
+  ul, ol { padding-left: 1.6em; margin: 0.4em 0; }
+  table { border-collapse: collapse; width: 100%; margin: 0.6em 0; }
+  td, th { border: 1px solid #ddd; padding: 6px 10px; text-align: left; }
+  strong { font-weight: 700; }
+  a { color: #1a56db; }
+</style></head><body>${body}</body></html>`;
+}
 
 // GET /api/resume-versions/count  — lightweight count for auto-save decision
 router.get('/count', async (req, res) => {
