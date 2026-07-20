@@ -1,5 +1,6 @@
 const express    = require('express');
 const crypto     = require('crypto');
+const fs         = require('fs');
 const db         = require('../db/database');
 const { syncExcel } = require('../services/excelSync');
 const { middleware: rlMiddleware } = require('../middleware/rateLimiter');
@@ -17,6 +18,61 @@ function renderTemplate(tpl, contact) {
     .replace(/\{\{company\}\}/gi, contact.company || '')
     .replace(/\{\{title\}\}/gi,   contact.title   || '')
     .replace(/\{\{email\}\}/gi,   contact.email   || '');
+}
+
+function stripHtml(html) {
+  return html
+    .replace(/<div><br><\/div>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+async function resolveAttachment(attachment, userId) {
+  if (!attachment || !attachment.type) return [];
+  try {
+    if (attachment.type === 'profile') {
+      const profile = await db.prepare(
+        'SELECT resume_file_path, resume_mime_type, resume_filename FROM profiles WHERE user_id = ?'
+      ).get(userId);
+      if (profile?.resume_file_path && fs.existsSync(profile.resume_file_path)) {
+        return [{
+          filename:    profile.resume_filename || 'resume',
+          path:        profile.resume_file_path,
+          contentType: profile.resume_mime_type || 'application/octet-stream',
+        }];
+      }
+    } else if (attachment.type === 'vault' && attachment.vaultId) {
+      const version = await db.prepare(
+        'SELECT file_path, mime_type, label FROM resume_versions WHERE id = ? AND user_id = ?'
+      ).get(attachment.vaultId, userId);
+      if (version?.file_path && fs.existsSync(version.file_path)) {
+        const ext = version.mime_type?.includes('pdf') ? '.pdf'
+                  : version.mime_type?.includes('word') ? '.docx' : '';
+        return [{
+          filename:    (version.label || 'resume') + ext,
+          path:        version.file_path,
+          contentType: version.mime_type || 'application/octet-stream',
+        }];
+      }
+    } else if (attachment.type === 'local' && attachment.data) {
+      return [{
+        filename:    attachment.filename || 'resume',
+        content:     Buffer.from(attachment.data, 'base64'),
+        contentType: attachment.mimeType || 'application/octet-stream',
+      }];
+    }
+  } catch (e) {
+    console.warn('[email] resolveAttachment failed (non-fatal):', e.message);
+  }
+  return [];
 }
 
 async function getFooter() {
@@ -135,7 +191,7 @@ router.post('/preview', async (req, res) => {
 
 // ── POST /api/email/send ───────────────────────────────────────────────────
 router.post('/send', rlMiddleware('email'), async (req, res) => {
-  const { sends } = req.body;
+  const { sends, attachment } = req.body;
   if (!Array.isArray(sends) || !sends.length)
     return res.status(400).json({ error: 'sends[] required' });
 
@@ -150,9 +206,10 @@ router.post('/send', rlMiddleware('email'), async (req, res) => {
   if (await getSentToday() >= cap)
     return res.status(429).json({ error: `Daily send cap of ${cap} reached. Try again tomorrow.` });
 
-  const footer    = await getFooter();
-  const results   = [];
-  let sentCount   = await getSentToday();
+  const footer      = await getFooter();
+  const results     = [];
+  let sentCount     = await getSentToday();
+  const attachments = await resolveAttachment(attachment, req.user.userId);
 
   for (let i = 0; i < sends.length; i++) {
     const { contactId, subject, body } = sends[i];
@@ -172,15 +229,23 @@ router.post('/send', rlMiddleware('email'), async (req, res) => {
       results.push({ contactId, ok: false, error: 'Daily cap reached' }); continue;
     }
 
-    const textBody = `${body}\n\n---\n${footer}`;
-    const htmlBody = textBody.split('\n').map(l => `<p style="margin:0 0 4px">${l}</p>`).join('');
+    const isHtml   = /<[a-zA-Z]/.test(body);
+    const textBody = isHtml
+      ? stripHtml(body) + `\n\n---\n${footer}`
+      : `${body}\n\n---\n${footer}`;
+    const htmlBody = isHtml
+      ? `<div style="font-family:sans-serif;font-size:14px;line-height:1.7">${body}<p style="margin:16px 0 0;color:#999;font-size:12px">---<br>${footer}</p></div>`
+      : `<div style="font-family:sans-serif;font-size:14px;line-height:1.6">${
+          textBody.split('\n').map(l => `<p style="margin:0 0 4px">${l}</p>`).join('')
+        }</div>`;
 
     const mailOpts = {
       from:    fromName ? `"${fromName}" <${fromEmail}>` : fromEmail,
       to:      contact.email,
       subject,
       text:    textBody,
-      html:    `<div style="font-family:sans-serif;font-size:14px;line-height:1.6">${htmlBody}</div>`,
+      html:    htmlBody,
+      ...(attachments.length > 0 ? { attachments } : {}),
     };
 
     const logId = crypto.randomUUID();

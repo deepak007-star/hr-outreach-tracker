@@ -305,6 +305,30 @@ Best regards,
 {{your_name}}
 {{phone}} | {{linkedin_url}}`,
   },
+  {
+    name: 'Java Backend — Direct Outreach (Personal)',
+    category: 'cold-outreach',
+    tags: ['java', 'spring boot', 'backend', 'microservices', 'kafka', 'redis', 'personal', 'direct'],
+    subject: 'Java Backend Developer — Reaching out to {{company}}',
+    body: `Hi there,
+
+Hope you're doing well. I'm a Java Backend Developer with 5 years of experience, currently looking to make a move, and wanted to reach out directly in case there's a suitable opening on your side.
+
+A quick summary of my background:
+Core stack: Java, Spring Boot, Microservices, Hibernate/JPA, Spring Security, Spring Batch, Spring AI
+System design: HLD & LLD, Design Patterns, Distributed Architecture, Scalable Systems
+Data & messaging: PostgreSQL, MongoDB, DynamoDB, Redis, Kafka, RabbitMQ
+Infra & tooling: Docker, Kubernetes, AWS, Grafana
+Testing: JUnit, Mockito
+
+My official notice period is {{notice_period}}, I'm based in {{location}}, and open to relocation or remote roles.
+I've attached my resume for reference — if there's any suitable Java Backend Developer opening currently or coming up, I'd really appreciate you keeping me in mind. Happy to jump on a quick call at your convenience.
+
+LinkedIn: {{linkedin_url}}
+Thanks & regards,
+{{your_name}}
+{{phone}}`,
+  },
 ];
 
 async function seedTemplates() {

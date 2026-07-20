@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { toast } from 'react-hot-toast';
 import { api } from '../api/client.js';
 import EmailTemplatesModal from './EmailTemplatesModal.jsx';
+import RichEditor from './RichEditor.jsx';
 
 const VARS = [
   { label: '{{name}}',    hint: 'Contact full name' },
@@ -10,7 +11,6 @@ const VARS = [
   { label: '{{email}}',   hint: 'Email address' },
 ];
 
-const DEFAULT_SUBJECT = 'Hi {{name}}, quick question about opportunities at {{company}}';
 const DEFAULT_BODY =
 `Hi {{name}},
 
@@ -21,15 +21,106 @@ I'd love a quick 15-minute chat to explore if there's a fit. Would you be open t
 Thanks for your time,
 Vishal`;
 
+const DEFAULT_SUBJECT = 'Hi {{name}}, quick question about opportunities at {{company}}';
+
+// ── Attachment picker modal ───────────────────────────────────────────────────
+function AttachmentPicker({ profile, onSelect, onClose }) {
+  const [vaultVersions, setVaultVersions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const fileRef = useRef(null);
+
+  useEffect(() => {
+    api.get('/resume-versions')
+      .then(data => setVaultVersions(Array.isArray(data) ? data : []))
+      .finally(() => setLoading(false));
+  }, []);
+
+  function handleFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result.split(',')[1];
+      onSelect({ type: 'local', label: file.name, data: base64, mimeType: file.type });
+    };
+    reader.readAsDataURL(file);
+  }
+
+  const hasProfile  = profile?.has_resume_file;
+  const vaultFiles  = vaultVersions.filter(v => v.has_file);
+  const hasAnything = hasProfile || vaultFiles.length > 0;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b">
+          <h3 className="font-semibold text-gray-800 text-sm">Choose Resume to Attach</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-xl leading-none">✕</button>
+        </div>
+
+        <div className="p-4 space-y-3 max-h-[60vh] overflow-y-auto">
+          {/* Profile resume */}
+          {hasProfile && (
+            <button
+              onClick={() => onSelect({ type: 'profile', label: profile.resume_filename || 'Profile Resume' })}
+              className="w-full text-left p-3 bg-blue-50 border border-blue-200 rounded-xl hover:bg-blue-100 transition"
+            >
+              <div className="text-sm font-semibold text-blue-700">Profile Resume</div>
+              <div className="text-xs text-blue-500 mt-0.5">{profile.resume_filename || 'Your uploaded resume'}</div>
+            </button>
+          )}
+
+          {/* Vault versions with files */}
+          {loading ? (
+            <p className="text-xs text-gray-400 text-center py-2">Loading vault…</p>
+          ) : vaultFiles.length > 0 ? (
+            <div>
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Resume Vault</p>
+              <div className="space-y-2">
+                {vaultFiles.map(v => (
+                  <button
+                    key={v.id}
+                    onClick={() => onSelect({ type: 'vault', vaultId: v.id, label: v.label })}
+                    className="w-full text-left p-3 border rounded-xl hover:bg-gray-50 transition"
+                  >
+                    <div className="text-sm font-medium text-gray-700">{v.label}</div>
+                    {v.target_role && <div className="text-xs text-gray-400 mt-0.5">{v.target_role}</div>}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : !hasProfile ? (
+            <p className="text-xs text-gray-400 text-center py-2">No saved resume files found in vault.</p>
+          ) : null}
+
+          {/* Upload from device */}
+          <div>
+            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Upload from Device</p>
+            <input ref={fileRef} type="file" accept=".pdf,.docx,.doc" className="hidden"
+              onChange={e => e.target.files[0] && handleFile(e.target.files[0])} />
+            <button
+              onClick={() => fileRef.current?.click()}
+              className="w-full py-2.5 border border-dashed border-gray-300 rounded-xl text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 transition text-center"
+            >
+              Browse files (PDF, DOCX)
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Variable chip ─────────────────────────────────────────────────────────────
 function VarChip({ label, hint, onInsert }) {
   return (
-    <button type="button" onClick={() => onInsert(label)} title={hint}
+    <button type="button" onMouseDown={e => { e.preventDefault(); onInsert(label); }} title={hint}
       className="px-2 py-0.5 text-xs font-mono bg-indigo-50 text-indigo-700 border border-indigo-200 rounded hover:bg-indigo-100 transition">
       {label}
     </button>
   );
 }
 
+// ── Preview card ──────────────────────────────────────────────────────────────
 function PreviewCard({ p, index }) {
   const [expanded, setExpanded] = useState(false);
   return (
@@ -57,7 +148,13 @@ function PreviewCard({ p, index }) {
       {expanded && (
         <div className="border-t px-4 pb-4 pt-3 space-y-2">
           <div><span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Subject</span><p className="mt-0.5 text-gray-800">{p.subject}</p></div>
-          <div><span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Body</span><p className="mt-0.5 text-gray-700 whitespace-pre-wrap text-xs leading-relaxed">{p.body}</p></div>
+          <div>
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Body</span>
+            <div
+              className="mt-0.5 text-gray-700 text-xs leading-relaxed"
+              dangerouslySetInnerHTML={{ __html: p.body }}
+            />
+          </div>
           <div className="pt-1 border-t text-xs text-gray-400 italic">{p.footer}</div>
         </div>
       )}
@@ -65,23 +162,28 @@ function PreviewCard({ p, index }) {
   );
 }
 
+// ── Main component ────────────────────────────────────────────────────────────
 export default function ComposeModal({ contacts, onClose, onSent }) {
-  const [step,          setStep]          = useState('compose');
-  const [subject,       setSubject]       = useState(DEFAULT_SUBJECT);
-  const [body,          setBody]          = useState(DEFAULT_BODY);
-  const [previews,      setPreviews]      = useState([]);
-  const [stats,         setStats]         = useState(null);
-  const [loading,       setLoading]       = useState(false);
-  const [sending,       setSending]       = useState(false);
-  const [focused,       setFocused]       = useState('body');
-  const [showTemplates, setShowTemplates] = useState(false);
-  const [quickTpls,     setQuickTpls]     = useState([]);
-  const subjRef = useRef();
-  const bodyRef = useRef();
+  const [step,             setStep]             = useState('compose');
+  const [subject,          setSubject]          = useState(DEFAULT_SUBJECT);
+  const [body,             setBody]             = useState(DEFAULT_BODY);
+  const [previews,         setPreviews]         = useState([]);
+  const [stats,            setStats]            = useState(null);
+  const [loading,          setLoading]          = useState(false);
+  const [sending,          setSending]          = useState(false);
+  const [focused,          setFocused]          = useState('body');
+  const [showTemplates,    setShowTemplates]    = useState(false);
+  const [quickTpls,        setQuickTpls]        = useState([]);
+  const [attachment,       setAttachment]       = useState(null);
+  const [showAttachPicker, setShowAttachPicker] = useState(false);
+  const [profile,          setProfile]          = useState(null);
 
-  // Load top 4 templates for the quick-pick bar
+  const subjRef      = useRef(null);
+  const bodyEditorRef = useRef(null);
+
   useEffect(() => {
     api.get('/email-templates').then(data => setQuickTpls(data.slice(0, 4))).catch(() => {});
+    api.get('/profile').then(p => setProfile(p?.user_id ? p : null)).catch(() => {});
   }, []);
 
   function applyTemplate(t) {
@@ -91,21 +193,23 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
   }
 
   const insertVar = (v) => {
-    const isSubj = focused === 'subject';
-    const ref    = isSubj ? subjRef : bodyRef;
-    const getter = isSubj ? subject : body;
-    const setter = isSubj ? setSubject : setBody;
-    if (!ref.current) return;
-    const el = ref.current;
-    const s  = el.selectionStart ?? getter.length;
-    const e  = el.selectionEnd   ?? getter.length;
-    setter(getter.slice(0, s) + v + getter.slice(e));
-    setTimeout(() => { el.selectionStart = el.selectionEnd = s + v.length; el.focus(); }, 0);
+    if (focused === 'subject') {
+      const el = subjRef.current;
+      if (!el) return;
+      const s = el.selectionStart ?? subject.length;
+      const e = el.selectionEnd   ?? subject.length;
+      const next = subject.slice(0, s) + v + subject.slice(e);
+      setSubject(next);
+      setTimeout(() => { el.selectionStart = el.selectionEnd = s + v.length; el.focus(); }, 0);
+    } else {
+      bodyEditorRef.current?.insertText(v);
+    }
   };
 
   const handlePreview = async () => {
     if (!subject.trim()) { toast.error('Subject is required'); return; }
-    if (!body.trim())    { toast.error('Body is required');    return; }
+    const bodyText = body.trim().replace(/<[^>]+>/g, '').trim();
+    if (!bodyText) { toast.error('Body is required'); return; }
     setLoading(true);
     try {
       const res = await api.post('/email/preview', { contactIds: contacts.map(c => c.id), subject, body });
@@ -122,9 +226,19 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
     if (!window.confirm(`Send ${eligible.length} email${eligible.length !== 1 ? 's' : ''}? This cannot be undone.`)) return;
     setSending(true);
     try {
-      const { sent, failed, results } = await api.post('/email/send', {
+      const payload = {
         sends: eligible.map(p => ({ contactId: p.contactId, subject: p.subject, body: p.body })),
-      });
+      };
+      if (attachment) {
+        payload.attachment = {
+          type:     attachment.type,
+          vaultId:  attachment.vaultId  || null,
+          filename: attachment.label    || null,
+          data:     attachment.data     || null,
+          mimeType: attachment.mimeType || null,
+        };
+      }
+      const { sent, failed, results } = await api.post('/email/send', payload);
       if (sent > 0)    toast.success(`${sent} email${sent !== 1 ? 's' : ''} sent!`);
       if (failed > 0)  toast.error(`${failed} failed`);
       const bounced       = results.filter(r => r.bounced);
@@ -168,7 +282,7 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
         {step === 'compose' && (
           <div className="flex-1 overflow-y-auto">
 
-            {/* ── Template quick-pick (top banner) ─────────────────── */}
+            {/* ── Template quick-pick ───────────────────────────────── */}
             <div className="mx-5 mt-5 bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200 rounded-2xl p-4">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
@@ -207,14 +321,38 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
 
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Subject *</label>
-                <input ref={subjRef} value={subject} onChange={e => setSubject(e.target.value)} onFocus={() => setFocused('subject')}
+                <input ref={subjRef} value={subject} onChange={e => setSubject(e.target.value)}
+                  onFocus={() => setFocused('subject')}
                   className="w-full border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none" />
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Body *</label>
-                <textarea ref={bodyRef} value={body} onChange={e => setBody(e.target.value)} onFocus={() => setFocused('body')}
-                  rows={11} className="w-full border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none resize-none font-mono leading-relaxed" />
+                <div onFocus={() => setFocused('body')}>
+                  <RichEditor
+                    ref={bodyEditorRef}
+                    value={body}
+                    onChange={setBody}
+                    minRows={11}
+                  />
+                </div>
+              </div>
+
+              {/* ── Attach Resume ─────────────────────────────────── */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Attach Resume (optional)</label>
+                {attachment ? (
+                  <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl text-sm">
+                    <span className="text-blue-700 flex-1 truncate text-xs">{attachment.label}</span>
+                    <button onClick={() => setAttachment(null)}
+                      className="text-xs text-red-400 hover:text-red-600 shrink-0 font-medium">Remove</button>
+                  </div>
+                ) : (
+                  <button onClick={() => setShowAttachPicker(true)}
+                    className="w-full px-3 py-2 border border-dashed border-gray-300 rounded-xl text-xs text-gray-500 hover:border-blue-400 hover:text-blue-600 transition text-left">
+                    + Attach resume — from profile, vault, or device
+                  </button>
+                )}
               </div>
 
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800">
@@ -227,6 +365,11 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
         {/* ── Preview step ─────────────────────────────────────────── */}
         {step === 'preview' && (
           <div className="flex-1 overflow-y-auto p-4 space-y-2">
+            {attachment && (
+              <div className="px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-700">
+                Attachment: <strong>{attachment.label}</strong>
+              </div>
+            )}
             {previews.length === 0 && <p className="text-center py-16 text-gray-400">No previews to show</p>}
             {previews.map((p, i) => <PreviewCard key={p.contactId} p={p} index={i} />)}
           </div>
@@ -261,6 +404,14 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
         mode="select"
         onClose={() => setShowTemplates(false)}
         onSelect={({ subject: s, body: b }) => { setSubject(s); setBody(b); setShowTemplates(false); }}
+      />
+    )}
+
+    {showAttachPicker && (
+      <AttachmentPicker
+        profile={profile}
+        onSelect={a => { setAttachment(a); setShowAttachPicker(false); }}
+        onClose={() => setShowAttachPicker(false)}
       />
     )}
     </>

@@ -1,6 +1,7 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '../api/client.js';
 import { toast } from 'react-hot-toast';
+import RichEditor, { toHtml } from './RichEditor.jsx';
 
 const CATEGORIES = [
   { id: 'all',           label: 'All' },
@@ -122,6 +123,7 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
   const [search,      setSearch]      = useState('');
   const [category,    setCategory]    = useState('all');
   const [previewMode, setPreviewMode] = useState(false);
+  const bodyEditorRef = useRef(null);
 
   useEffect(() => {
     Promise.all([
@@ -177,15 +179,7 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
   }
 
   function insertVar(v) {
-    const ta = document.getElementById('tpl-body-ta');
-    if (ta) {
-      const s = ta.selectionStart, e = ta.selectionEnd;
-      const next = form.body.slice(0, s) + v + form.body.slice(e);
-      setForm(f => ({ ...f, body: next }));
-      setTimeout(() => { ta.focus(); ta.setSelectionRange(s + v.length, s + v.length); }, 0);
-    } else {
-      setForm(f => ({ ...f, body: f.body + v }));
-    }
+    bodyEditorRef.current?.insertText(v);
     setDirty(true);
   }
 
@@ -416,7 +410,7 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
                         {PROFILE_VARS.map(v => (
                           <button
                             key={v.key}
-                            onClick={() => insertVar(v.key)}
+                            onMouseDown={e => { e.preventDefault(); insertVar(v.key); }}
                             className="text-xs bg-purple-50 text-purple-700 border border-purple-200 px-2 py-0.5 rounded-full hover:bg-purple-100 font-mono"
                             title={v.label}
                           >
@@ -431,7 +425,7 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
                         {RECIPIENT_VARS.map(v => (
                           <button
                             key={v.key}
-                            onClick={() => insertVar(v.key)}
+                            onMouseDown={e => { e.preventDefault(); insertVar(v.key); }}
                             className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-full hover:bg-indigo-100 font-mono"
                             title={v.label}
                           >
@@ -469,18 +463,17 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
                       </button>
                     </div>
                     {previewMode ? (
-                      <div className="w-full border rounded-lg px-4 py-3 text-sm bg-gray-50 min-h-[260px] whitespace-pre-wrap font-mono text-gray-700 leading-relaxed">
-                        {previewBody || <span className="text-gray-300 italic">No body</span>}
-                      </div>
+                      <div
+                        className="w-full border rounded-lg px-4 py-3 text-sm bg-gray-50 min-h-[260px] text-gray-700 leading-relaxed overflow-auto"
+                        dangerouslySetInnerHTML={{ __html: previewBody || '<span style="color:#ccc;font-style:italic">No body</span>' }}
+                      />
                     ) : (
-                      <textarea
-                        id="tpl-body-ta"
+                      <RichEditor
+                        ref={bodyEditorRef}
                         value={form.body}
-                        onChange={e => handleFormChange('body', e.target.value)}
+                        onChange={v => handleFormChange('body', v)}
                         disabled={mode === 'select'}
-                        rows={13}
-                        placeholder="Write your email body here. Use variables like {{name}}, {{company}}, {{current_title}}…"
-                        className="w-full border rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-300 outline-none resize-none disabled:bg-gray-50 disabled:text-gray-500"
+                        minRows={13}
                       />
                     )}
                   </div>
