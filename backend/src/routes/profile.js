@@ -53,6 +53,7 @@ router.put('/', async (req, res) => {
     'phone', 'linkedin_url', 'github_url', 'portfolio_url',
     'summary', 'total_experience', 'skills',
     'job_title_1', 'job_title_2', 'job_title_3', 'preferred_city',
+    'notice_period', 'preferred_location',
   ];
 
   const data = {};

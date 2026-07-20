@@ -47,21 +47,28 @@ function PreviewModal({ versionId, onClose }) {
 // ── Add Modal ─────────────────────────────────────────────────────────────────
 
 function AddModal({ profileResume, vaultCount, onClose, onSaved }) {
+  const [tab,        setTab]        = useState(profileResume?.resume_text ? 'profile' : 'paste');
   const [label,      setLabel]      = useState('');
   const [targetRole, setTargetRole] = useState('');
+  const [pasteText,  setPasteText]  = useState('');
   const [saving,     setSaving]     = useState(false);
 
   const willReplaceOldest = vaultCount >= MAX;
 
+  const getResumeText = () => tab === 'paste' ? pasteText.trim() : (profileResume?.resume_text || '');
+  const getSkills     = () => tab === 'paste' ? [] : (Array.isArray(profileResume?.skills) ? profileResume.skills : []);
+  const canSave       = () => tab === 'paste' ? pasteText.trim().length > 0 : !!profileResume?.resume_text;
+
   const handleSave = async () => {
-    if (!profileResume?.resume_text) return;
+    const resumeText = getResumeText();
+    if (!resumeText) return;
     setSaving(true);
     try {
       const saved = await api.post('/resume-versions', {
         label:      label.trim() || `Version ${vaultCount >= MAX ? MAX : vaultCount + 1}`,
-        resumeText: profileResume.resume_text,
+        resumeText,
         targetRole: targetRole.trim(),
-        skills:     Array.isArray(profileResume.skills) ? profileResume.skills : [],
+        skills:     getSkills(),
         autoSaved:  false,
       });
       toast.success('Resume saved to vault!');
@@ -75,17 +82,57 @@ function AddModal({ profileResume, vaultCount, onClose, onSaved }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
         <div className="px-6 py-4 border-b">
-          <h3 className="font-bold text-gray-900">Save Current Resume to Vault</h3>
-          <p className="text-xs text-gray-500 mt-0.5">Uses your Profile resume ({profileResume?.resume_filename || 'current resume'})</p>
+          <h3 className="font-bold text-gray-900">Save Resume to Vault</h3>
         </div>
+
+        {/* Tabs */}
+        <div className="flex border-b">
+          <button
+            onClick={() => setTab('profile')}
+            className={`flex-1 py-2.5 text-sm font-medium transition ${tab === 'profile' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            From Profile Resume
+          </button>
+          <button
+            onClick={() => setTab('paste')}
+            className={`flex-1 py-2.5 text-sm font-medium transition ${tab === 'paste' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            Paste Text
+          </button>
+        </div>
+
         <div className="p-6 space-y-4">
           {willReplaceOldest && (
             <div className="text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded-lg p-3">
               ⚠ Vault is full (5/5). The oldest version will be automatically removed to make room.
             </div>
           )}
+
+          {tab === 'profile' ? (
+            profileResume?.resume_text ? (
+              <p className="text-xs text-gray-500 bg-gray-50 border rounded-lg px-3 py-2">
+                Uses your Profile resume: <strong>{profileResume.resume_filename || 'current resume'}</strong>
+              </p>
+            ) : (
+              <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-4">
+                No resume found in your Profile. Upload one on the <strong>Profile</strong> tab, or switch to <strong>Paste Text</strong> to add manually.
+              </div>
+            )
+          ) : (
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">Paste your resume text</label>
+              <textarea
+                value={pasteText}
+                onChange={e => setPasteText(e.target.value)}
+                rows={9}
+                placeholder="Paste your resume content here (plain text)…"
+                className="w-full border rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-300 outline-none resize-y"
+              />
+            </div>
+          )}
+
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1.5">Version Label</label>
             <input
@@ -106,15 +153,16 @@ function AddModal({ profileResume, vaultCount, onClose, onSaved }) {
               maxLength={80}
             />
           </div>
-          <p className="text-xs text-gray-400">
-            Skills from your profile will be saved with this version for auto-matching.
-          </p>
+          {tab === 'profile' && (
+            <p className="text-xs text-gray-400">Skills from your profile will be saved with this version for auto-matching.</p>
+          )}
         </div>
+
         <div className="flex gap-3 px-6 pb-5">
           <button onClick={onClose} className="flex-1 border rounded-lg py-2.5 text-sm font-medium hover:bg-gray-50 transition">Cancel</button>
           <button
             onClick={handleSave}
-            disabled={saving || !profileResume?.resume_text}
+            disabled={saving || !canSave()}
             className="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition"
           >
             {saving ? 'Saving…' : 'Save to Vault'}
@@ -244,7 +292,7 @@ function AddSlot({ onClick, disabled }) {
       title={disabled ? 'Upload a resume to your Profile first' : 'Save current resume'}
     >
       <span className="text-2xl">➕</span>
-      <span className="text-xs font-medium">Save current resume</span>
+      <span className="text-xs font-medium">Add resume version</span>
     </button>
   );
 }
@@ -323,11 +371,9 @@ export default function ResumeVault() {
           </span>
           <button
             onClick={() => setShowAdd(true)}
-            disabled={!profileResume}
-            title={profileResume ? 'Save your current profile resume' : 'Upload a resume to your Profile first'}
-            className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+            className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition"
           >
-            + Save Current Resume
+            + Save Resume
           </button>
         </div>
       </div>
@@ -338,16 +384,9 @@ export default function ResumeVault() {
         <div className="text-sm text-blue-800 space-y-1">
           <p><strong>How it works:</strong> Save different resume versions here — each tailored for a specific job type or company.</p>
           <p>In <strong>Job Analyzer</strong>, the vault auto-suggests whichever version covers the most required skills for that role.</p>
-          <p className="text-blue-600 text-xs">First 5 resume uploads to your Profile are auto-saved. After that, you control what goes in.</p>
+          <p className="text-blue-600 text-xs">Add from your Profile resume or paste any text directly. First 5 Profile uploads are auto-saved.</p>
         </div>
       </div>
-
-      {!profileResume && !loading && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800 flex gap-2">
-          <span>⚠</span>
-          <p>No resume found in your Profile. Upload one on the <strong>Profile</strong> tab to enable saving to vault.</p>
-        </div>
-      )}
 
       {/* Grid */}
       {loading ? (
@@ -367,14 +406,14 @@ export default function ResumeVault() {
 
           {/* Show empty slots up to MAX */}
           {versions.length < MAX && (
-            <AddSlot disabled={!profileResume} onClick={() => setShowAdd(true)} />
+            <AddSlot disabled={false} onClick={() => setShowAdd(true)} />
           )}
 
           {versions.length === 0 && (
             <div className="col-span-full text-center py-16 text-gray-400 space-y-2">
               <p className="text-4xl">📂</p>
               <p className="font-medium text-gray-500">Your vault is empty</p>
-              <p className="text-sm">Upload a resume in Profile to get started. First 5 uploads auto-save here.</p>
+              <p className="text-sm">Click "+ Save Resume" to add a version from your Profile or paste text directly.</p>
             </div>
           )}
         </div>
