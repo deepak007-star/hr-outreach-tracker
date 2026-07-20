@@ -158,7 +158,10 @@ router.post('/bulk-delete', async (req, res) => {
     return res.status(400).json({ error: 'ids[] required' });
 
   try {
-    await db.prepare(`DELETE FROM contacts WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids);
+    const ph = ids.map(() => '?').join(',');
+    // email_log.contact_id has no ON DELETE CASCADE — nullify before delete
+    await db.prepare(`UPDATE email_log SET contact_id = NULL WHERE contact_id IN (${ph})`).run(...ids);
+    await db.prepare(`DELETE FROM contacts WHERE id IN (${ph})`).run(...ids);
     await syncExcel();
     res.json({ ok: true, deleted: ids.length });
   } catch (err) {
@@ -255,6 +258,8 @@ router.put('/:id', async (req, res) => {
 // ── DELETE /api/contacts/:id  ──────────────────────────────────────────────
 router.delete('/:id', async (req, res) => {
   try {
+    // email_log.contact_id has no ON DELETE CASCADE — nullify before delete
+    await db.prepare('UPDATE email_log SET contact_id = NULL WHERE contact_id = ?').run(req.params.id);
     const r = await db.prepare('DELETE FROM contacts WHERE id = ?').run(req.params.id);
     if (r.changes === 0) return res.status(404).json({ error: 'Not found' });
     await syncExcel();

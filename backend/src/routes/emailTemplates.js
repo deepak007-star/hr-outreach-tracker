@@ -357,28 +357,35 @@ async function ensureSeeded() {
 // GET /api/email-templates
 router.get('/', async (req, res) => {
   await ensureSeeded();
-  res.json(await db.prepare('SELECT * FROM email_templates ORDER BY is_default DESC, created_at ASC').all());
+  const rows = await db.prepare('SELECT * FROM email_templates ORDER BY is_default DESC, created_at ASC').all();
+  rows.forEach(r => {
+    try { r.attachment_json = r.attachment_json ? JSON.parse(r.attachment_json) : null; } catch { r.attachment_json = null; }
+  });
+  res.json(rows);
 });
 
 // POST /api/email-templates
 router.post('/', async (req, res) => {
-  const { name, subject = '', body = '', category = 'general', tags = [] } = req.body;
+  const { name, subject = '', body = '', category = 'general', tags = [], attachment_json } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'Name is required' });
   const id = crypto.randomUUID();
+  const attachJson = attachment_json && attachment_json.type !== 'local' ? JSON.stringify(attachment_json) : null;
   await db.prepare(
-    'INSERT INTO email_templates (id, name, subject, body, category, tags) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(id, name.trim(), subject, body, category, JSON.stringify(Array.isArray(tags) ? tags : []));
-  res.status(201).json({ id, name: name.trim(), subject, body, category, tags, is_default: 0 });
+    'INSERT INTO email_templates (id, name, subject, body, category, tags, attachment_json) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, name.trim(), subject, body, category, JSON.stringify(Array.isArray(tags) ? tags : []), attachJson);
+  const parsed = attachJson ? JSON.parse(attachJson) : null;
+  res.status(201).json({ id, name: name.trim(), subject, body, category, tags, is_default: 0, attachment_json: parsed });
 });
 
 // PUT /api/email-templates/:id
 router.put('/:id', async (req, res) => {
-  const { name, subject = '', body = '', category = 'general', tags = [] } = req.body;
+  const { name, subject = '', body = '', category = 'general', tags = [], attachment_json } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'Name is required' });
   const updatedAt = new Date().toISOString().replace('T', ' ').slice(0, 19);
+  const attachJson = attachment_json && attachment_json.type !== 'local' ? JSON.stringify(attachment_json) : null;
   await db.prepare(
-    'UPDATE email_templates SET name = ?, subject = ?, body = ?, category = ?, tags = ?, updated_at = ? WHERE id = ?'
-  ).run(name.trim(), subject, body, category, JSON.stringify(Array.isArray(tags) ? tags : []), updatedAt, req.params.id);
+    'UPDATE email_templates SET name = ?, subject = ?, body = ?, category = ?, tags = ?, attachment_json = ?, updated_at = ? WHERE id = ?'
+  ).run(name.trim(), subject, body, category, JSON.stringify(Array.isArray(tags) ? tags : []), attachJson, updatedAt, req.params.id);
   res.json({ success: true });
 });
 

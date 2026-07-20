@@ -5,24 +5,58 @@ import EmailTemplatesModal from './EmailTemplatesModal.jsx';
 import RichEditor from './RichEditor.jsx';
 import AttachmentPicker from './AttachmentPicker.jsx';
 
-const VARS = [
+const RECIPIENT_VARS = [
   { label: '{{name}}',    hint: 'Contact full name' },
   { label: '{{company}}', hint: 'Company' },
   { label: '{{title}}',   hint: 'Job title' },
   { label: '{{email}}',   hint: 'Email address' },
 ];
 
+const PROFILE_VARS = [
+  { label: '{{your_name}}',     hint: 'Your name' },
+  { label: '{{current_title}}', hint: 'Your title' },
+  { label: '{{experience}}',    hint: 'Years of experience' },
+  { label: '{{notice_period}}', hint: 'Notice period' },
+  { label: '{{location}}',      hint: 'Your location' },
+  { label: '{{linkedin_url}}',  hint: 'LinkedIn URL' },
+  { label: '{{phone}}',         hint: 'Your phone' },
+];
+
 const DEFAULT_BODY =
 `Hi {{name}},
 
-I came across {{company}} and was really impressed by the work you're doing. I'm a backend developer with 4.5 years of experience in Java/Spring Boot, Kafka, and Redis — currently exploring new opportunities.
+I came across {{company}} and was really impressed by the work you're doing. I'm a {{current_title}} with {{experience}} of experience — currently exploring new opportunities.
 
 I'd love a quick 15-minute chat to explore if there's a fit. Would you be open to connecting?
 
 Thanks for your time,
-Vishal`;
+{{your_name}}
+{{phone}} | {{linkedin_url}}`;
 
 const DEFAULT_SUBJECT = 'Hi {{name}}, quick question about opportunities at {{company}}';
+
+function buildProfileBody(profile) {
+  if (!profile) return DEFAULT_BODY;
+  const name    = profile.full_name    || '';
+  const title   = profile.current_title || 'Backend Developer';
+  const exp     = profile.total_experience || '';
+  const skills  = Array.isArray(profile.skills) && profile.skills.length
+    ? profile.skills.slice(0, 4).join(', ')
+    : '';
+  const notice  = profile.notice_period  ? `\nNotice Period: ${profile.notice_period}` : '';
+  const loc     = profile.location       ? `\nLocation: ${profile.location}` : '';
+  const linkedin = profile.linkedin_url  ? `\nLinkedIn: ${profile.linkedin_url}` : '';
+  const phone   = profile.phone          ? `\n${profile.phone}` : '';
+
+  return `Hi {{name}},
+
+I came across {{company}} and was impressed by the work you're doing. I'm a ${title}${exp ? ` with ${exp} of experience` : ''}${skills ? `, specialising in ${skills}` : ''} — currently exploring new opportunities.${notice}${loc}
+
+I'd love a quick 15-minute chat to explore if there's a fit.
+
+Thanks,
+${name || '{{your_name}}'}${phone}${linkedin}`;
+}
 
 // ── Variable chip ─────────────────────────────────────────────────────────────
 function VarChip({ label, hint, onInsert }) {
@@ -97,7 +131,12 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
 
   useEffect(() => {
     api.get('/email-templates').then(data => setQuickTpls(data.slice(0, 4))).catch(() => {});
-    api.get('/profile').then(p => setProfile(p?.user_id ? p : null)).catch(() => {});
+    api.get('/profile').then(p => {
+      const prof = p?.user_id ? p : null;
+      setProfile(prof);
+      // Pre-fill body from profile on first open (only if body is still the default)
+      if (prof) setBody(prev => prev === DEFAULT_BODY ? buildProfileBody(prof) : prev);
+    }).catch(() => {});
   }, []);
 
   function applyTemplate(t) {
@@ -227,10 +266,25 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
 
             {/* ── Editor area ───────────────────────────────────────── */}
             <div className="p-5 space-y-4">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs text-gray-400 font-medium">Insert variable:</span>
-                {VARS.map(v => <VarChip key={v.label} label={v.label} hint={v.hint} onInsert={insertVar} />)}
-                <span className="text-xs text-gray-300">(click to insert at cursor)</span>
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide shrink-0">Recipient:</span>
+                  {RECIPIENT_VARS.map(v => <VarChip key={v.label} label={v.label} hint={v.hint} onInsert={insertVar} />)}
+                </div>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide shrink-0">Your profile:</span>
+                  {PROFILE_VARS.map(v => (
+                    <button
+                      key={v.label}
+                      type="button"
+                      onMouseDown={e => { e.preventDefault(); insertVar(v.label); }}
+                      title={v.hint}
+                      className="px-2 py-0.5 text-xs font-mono bg-purple-50 text-purple-700 border border-purple-200 rounded hover:bg-purple-100 transition"
+                    >
+                      {v.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div>

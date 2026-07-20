@@ -82,7 +82,7 @@ function fetchUrl(urlStr, redirects = 5) {
   });
 }
 
-async function saveVaultVersion(userId, text, storedPath, mimeType, label, targetRole) {
+async function saveVaultVersion(userId, text, storedPath, mimeType, label, targetRole, isAtsTemplate = false) {
   const { cnt } = await db.prepare(
     'SELECT COUNT(*) AS cnt FROM resume_versions WHERE user_id = ?'
   ).get(userId);
@@ -97,11 +97,11 @@ async function saveVaultVersion(userId, text, storedPath, mimeType, label, targe
     'SELECT skills FROM profiles WHERE user_id = ?'
   ).get(userId))?.skills || '[]';
   await db.prepare(`
-    INSERT INTO resume_versions (id, user_id, label, resume_text, target_role, skills, auto_saved, file_path, mime_type, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
-  `).run(id, userId, label.slice(0, 80), text.trim(), (targetRole || '').slice(0, 80), profileSkills, storedPath, mimeType, NOW());
+    INSERT INTO resume_versions (id, user_id, label, resume_text, target_role, skills, auto_saved, file_path, mime_type, is_ats_template, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+  `).run(id, userId, label.slice(0, 80), text.trim(), (targetRole || '').slice(0, 80), profileSkills, storedPath, mimeType, isAtsTemplate ? 1 : 0, NOW());
   const saved = await db.prepare(
-    'SELECT id, user_id, label, target_role, skills, auto_saved, created_at, mime_type FROM resume_versions WHERE id = ?'
+    'SELECT id, user_id, label, target_role, skills, auto_saved, created_at, mime_type, is_ats_template FROM resume_versions WHERE id = ?'
   ).get(id);
   saved.skills = parseSkills(saved.skills);
   saved.has_file = !!(storedPath && fs.existsSync(storedPath));
@@ -117,12 +117,12 @@ function parseSkills(json) {
 router.get('/', async (req, res) => {
   try {
     const rows = await db.prepare(
-      'SELECT id, user_id, label, target_role, skills, auto_saved, created_at, mime_type, file_path FROM resume_versions WHERE user_id = ? ORDER BY created_at DESC'
+      'SELECT id, user_id, label, target_role, skills, auto_saved, created_at, mime_type, file_path, is_ats_template FROM resume_versions WHERE user_id = ? ORDER BY created_at DESC'
     ).all(req.user.userId);
     rows.forEach(r => {
-      r.skills = parseSkills(r.skills);
+      r.skills   = parseSkills(r.skills);
       r.has_file = !!(r.file_path && fs.existsSync(r.file_path));
-      delete r.file_path; // don't expose server path to client
+      delete r.file_path;
     });
     res.json(rows);
   } catch (err) {
@@ -250,7 +250,7 @@ router.delete('/:id', async (req, res) => {
 // POST /api/resume-versions/upload  — upload a resume file from device
 router.post('/upload', upload.single('resume'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-  const { label = '', targetRole = '' } = req.body;
+  const { label = '', targetRole = '', isAtsTemplate = '0' } = req.body;
   const userId = req.user.userId;
   const tmpPath = req.file.path;
   const ext = path.extname(req.file.originalname || '').toLowerCase();
@@ -265,7 +265,7 @@ router.post('/upload', upload.single('resume'), async (req, res) => {
     const storedPath = storeVaultFile(tmpPath, userId, ext);
     cleanup();
     const finalLabel = (label.trim() || req.file.originalname || 'Uploaded Resume').slice(0, 80);
-    const saved = await saveVaultVersion(userId, text, storedPath, mimeType, finalLabel, targetRole);
+    const saved = await saveVaultVersion(userId, text, storedPath, mimeType, finalLabel, targetRole, isAtsTemplate === '1');
     res.json(saved);
   } catch (err) {
     cleanup();

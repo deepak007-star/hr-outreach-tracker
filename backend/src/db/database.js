@@ -356,8 +356,10 @@ async function initialize() {
   await addCol('profiles', 'resume_mime_type',    `TEXT`);
   await addCol('email_templates', 'category',     `TEXT NOT NULL DEFAULT 'general'`);
   await addCol('email_templates', 'tags',         `TEXT NOT NULL DEFAULT '[]'`);
-  await addCol('resume_versions', 'file_path',    `TEXT`);
-  await addCol('resume_versions', 'mime_type',    `TEXT`);
+  await addCol('resume_versions', 'file_path',        `TEXT`);
+  await addCol('resume_versions', 'mime_type',        `TEXT`);
+  await addCol('resume_versions', 'is_ats_template',  `INTEGER NOT NULL DEFAULT 0`);
+  await addCol('email_templates', 'attachment_json',  `TEXT`);
   // scraped_jobs index for fast date-range queries
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_scraped_jobs_created_at ON scraped_jobs (created_at)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_scraped_jobs_category ON scraped_jobs (job_category)`);

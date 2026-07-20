@@ -165,6 +165,9 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
   function openTemplate(t) {
     setSelected(t);
     setForm({ name: t.name, subject: t.subject, body: t.body });
+    // Load the saved attachment preference for this template
+    const att = t.attachment_json;
+    setSelectAttachment(att && typeof att === 'object' ? att : null);
     setDirty(false);
     setPreviewMode(false);
   }
@@ -201,18 +204,25 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
     if (!form.name.trim()) return toast.error('Template name is required');
     setSaving(true);
     try {
+      // Don't persist local-file attachments (too large / device-specific)
+      const attachToSave = selectAttachment?.type && selectAttachment.type !== 'local' ? selectAttachment : null;
+      if (selectAttachment?.type === 'local') {
+        toast('Local file attachment not saved with template — re-attach before sending', { icon: 'ℹ️' });
+      }
       if (selected?._new) {
-        const created = await api.post('/email-templates', { ...form, category: 'general' });
-        setTemplates(ts => [...ts, created]);
-        setSelected(created);
+        const created = await api.post('/email-templates', { ...form, category: 'general', attachment_json: attachToSave });
+        const withAtt = { ...created, attachment_json: attachToSave };
+        setTemplates(ts => [...ts, withAtt]);
+        setSelected(withAtt);
       } else {
         await api.put(`/email-templates/${selected.id}`, {
           ...form,
           category: selected.category || 'general',
           tags: getTagsArray(selected),
+          attachment_json: attachToSave,
         });
-        setTemplates(ts => ts.map(t => t.id === selected.id ? { ...t, ...form } : t));
-        setSelected(s => ({ ...s, ...form }));
+        setTemplates(ts => ts.map(t => t.id === selected.id ? { ...t, ...form, attachment_json: attachToSave } : t));
+        setSelected(s => ({ ...s, ...form, attachment_json: attachToSave }));
       }
       setDirty(false);
       toast.success('Template saved');
@@ -494,40 +504,41 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
 
                 {/* Footer */}
                 <div className="px-5 py-3 border-t bg-gray-50 space-y-2">
-                  {mode === 'select' ? (
-                    <>
-                      {/* Attachment row */}
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-gray-500 shrink-0">Attach resume:</span>
-                        {selectAttachment ? (
-                          <div className="flex items-center gap-2 flex-1 min-w-0">
-                            <span className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded px-2 py-0.5 truncate flex-1">
-                              {selectAttachment.label}
-                            </span>
-                            <button onClick={() => setSelectAttachment(null)} className="text-xs text-red-400 hover:text-red-600 shrink-0">✕</button>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => setShowAttachPicker(true)}
-                            className="text-xs px-2.5 py-1 border border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-blue-400 hover:text-blue-600 transition"
-                          >
-                            + Pick resume
-                          </button>
-                        )}
-                      </div>
-                      {/* Action row */}
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs text-gray-400">
-                          Profile vars ({Object.values(varMap).filter(Boolean).length > 0 ? 'auto-filled' : 'not set'})
+                  {/* Attachment row — shown in both modes */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500 shrink-0">
+                      {mode === 'manage' ? 'Default attachment:' : 'Attach resume:'}
+                    </span>
+                    {selectAttachment ? (
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <span className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded px-2 py-0.5 truncate flex-1">
+                          {selectAttachment.label}
+                          {selectAttachment.type === 'local' && ' (not saved)'}
                         </span>
-                        <button
-                          onClick={() => handleSelect({ subject: form.subject, body: form.body })}
-                          className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition"
-                        >
-                          Use this Template →
-                        </button>
+                        <button onClick={() => setSelectAttachment(null)} className="text-xs text-red-400 hover:text-red-600 shrink-0">✕</button>
                       </div>
-                    </>
+                    ) : (
+                      <button
+                        onClick={() => setShowAttachPicker(true)}
+                        className="text-xs px-2.5 py-1 border border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-blue-400 hover:text-blue-600 transition"
+                      >
+                        + Pick resume
+                      </button>
+                    )}
+                  </div>
+
+                  {mode === 'select' ? (
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-gray-400">
+                        Profile vars ({Object.values(varMap).filter(Boolean).length > 0 ? 'auto-filled' : 'not set'})
+                      </span>
+                      <button
+                        onClick={() => handleSelect({ subject: form.subject, body: form.body })}
+                        className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition"
+                      >
+                        Use this Template →
+                      </button>
+                    </div>
                   ) : (
                     <div className="flex justify-between items-center">
                       <span className="text-xs text-gray-400">

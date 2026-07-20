@@ -44,8 +44,21 @@ router.put('/users/:id/plan', async (req, res) => {
 router.delete('/users/:id', async (req, res) => {
   if (req.params.id === req.user.userId)
     return res.status(400).json({ error: "You can't delete your own account" });
-  await db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
-  res.json({ ok: true });
+  try {
+    const uid = req.params.id;
+    // Delete in FK-safe order — tables without ON DELETE CASCADE must go first
+    await db.prepare('DELETE FROM gmail_tracked_emails WHERE user_id = ?').run(uid);
+    await db.prepare('DELETE FROM gmail_tokens WHERE user_id = ?').run(uid);
+    await db.prepare('DELETE FROM oauth_accounts WHERE user_id = ?').run(uid);
+    await db.prepare('DELETE FROM delivery_billing_stats WHERE user_id = ?').run(uid);
+    await db.prepare('UPDATE email_log SET user_id = NULL WHERE user_id = ?').run(uid);
+    await db.prepare('DELETE FROM notifications WHERE user_id = ?').run(uid);
+    await db.prepare('DELETE FROM profiles WHERE user_id = ?').run(uid);
+    await db.prepare('DELETE FROM users WHERE id = ?').run(uid);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // PUT /api/admin/users/:id/password — force-reset any user's login password
