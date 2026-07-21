@@ -1169,6 +1169,7 @@ function ScraperSection() {
             Every morning at 7:00 AM IST, the tracker automatically prefetches jobs across the configured role queries:
             <strong> General</strong> (LinkedIn Jobs, Naukri.com, Internshala, Instahyre, Foundit),
             <strong> Remote</strong> (Arbeitnow, RemoteOK, We Work Remotely, Remotive),
+            <strong> International</strong> (Jora — Australia, Singapore, Hong Kong, Indonesia, Malaysia, New Zealand),
             and the LinkedIn Feed HR-contact scraper (cold-email).
             Apify does <strong>not</strong> run automatically — trigger it manually below whenever you want a fresh Apify pull.
             Regular users only ever see prefetched results — scraping is admin-only.

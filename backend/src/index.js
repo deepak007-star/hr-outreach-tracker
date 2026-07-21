@@ -123,26 +123,29 @@ async function main() {
   );
 
   // Daily 7 AM IST prefetch (automatic): job listings across the 'general'
-  // (linkedin-jobs, naukri, internshala, instahyre, foundit) and 'remote'
+  // (linkedin-jobs, naukri, internshala, instahyre, foundit), 'remote'
   // (arbeitnow, remoteok, weworkremotely, remotive via the 'general' scraper
-  // key) categories, plus the LinkedIn feed HR-contact scraper (cold-email).
-  // Apify is NOT run automatically — it only runs when an admin manually
-  // clicks "Scrape Now (Apify)" in the Admin Panel. Regular users never
-  // trigger scraping themselves — this is the sole automatic source of
-  // fresh data for the user-facing feed.
+  // key), and 'international' (jora, across its 6 live countries) categories,
+  // plus the LinkedIn feed HR-contact scraper (cold-email). Apify is NOT run
+  // automatically — it only runs when an admin manually clicks "Scrape Now
+  // (Apify)" in the Admin Panel. Regular users never trigger scraping
+  // themselves — this is the sole automatic source of fresh data for the
+  // user-facing feed.
   const { randomUUID } = require('crypto');
   const IST_OFFSET_MS  = 19_800_000; // +5:30
 
-  // linkedin-jobs/naukri/foundit each drive a real Playwright browser
-  // against sites that actively fight scraping (foundit sits behind Akamai
-  // Bot Manager) — their real per-keyword yield is bounded by a single page
-  // load regardless of --limit (see scrapers/*.js), so raising this wouldn't
-  // add volume, only risk. Internshala (plain SSR HTML), instahyre (its own
-  // public API, no bot protection encountered) and the remote-boards
-  // aggregator (legitimate public APIs/RSS) can safely aim much higher
-  // toward the 300-400/category/day target. Run sequentially, not in
-  // parallel — avoids multiple browser automations fighting for resources
-  // at once and looks less bot-like to the sites hit.
+  // linkedin-jobs/naukri/foundit/jora each drive a real Playwright browser
+  // against sites that push back on plain HTTP clients in some way (foundit
+  // sits behind Akamai Bot Manager; jora 403s plain axios/curl despite
+  // identical headers — some other client fingerprint check) — their real
+  // per-keyword yield is bounded by a single page load regardless of
+  // --limit (see scrapers/*.js), so raising this wouldn't add volume, only
+  // risk. Internshala/instahyre (plain SSR HTML / a public API, neither
+  // bot-protected) and the remote-boards aggregator (legitimate public
+  // APIs/RSS) can safely aim much higher toward the 300-400/category/day
+  // target. Run sequentially, not in parallel — avoids multiple browser
+  // automations fighting for resources at once and looks less bot-like to
+  // the sites hit.
   const DAILY_SCRAPE_JOBS = [
     { scraper: 'linkedin-jobs', limit: 60,  category: 'general' },
     { scraper: 'naukri',        limit: 60,  category: 'general' },
@@ -151,6 +154,7 @@ async function main() {
     { scraper: 'instahyre',     limit: 200, category: 'general' },
     { scraper: 'general',       limit: 350, category: 'remote',
       sites: ['arbeitnow', 'remoteok', 'weworkremotely', 'remotive'] },
+    { scraper: 'jora',          limit: 200, category: 'international' },
   ];
 
   setInterval(async () => {
@@ -176,7 +180,7 @@ async function main() {
       const s      = await getSettings();
       const titles = s.searchQueries;
 
-      const storedByCategory = { general: 0, remote: 0 };
+      const storedByCategory = { general: 0, remote: 0, international: 0 };
       for (const job of DAILY_SCRAPE_JOBS) {
         try {
           const body = { titles, limit: job.limit, since: '7d', ...(job.sites ? { sites: job.sites } : {}) };
@@ -198,7 +202,8 @@ async function main() {
 
       await database.prepare('INSERT INTO notifications (id, user_id, type, title, body) VALUES (?, ?, ?, ?, ?)')
         .run(randomUUID(), null, 'info', 'Daily job feed updated',
-          `Morning prefetch imported ${storedByCategory.general} general jobs, ${storedByCategory.remote} remote jobs, and ${feedStored} LinkedIn feed posts.`);
+          `Morning prefetch imported ${storedByCategory.general} general jobs, ${storedByCategory.remote} remote jobs, `
+          + `${storedByCategory.international} international jobs, and ${feedStored} LinkedIn feed posts.`);
 
       console.log(`[Daily scrape] Done —`, storedByCategory, `+ ${feedStored} LinkedIn feed posts`);
     } catch (e) { console.error('[Daily scrape] Failed:', e.message); }

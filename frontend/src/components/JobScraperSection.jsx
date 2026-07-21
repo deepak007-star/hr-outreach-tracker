@@ -24,10 +24,9 @@ const CATEGORIES = [
   {
     id:       'international',
     label:    '🌍 International Jobs',
-    desc:     'Coming Soon',
-    scrapers: [],
+    desc:     'Jora — Australia · Singapore · Hong Kong · Indonesia · Malaysia · New Zealand',
+    scrapers: ['jora'],
     dbCat:    'international',
-    comingSoon: true,
   },
 ];
 

@@ -104,8 +104,8 @@ function resolveRelativeDate(str) {
   if (['just now','today','new','an hour ago','few minutes ago'].some(k => s.includes(k))) return TODAY;
 
   let n = 0, ms = 0;
-  // "4d" or "3h" or "2w"
-  const shortMatch = s.match(/^(\d+)([hdw])$/);
+  // "4d" / "3h" / "2w", or the same with a trailing " ago" (e.g. Jora's "5d ago")
+  const shortMatch = s.match(/^(\d+)\s*([hdw])(?:\s*ago)?$/);
   if (shortMatch) {
     n = parseInt(shortMatch[1]);
     const u = shortMatch[2];
