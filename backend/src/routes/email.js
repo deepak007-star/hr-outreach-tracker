@@ -14,12 +14,29 @@ router.use(requireAuth);
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-function renderTemplate(tpl, contact) {
+// `profile` fills the sender-side vars the compose UI offers
+// ({{your_name}}, {{phone}}, {{linkedin_url}}, ...) — without this, a
+// template saved before the sender's profile changed (or picked before the
+// frontend's own profile pre-fill ran) reaches this function with those
+// tokens still literal. Any placeholder left over after both passes is
+// stripped so a recipient can never receive raw {{...}} merge syntax —
+// that alone (looking like a broken mail-merge) is enough to get flagged
+// as spam, unlike the plain hand-typed text referrals.js sends.
+function renderTemplate(tpl, contact, profile) {
+  const p = profile || {};
   return tpl
     .replace(/\{\{name\}\}/gi,    contact.name    || '')
     .replace(/\{\{company\}\}/gi, contact.company || '')
     .replace(/\{\{title\}\}/gi,   contact.title   || '')
-    .replace(/\{\{email\}\}/gi,   contact.email   || '');
+    .replace(/\{\{email\}\}/gi,   contact.email   || '')
+    .replace(/\{\{your_name\}\}/gi,     p.full_name        || '')
+    .replace(/\{\{current_title\}\}/gi, p.current_title    || '')
+    .replace(/\{\{experience\}\}/gi,    p.total_experience || '')
+    .replace(/\{\{notice_period\}\}/gi, p.notice_period    || '')
+    .replace(/\{\{location\}\}/gi,      p.location         || '')
+    .replace(/\{\{linkedin_url\}\}/gi,  p.linkedin_url      || '')
+    .replace(/\{\{phone\}\}/gi,         p.phone            || '')
+    .replace(/\{\{\s*[\w.]+\s*\}\}/g, '');
 }
 
 function getDriveFileId(url) {
@@ -182,6 +199,7 @@ router.post('/preview', async (req, res) => {
   const footer    = await getFooter();
   const sentToday = await getSentToday();
   const cap       = await getDailyCap();
+  const profile   = await db.prepare('SELECT * FROM profiles WHERE user_id = ?').get(req.user.userId);
   const previews  = [];
   let budgetLeft  = Math.max(0, cap - sentToday);
 
@@ -210,8 +228,8 @@ router.post('/preview', async (req, res) => {
       name:             contact.name,
       email:            contact.email,
       company:          contact.company,
-      subject:          renderTemplate(subject, contact),
-      body:             renderTemplate(body, contact),
+      subject:          renderTemplate(subject, contact, profile),
+      body:             renderTemplate(body, contact, profile),
       footer,
       blocked,
       blockReason,
@@ -251,7 +269,12 @@ router.post('/send', rlMiddleware('email'), async (req, res) => {
   const attachments = await resolveAttachment(attachment, req.user.userId);
 
   for (let i = 0; i < sends.length; i++) {
-    const { contactId, subject, body } = sends[i];
+    // sends[] normally carries subject/body already rendered by /preview, but
+    // never forward a raw, unresolved {{var}} to a real recipient regardless —
+    // it reads as a broken mail-merge and is a strong spam signal on its own.
+    const contactId    = sends[i].contactId;
+    const subject      = sends[i].subject.replace(/\{\{\s*[\w.]+\s*\}\}/g, '');
+    const body         = sends[i].body.replace(/\{\{\s*[\w.]+\s*\}\}/g, '');
     const contact = await db.prepare('SELECT * FROM contacts WHERE id = ?').get(contactId);
     if (!contact) { results.push({ contactId, ok: false, error: 'Contact not found' }); continue; }
 
@@ -284,6 +307,16 @@ router.post('/send', rlMiddleware('email'), async (req, res) => {
       subject,
       text:    textBody,
       html:    htmlBody,
+      // The body already tells the recipient to "reply with UNSUBSCRIBE"
+      // (see footer above) — without a matching List-Unsubscribe header,
+      // that's the exact combination (opt-out language, no machine-readable
+      // opt-out mechanism) Gmail's spam filter treats as a bulk-sender red
+      // flag. referrals.js has neither the language nor the header, which
+      // is why only this send path was landing in spam.
+      headers: {
+        'List-Unsubscribe':      `<mailto:${fromEmail}?subject=unsubscribe>`,
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+      },
       ...(attachments.length > 0 ? { attachments } : {}),
     };
 
