@@ -1,13 +1,16 @@
 'use strict';
 /**
  * ════════════════════════════════════════════════════════════════
- *  SCRAPER 4 — General / Multi-site Jobs
- *  Aggregates across multiple public job boards by keyword.
+ *  SCRAPER 4 — Remote Job Boards
+ *  Aggregates across multiple public *remote-hiring* job boards by keyword.
+ *  (Internshala — not remote-specific — lives in scrapers/internshala.js
+ *  and is scraped under the 'general' category instead.)
  *
  *  Sites:
- *    internshala  — India, SSR HTML, entry-to-mid level
- *    arbeitnow    — Global API with keyword search
- *    remoteok     — Remote-only API (filtered by keyword)
+ *    arbeitnow       — Global remote-friendly API, paginated (up to 3 pages)
+ *    remoteok        — Remote-only API (filtered by keyword)
+ *    weworkremotely  — Remote-only, RSS feeds (programming + all-jobs)
+ *    remotive        — Remote-only API (filtered by keyword)
  *
  *  Usage:
  *    node scrapers/general.js "Full Stack Developer" "Node.js"
@@ -21,9 +24,9 @@
  *    --country <string>         Post-filter by country
  *    --city <string>            Post-filter by city
  *    --no-remote                Exclude remote jobs
- *    --limit <n>                Max results (default/max: 60)
- *    --sites <a,b,c>            Comma-separated: internshala, arbeitnow, remoteok
- *                               (default: all)
+ *    --limit <n>                Max results (default/max: 400)
+ *    --sites <a,b,c>            Comma-separated: arbeitnow, remoteok,
+ *                               weworkremotely, remotive (default: all)
  *
  *  Output: output/general/YYYY-MM-DD--<filters>.{html,csv}
  * ════════════════════════════════════════════════════════════════
@@ -43,87 +46,44 @@ const SCRAPER_TITLE = 'General Job Search';
 
 // ─── Site definitions ─────────────────────────────────────────────────────────
 
+// Shared "specific word" extractor — sites whose search/filter is fuzzy need
+// to filter client-side on the non-generic words of a title ("Python
+// developer" → "python", not "developer", which would match every dev job).
+const GENERIC_ROLE_WORDS = new Set(['developer','engineer','manager','analyst','designer','architect',
+  'lead','senior','junior','associate','executive','intern','specialist','consultant',
+  'officer','director','head','coordinator','assistant','staff','principal']);
+function specificWords(keyword) {
+  const all = keyword.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+  const specific = all.filter(w => !GENERIC_ROLE_WORDS.has(w));
+  return specific.length ? specific : [all[0]].filter(Boolean);
+}
+
 const SITES = {
 
-  // ── Internshala (India, SSR HTML) ──────────────────────────────────────────
-  internshala: {
-    name: 'internshala',
-    async fetch(keyword) {
-      const slug = keyword.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-
-      // Specific (non-generic) words filter: "Python developer" → ["python"]
-      const GENERIC = new Set(['developer','engineer','manager','analyst','designer','architect',
-        'lead','senior','junior','associate','executive','intern','specialist','consultant',
-        'officer','director','head','coordinator','assistant','staff','principal']);
-      const allWords = keyword.toLowerCase().split(/\s+/).filter(w => w.length > 2);
-      const specific = allWords.filter(w => !GENERIC.has(w));
-      const filterWords = specific.length ? specific : [allWords[0]].filter(Boolean);
-
-      const parsePageJobs = html => {
-        const $ = cheerio.load(html);
-        const jobs = [];
-        $('.individual_internship').each((_, el) => {
-          const titleEl = $(el).find('a.job-title-href, .job-internship-name a').first();
-          const title   = titleEl.text().trim();
-          if (!title) return;
-          const href    = titleEl.attr('href') || '';
-          const company = $(el).find('.company-name').first().text().trim();
-          const items   = $(el).find('.row-1-item').map((_, e) => $(e).text().replace(/\s+/g, ' ').trim()).get();
-          const loc     = $(el).find('.locations').text().replace(/\s+/g, ' ').trim() || items[0] || '';
-          const sal     = items[1] || '';
-          const exp     = items[2] || '';
-          const link    = href.startsWith('http') ? href : `https://internshala.com${href}`;
-          jobs.push({
-            source: 'internshala', title, company,
-            location: loc, jobType: 'Full-time', salary: sal, experience: exp,
-            tags: '', description: '', link, applyLink: link,
-            postedAt: '', scrapedAt: new Date().toISOString(),
-          });
-        });
-        return jobs;
-      };
-
-      const jobs = [];
-      // Scrape up to 3 pages to get enough relevant results
-      for (let pg = 1; pg <= 3; pg++) {
-        const url = pg === 1
-          ? `https://internshala.com/jobs/${slug}-jobs/`
-          : `https://internshala.com/jobs/${slug}-jobs/page-${pg}/`;
-        try {
-          const html  = await get(url, { delay: pg === 1 ? 2000 : 1500, lenient: true });
-          const pJobs = parsePageJobs(html);
-          if (!pJobs.length) break; // no more pages
-          jobs.push(...pJobs);
-        } catch (_) { break; }
-      }
-
-      // Internshala's category URL is fuzzy — keep only jobs with specific keyword words in title
-      return filterWords.length
-        ? jobs.filter(j => filterWords.some(w => j.title.toLowerCase().includes(w)))
-        : jobs;
-    },
-  },
-
-  // ── Arbeitnow (Global API — client-side keyword filter applied after fetch) ──
+  // ── Arbeitnow (Global API — paginated, client-side keyword filter) ─────────
   arbeitnow: {
     name: 'arbeitnow',
     async fetch(keyword) {
-      const url  = `https://arbeitnow.com/api/job-board-api?search=${encodeURIComponent(keyword)}&page=1`;
-      const data = await get(url, { json: true, delay: 1500 });
-      // Arbeitnow's ?search= does fuzzy/broad matching — apply strict keyword filter.
-      // Use specific (non-generic) words: "Python developer" → filter by "python" not "developer".
-      const GENERIC = new Set(['developer','engineer','manager','analyst','designer','architect',
-        'lead','senior','junior','associate','executive','intern','specialist','consultant',
-        'officer','director','head','coordinator','assistant','staff','principal']);
-      const all = keyword.toLowerCase().split(/\s+/).filter(w => w.length > 2);
-      const specific = all.filter(w => !GENERIC.has(w));
-      const filterWords = specific.length ? specific : [all[0]].filter(Boolean);
-      const items = (data.data || []).filter(j => {
+      const filterWords = specificWords(keyword);
+      const items = [];
+      // Up to 3 pages per keyword — real yield is bounded by Arbeitnow's own
+      // result count (its `links.next` disappears once exhausted).
+      for (let pg = 1; pg <= 3; pg++) {
+        const url = `https://arbeitnow.com/api/job-board-api?search=${encodeURIComponent(keyword)}&page=${pg}`;
+        try {
+          const data = await get(url, { json: true, delay: 1200 });
+          const pageItems = data.data || [];
+          if (!pageItems.length) break;
+          items.push(...pageItems);
+          if (!data.links || !data.links.next) break;
+        } catch (_) { break; }
+      }
+      const filtered = items.filter(j => {
         if (!j.title) return false;
         const text = (j.title + ' ' + (j.tags || []).join(' ')).toLowerCase();
         return !filterWords.length || filterWords.some(w => text.includes(w));
       });
-      return items.map(j => ({
+      return filtered.map(j => ({
         source:      'arbeitnow',
         title:       j.title        || '',
         company:     j.company_name || '',
@@ -173,6 +133,85 @@ const SITES = {
     },
   },
 
+  // ── WeWorkRemotely (Remote-only, public RSS feeds) ──────────────────────────
+  weworkremotely: {
+    name: 'weworkremotely',
+    _cache: null,
+    async fetch(keyword) {
+      if (!this._cache) {
+        const feeds = [
+          'https://weworkremotely.com/categories/remote-programming-jobs.rss',
+          'https://weworkremotely.com/remote-jobs.rss',
+        ];
+        const all = [];
+        for (const feedUrl of feeds) {
+          try {
+            const xml = await get(feedUrl, { delay: 1000 });
+            const $ = cheerio.load(xml, { xmlMode: true });
+            $('item').each((_, el) => {
+              const $el      = $(el);
+              const rawTitle = $el.find('title').text().trim();
+              // WWR titles are formatted "Company: Job Title"
+              const sep      = rawTitle.indexOf(':');
+              const company  = sep > -1 ? rawTitle.slice(0, sep).trim() : '';
+              const title    = sep > -1 ? rawTitle.slice(sep + 1).trim() : rawTitle;
+              const link     = $el.find('link').text().trim();
+              const pubDate  = $el.find('pubDate').text().trim();
+              all.push({
+                source:      'weworkremotely',
+                title, company,
+                location:    $el.find('region').text().trim() || 'Remote',
+                jobType:     'Remote',
+                salary:      '',
+                experience:  '',
+                tags:        $el.find('category').first().text().trim(),
+                description: '',
+                link, applyLink: link,
+                postedAt:    pubDate ? new Date(pubDate).toISOString().split('T')[0] : '',
+                scrapedAt:   new Date().toISOString(),
+              });
+            });
+          } catch (_) { /* one feed failing shouldn't sink the other */ }
+        }
+        this._cache = all;
+      }
+      const filterWords = specificWords(keyword);
+      return this._cache.filter(j => !filterWords.length || filterWords.some(w => j.title.toLowerCase().includes(w)));
+    },
+  },
+
+  // ── Remotive (Remote-only API, filter by keyword) ───────────────────────────
+  // Remotive's terms ask for max ~4 requests/day — cached like RemoteOK so one
+  // scraper run (however many titles) makes exactly one HTTP call.
+  remotive: {
+    name: 'remotive',
+    _cache: null,
+    async fetch(keyword) {
+      if (!this._cache) {
+        const data = await get('https://remotive.com/api/remote-jobs', { json: true, delay: 1500 });
+        this._cache = (data.jobs || []).filter(j => j.title);
+      }
+      const filterWords = specificWords(keyword);
+      return this._cache
+        .filter(j => !filterWords.length || filterWords.some(w => j.title.toLowerCase().includes(w)))
+        .map(j => ({
+          source:      'remotive',
+          title:       j.title            || '',
+          company:     j.company_name     || '',
+          location:    j.candidate_required_location || 'Remote',
+          jobType:     j.job_type || 'Remote',
+          salary:      j.salary || '',
+          experience:  '',
+          tags:        Array.isArray(j.tags) ? j.tags.join(', ') : (j.category || ''),
+          description: stripHtml(j.description).slice(0, 500),
+          link:        j.url || '',
+          applyLink:   j.url || '',
+          postedAt:    j.publication_date ? j.publication_date.split('T')[0] : '',
+          scrapedAt:   new Date().toISOString(),
+        }));
+    },
+  },
+
 };
 
 // ─── Extended CLI parsing (adds --sites) ─────────────────────────────────────
@@ -206,7 +245,7 @@ async function main() {
       '  --no-remote                exclude remote jobs',
       '  --limit <n>                max results (cap: 60)',
       '  --sites <a,b,c>            sites to use (default: all)',
-      '                             choices: internshala, arbeitnow, remoteok',
+      '                             choices: arbeitnow, remoteok, weworkremotely, remotive',
       '',
       'Example:',
       '  node scrapers/general.js "React Developer" "Frontend" --since 7d',

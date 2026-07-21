@@ -14,7 +14,14 @@ const LENIENT_AGENT = new https.Agent({ rejectUnauthorized: false });
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const LIMIT_MAX = 60;
+// Ceiling only — actual yield still depends on each source's real available
+// jobs and per-scraper pagination (see scrapers/*.js). Raised from 60 to
+// support the higher-volume, API-based sources (arbeitnow/remoteok/
+// weworkremotely/remotive) added for the daily 300-400/category target;
+// callers targeting the HTML/anti-bot-sensitive sources (linkedin-jobs,
+// naukri) should still pass a conservative explicit --limit rather than
+// relying on this ceiling.
+const LIMIT_MAX = 400;
 const DESC_MAX  = 400;
 const _d = new Date();
 const TODAY     = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;

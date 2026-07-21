@@ -10,14 +10,14 @@ const CATEGORIES = [
   {
     id:       'general',
     label:    '🏢 General Jobs',
-    desc:     'LinkedIn Jobs + Naukri.com',
-    scrapers: ['linkedin-jobs', 'naukri'],
+    desc:     'LinkedIn Jobs · Naukri.com · Internshala',
+    scrapers: ['linkedin-jobs', 'naukri', 'internshala'],
     dbCat:    'general',
   },
   {
     id:       'remote',
     label:    '🌐 Remote Jobs',
-    desc:     'Internshala · Arbeitnow · RemoteOK',
+    desc:     'Arbeitnow · RemoteOK · We Work Remotely · Remotive',
     scrapers: ['general'],
     dbCat:    'remote',
   },
@@ -39,7 +39,7 @@ const SINCE_OPTIONS = [
   { value: '30d', label: 'Last 30 days' },
 ];
 
-const LIMIT_OPTIONS = [25, 50, 100];
+const LIMIT_OPTIONS = [25, 50, 100, 200, 400];
 
 // ─── Component ────────────────────────────────────────────────────────────────
 

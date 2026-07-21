@@ -1166,7 +1166,10 @@ function ScraperSection() {
         <div>
           <h3 className="font-bold text-gray-800 flex items-center gap-2">🔍 Job Scraper</h3>
           <p className="text-sm text-gray-500 mt-1">
-            The LinkedIn Feed scraper runs automatically every morning at 7:00 AM IST across the configured role queries.
+            Every morning at 7:00 AM IST, the tracker automatically prefetches jobs across the configured role queries:
+            <strong> General</strong> (LinkedIn Jobs, Naukri.com, Internshala),
+            <strong> Remote</strong> (Arbeitnow, RemoteOK, We Work Remotely, Remotive),
+            and the LinkedIn Feed HR-contact scraper (cold-email).
             Apify does <strong>not</strong> run automatically — trigger it manually below whenever you want a fresh Apify pull.
             Regular users only ever see prefetched results — scraping is admin-only.
           </p>

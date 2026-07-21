@@ -122,13 +122,33 @@ async function main() {
     console.log(`HR Outreach Tracker backend → http://localhost:${PORT}`)
   );
 
-  // Daily 7 AM IST prefetch (automatic): LinkedIn feed Playwright scraper only.
-  // Apify is NOT run automatically — it only runs when an admin manually clicks
-  // "Scrape Now (Apify)" in the Admin Panel. Regular users never trigger
-  // scraping themselves — this is the sole automatic source of fresh data for
-  // the user-facing feed.
+  // Daily 7 AM IST prefetch (automatic): job listings across the 'general'
+  // (linkedin-jobs, naukri, internshala) and 'remote' (arbeitnow, remoteok,
+  // weworkremotely, remotive via the 'general' scraper key) categories, plus
+  // the LinkedIn feed HR-contact scraper (cold-email). Apify is NOT run
+  // automatically — it only runs when an admin manually clicks "Scrape Now
+  // (Apify)" in the Admin Panel. Regular users never trigger scraping
+  // themselves — this is the sole automatic source of fresh data for the
+  // user-facing feed.
   const { randomUUID } = require('crypto');
   const IST_OFFSET_MS  = 19_800_000; // +5:30
+
+  // linkedin-jobs/naukri drive a real Playwright browser against sites that
+  // actively fight scraping — their real per-keyword yield is bounded by a
+  // single page load regardless of --limit (see scrapers/linkedin-jobs.js,
+  // naukri.js), so raising this wouldn't add volume, only risk. Internshala
+  // (plain SSR HTML) and the remote-boards aggregator (legitimate public
+  // APIs/RSS) can safely aim much higher toward the 300-400/category/day
+  // target. Run sequentially, not in parallel — avoids two browser automations
+  // fighting for resources at once and looks less bot-like to the sites hit.
+  const DAILY_SCRAPE_JOBS = [
+    { scraper: 'linkedin-jobs', limit: 60,  category: 'general' },
+    { scraper: 'naukri',        limit: 60,  category: 'general' },
+    { scraper: 'internshala',   limit: 200, category: 'general' },
+    { scraper: 'general',       limit: 350, category: 'remote',
+      sites: ['arbeitnow', 'remoteok', 'weworkremotely', 'remotive'] },
+  ];
+
   setInterval(async () => {
     try {
       const ist = new Date(Date.now() + IST_OFFSET_MS); // use UTC getters for IST wall-clock
@@ -139,27 +159,44 @@ async function main() {
       const already = await database.prepare('SELECT value FROM settings WHERE key = ?').get(doneKey);
       if (already) return;
 
-      console.log(`[Daily scrape] 7 AM IST — starting LinkedIn feed prefetch for ${istDateStr}`);
-
-      let feedStored = 0;
-      try {
-        const s = await getSettings();
-        const result = await scraperRouter.runScraperHeadless('linkedin-feed', { titles: s.searchQueries, limit: 25 });
-        feedStored = result.stored;
-      } catch (e) {
-        console.log('[Daily scrape] LinkedIn feed scraper skipped:', e.message);
-      }
-
+      // Mark done BEFORE running — the full sequential run (2 Playwright
+      // browsers + 2 API scrapers + linkedin-feed) can take several minutes,
+      // longer than this interval's 5-minute tick, so this must be set first
+      // or the next tick would start a second overlapping run.
       await database.prepare(`
         INSERT INTO settings (key, value) VALUES (?, ?)
         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
       `).run(doneKey, '1');
 
+      console.log(`[Daily scrape] 7 AM IST — starting job-feed prefetch for ${istDateStr}`);
+      const s      = await getSettings();
+      const titles = s.searchQueries;
+
+      const storedByCategory = { general: 0, remote: 0 };
+      for (const job of DAILY_SCRAPE_JOBS) {
+        try {
+          const body = { titles, limit: job.limit, since: '7d', ...(job.sites ? { sites: job.sites } : {}) };
+          const result = await scraperRouter.runScraperHeadless(job.scraper, body);
+          storedByCategory[job.category] += result.stored;
+          console.log(`[Daily scrape] ${job.scraper} -> ${result.stored} stored (category: ${job.category})`);
+        } catch (e) {
+          console.log(`[Daily scrape] ${job.scraper} skipped:`, e.message);
+        }
+      }
+
+      let feedStored = 0;
+      try {
+        const result = await scraperRouter.runScraperHeadless('linkedin-feed', { titles, limit: 25 });
+        feedStored = result.stored;
+      } catch (e) {
+        console.log('[Daily scrape] LinkedIn feed scraper skipped:', e.message);
+      }
+
       await database.prepare('INSERT INTO notifications (id, user_id, type, title, body) VALUES (?, ?, ?, ?, ?)')
         .run(randomUUID(), null, 'info', 'Daily job feed updated',
-          `Morning prefetch imported ${feedStored} LinkedIn feed posts.`);
+          `Morning prefetch imported ${storedByCategory.general} general jobs, ${storedByCategory.remote} remote jobs, and ${feedStored} LinkedIn feed posts.`);
 
-      console.log(`[Daily scrape] Done — ${feedStored} LinkedIn feed posts`);
+      console.log(`[Daily scrape] Done —`, storedByCategory, `+ ${feedStored} LinkedIn feed posts`);
     } catch (e) { console.error('[Daily scrape] Failed:', e.message); }
   }, 5 * 60_000); // every 5 minutes
 
