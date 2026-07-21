@@ -194,7 +194,10 @@ async function main() {
 
       let feedStored = 0;
       try {
-        const result = await scraperRouter.runScraperHeadless('linkedin-feed', { titles, limit: 25 });
+        // 30-40/day target across LinkedIn/Twitter/Telegram + a title-agnostic
+        // broad pass (up from 25) — broader keyword/platform coverage means
+        // more real candidates to filter down to contacts.
+        const result = await scraperRouter.runScraperHeadless('linkedin-feed', { titles, limit: 40 });
         feedStored = result.stored;
       } catch (e) {
         console.log('[Daily scrape] LinkedIn feed scraper skipped:', e.message);

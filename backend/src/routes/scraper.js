@@ -22,7 +22,11 @@ const SCRAPER_CONFIGS = {
   'foundit':             { script: 'scrapers/foundit.js',             outDir: 'foundit',        category: 'general'    },
   'general':             { script: 'scrapers/general.js',             outDir: 'general',        category: 'remote'     },
   'jora':                { script: 'scrapers/jora.js',                outDir: 'jora',           category: 'international' },
-  'linkedin-feed':       { script: 'scrapers/linkedin-feed.js',       outDir: 'linkedin-feed',  category: 'cold-email' },
+  // Searches 3 platforms x several query variants per title (13 titles +
+  // a title-agnostic broad pass) — needs more headroom than the default
+  // 10-minute safety kill; progress is saved incrementally so a kill mid-run
+  // still persists whatever was found up to that point.
+  'linkedin-feed':       { script: 'scrapers/linkedin-feed.js',       outDir: 'linkedin-feed',  category: 'cold-email', timeoutMs: 20 * 60_000 },
   'linkedin-hr-contact': { script: 'scrapers/linkedin-hr-contact.js', outDir: 'linkedin-hr',    category: 'cold-email' },
 };
 
@@ -73,6 +77,19 @@ async function storeScrapedJobs(scraperType, category, outDir) {
       .digest('hex')
       .slice(0, 32);
 
+    // Normalize to the app's standard 'YYYY-MM-DD HH:MM:SS' text format
+    // regardless of what each scraper wrote — some set scrapedAt via raw
+    // `new Date().toISOString()` (has 'T'/'Z'/milliseconds), which the
+    // since-window filter in routes/scraped-jobs.js compares as plain text.
+    // A stray format mismatch breaks lexicographic date ordering across the
+    // 'T' vs ' ' boundary, silently hiding still-current jobs from date
+    // range filters.
+    let scrapedAt = now;
+    if (job.scrapedAt) {
+      const d = new Date(job.scrapedAt);
+      if (!isNaN(d)) scrapedAt = d.toISOString().replace('T', ' ').slice(0, 19);
+    }
+
     try {
       await db.prepare(`
         INSERT INTO scraped_jobs (
@@ -93,7 +110,7 @@ async function storeScrapedJobs(scraperType, category, outDir) {
         job.jobType || '', job.salary || '', job.experience || '',
         job.tags || '', (job.description || '').slice(0, 600),
         job.link || '', job.applyLink || job.link || '',
-        job.postedAt || '', job.scrapedAt || now,
+        job.postedAt || '', scrapedAt,
         /remote|worldwide|anywhere|global|work from home|wfh/i.test(job.location || '') ? 1 : 0,
         job.contactEmail || null, job.contactPhone || null,
         job.googleFormLink || null, job.whatsappLink || null,
@@ -109,7 +126,8 @@ async function storeScrapedJobs(scraperType, category, outDir) {
 // ─── Headless runner (no SSE) — used by the SSE route below and the daily cron ─
 // Spawns the scraper script, waits for it to exit, stores results, and resolves
 // { code, stored }. Optional onLog(type, text) callback for streaming consumers.
-// Kills the child after a 10-minute safety timeout since Playwright automation
+// Kills the child after a safety timeout (10 minutes by default, overridable
+// per-scraper via SCRAPER_CONFIGS[key].timeoutMs) since Playwright automation
 // has no other upper bound.
 
 function runScraperHeadless(scraper, body, onLog = () => {}) {
@@ -127,21 +145,25 @@ function runScraperHeadless(scraper, body, onLog = () => {}) {
       env: { ...process.env, SCRAPER_NO_OPEN: '1', FORCE_COLOR: '0' },
     });
 
+    const timeoutMs = cfg.timeoutMs || 10 * 60_000;
     const killTimer = setTimeout(() => {
-      onLog('err', 'Scraper exceeded 10-minute safety timeout — killing process.\n');
+      onLog('err', `Scraper exceeded ${Math.round(timeoutMs / 60_000)}-minute safety timeout — killing process.\n`);
       proc.kill();
-    }, 10 * 60_000);
+    }, timeoutMs);
 
     proc.stdout.on('data', d => onLog('log', d.toString('utf8')));
     proc.stderr.on('data', d => onLog('err', d.toString('utf8')));
 
     proc.on('close', async (code) => {
       clearTimeout(killTimer);
+      // Always attempt to store, even on a non-zero exit (e.g. the safety-timeout
+      // kill above) — scrapers like linkedin-feed save their raw cache
+      // incrementally as they go, so a killed-mid-run process can still have
+      // real partial progress on disk worth persisting. storeScrapedJobs is a
+      // safe no-op if no cache file exists yet.
       let stored = 0;
-      if (code === 0) {
-        try { stored = await storeScrapedJobs(scraper, cfg.category, cfg.outDir); }
-        catch (e) { onLog('err', `DB store failed: ${e.message}\n`); }
-      }
+      try { stored = await storeScrapedJobs(scraper, cfg.category, cfg.outDir); }
+      catch (e) { onLog('err', `DB store failed: ${e.message}\n`); }
       resolve({ code, stored });
     });
   });

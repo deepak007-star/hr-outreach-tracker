@@ -2,19 +2,33 @@
 /**
  * SCRAPER 5 — LinkedIn Feed Posts (HR "We're Hiring" posts)
  *
- * Finds public LinkedIn POSTS where HR / recruiters share:
+ * Finds public hiring posts (LinkedIn, Twitter/X, Telegram) where HR /
+ * recruiters share:
  *   - Email addresses
  *   - Google Form / Docs links
  *   - WhatsApp links
  *   - Phone numbers
  *
  * Strategy:
- *   1. Search DuckDuckGo HTML (bot-friendly) for LinkedIn post URLs
- *   2. Fallback to Bing if DDG returns too few results
- *   3. Decode redirect URLs in Node.js (Buffer available), NOT in browser
- *   4. Fast path: extract contact from search snippet
- *   5. Slow path: visit LinkedIn post, use og:description meta tag
- *      (populated server-side, works without login)
+ *   1. Per configured job title, run a handful of OR-grouped hiring-phrase
+ *      queries (not just "we are hiring" — also "hiring for X", "X is
+ *      hiring", "urgently hiring", "job opening", "join our team", etc.)
+ *      against LinkedIn via DuckDuckGo HTML (bot-friendly, primary), plus
+ *      lighter Twitter/X and Telegram passes for the same keyword. Queries
+ *      are deliberately few-but-wide (OR groups inside 2-3 queries, not a
+ *      dozen narrow ones) — DDG's bot-challenge triggers on request *volume*
+ *      per IP, not query complexity.
+ *   2. Fallback to Bing then Google if DDG returns too few LinkedIn results.
+ *   3. After all titles are searched, run a title-agnostic "broad" pass
+ *      (same hiring phrases, no specific job title) across all three
+ *      platforms so posts for roles outside the configured title list still
+ *      get picked up — fills the remainder of the day's target.
+ *   4. Decode redirect URLs in Node.js (Buffer available), NOT in browser
+ *   5. Fast path: extract contact from search snippet (used for all
+ *      platforms)
+ *   6. Slow path (LinkedIn only): visit the post, use og:description meta
+ *      tag (populated server-side, works without login) — Twitter/Telegram
+ *      rely on the snippet alone since there's no DOM-scrape support for them.
  *
  * Usage:
  *   node scrapers/linkedin-feed.js "Python Developer" "React Developer"
@@ -51,6 +65,40 @@ function extractContact(text) {
 }
 
 const hasContact = c => c.emails.length || c.gforms.length || c.phones.length || c.waLinks.length;
+
+// ─── Query builders — broad, "smart not strict" hiring-phrase coverage ───────
+// Real recruiter posts use many phrasings besides the literal "we are hiring":
+// "hiring for X", "we're hiring", "X is hiring", "urgently hiring", "now
+// hiring", "job opening", "join our team", etc. All of that breadth is
+// packed into a handful of OR-grouped queries per keyword (not one query per
+// phrase) — search engines rate-limit/CAPTCHA aggressively on *request
+// volume* per IP far more than on query complexity, so a dozen short queries
+// per keyword is actually worse for coverage than 3 wide ones.
+
+function buildSiteQueries(sitePrefix, keyword) {
+  return [
+    `${sitePrefix} "${keyword}" ("hiring" OR "we're hiring" OR "we are hiring" OR "is hiring" OR "now hiring" OR "hiring for ${keyword}")`,
+    `${sitePrefix} "${keyword}" ("urgently hiring" OR "immediate joiner" OR "job opening" OR "vacancy" OR "open position" OR "join our team")`,
+    `${sitePrefix} "${keyword}" (email OR "apply now" OR "send resume" OR "send cv" OR "looking to hire")`,
+  ];
+}
+
+// Title/keyword-agnostic queries — catches posts for roles outside the
+// configured title list entirely ("broaden beyond specific job titles").
+function buildGenericQueries(sitePrefix) {
+  return [
+    `${sitePrefix} ("we are hiring" OR "we're hiring" OR "hiring for" OR "urgently hiring") India email apply`,
+    `${sitePrefix} ("job opening" OR "now hiring" OR "immediate joiner") India (tech OR developer OR engineer) contact`,
+  ];
+}
+
+// site: filters use DDG's own syntax — `(site:a OR site:b)` to OR across
+// domains, since `site:(a OR b)` grouping (valid on Google) isn't supported.
+const PLATFORMS = {
+  linkedin: { site: 'site:linkedin.com/posts', urlTest: u => u.includes('linkedin.com/posts/') },
+  twitter:  { site: '(site:twitter.com OR site:x.com)', urlTest: u => /(?:twitter\.com|x\.com)\/[^/]+\/status\//.test(u) },
+  telegram: { site: 'site:t.me', urlTest: u => /t\.me\/[A-Za-z0-9_]+\/\d+/.test(u) },
+};
 
 // ─── Browser ──────────────────────────────────────────────────────────────────
 
@@ -107,66 +155,109 @@ function decodeDDGUrl(href) {
 }
 
 // ─── DuckDuckGo search (primary — simpler HTML, no base64 encoding) ──────────
+// Generalized over `platform` (linkedin/twitter/telegram, see PLATFORMS above)
+// and an explicit query list, so the same crawl logic serves per-keyword
+// searches, title-agnostic broad searches, and non-LinkedIn sources alike.
+//
+// Owns its own page (created from `browser`, closed on return) rather than
+// reusing one shared page across a whole run — a single page reused across
+// hundreds of navigations (many titles x platforms) can eventually crash
+// Chromium's renderer. Also recovers mid-batch: if a navigation
+// crashes/closes the page, a fresh one is opened so the remaining queries in
+// this batch aren't lost to one bad request.
+//
+// DDG serves a "select all squares with a duck" CAPTCHA page once it decides
+// a client is automated — this tends to trigger on burst *request volume*
+// per IP, not per-query complexity. Once seen, `ddgBlocked` short-circuits
+// all further DDG calls for the rest of this process run (falls through to
+// Bing/Google instead of continuing to hammer a wall that won't clear until
+// the block naturally expires).
 
-async function searchDDG(page, keyword, maxResults = 20) {
-  const queries = [
-    `site:linkedin.com/posts "${keyword}" hiring`,
-    `site:linkedin.com/posts "${keyword}" "we are hiring" email`,
-    `site:linkedin.com/posts "${keyword}" "apply" OR "reach" OR "contact"`,
-  ];
+let ddgBlocked = false;
 
+async function searchDDGRaw(browser, queries, urlTest, maxResults, platformTag) {
   const seen    = new Set();
   const results = [];
+  if (ddgBlocked) return results;
+
+  let page = await browser.newPage();
 
   for (const q of queries) {
     if (results.length >= maxResults) break;
+    if (ddgBlocked) break;
 
     try {
       const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}&kl=in-en`;
-      console.log(`  [ddg] ${q}`);
+      console.log(`  [ddg/${platformTag}] ${q}`);
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
       await sleep(2500);
 
-      // Collect raw hrefs in browser (no Node APIs needed)
-      const rawItems = await page.evaluate(() =>
-        [...document.querySelectorAll('a.result__a')].map(a => {
+      // Collect raw hrefs in browser (no Node APIs needed); also flag DDG's
+      // bot-challenge modal so we can stop hammering it for the rest of the run.
+      const { rawItems, challenged } = await page.evaluate(() => ({
+        rawItems: [...document.querySelectorAll('a.result__a')].map(a => {
           const parent  = a.closest('.result, .web-result');
           const snippet = parent?.querySelector('.result__snippet')?.innerText?.trim() || '';
           return { rawHref: a.getAttribute('href') || '', snippet };
-        })
-      );
+        }),
+        challenged: !!document.querySelector('.anomaly-modal, #challenge-form'),
+      }));
+
+      if (challenged) {
+        ddgBlocked = true;
+        console.warn('  [ddg] bot-challenge detected — pausing DDG for the rest of this run, falling back to Bing/Google');
+        break;
+      }
 
       console.log(`    ${rawItems.length} raw links`);
 
       for (const item of rawItems) {
         if (results.length >= maxResults) break;
         const url = decodeDDGUrl(item.rawHref);
-        if (url.includes('linkedin.com/posts/') && !seen.has(url)) {
+        if (urlTest(url) && !seen.has(url)) {
           seen.add(url);
-          results.push({ url, snippet: item.snippet, engine: 'ddg' });
+          results.push({ url, snippet: item.snippet, engine: 'ddg', platform: platformTag });
           console.log(`    + ${url.substring(0, 80)}`);
         }
       }
     } catch (err) {
-      console.error(`  [ddg] error: ${err.message}`);
+      console.error(`  [ddg/${platformTag}] error: ${err.message}`);
+      if (page.isClosed() || /crashed|closed/i.test(err.message)) {
+        try { await page.close(); } catch (_) {}
+        page = await browser.newPage();
+      }
     }
 
-    await sleep(2000);
+    await sleep(3500); // deliberately slower than Bing/Google — DDG's bot-detection is the most burst-sensitive
   }
 
+  try { await page.close(); } catch (_) {}
   return results;
+}
+
+async function searchDDG(browser, keyword, maxResults = 20) {
+  const { site, urlTest } = PLATFORMS.linkedin;
+  return searchDDGRaw(browser, buildSiteQueries(site, keyword), urlTest, maxResults, 'linkedin');
+}
+
+async function searchDDGPlatform(browser, keyword, platformKey, maxResults) {
+  const { site, urlTest } = PLATFORMS[platformKey];
+  return searchDDGRaw(browser, buildSiteQueries(site, keyword), urlTest, maxResults, platformKey);
+}
+
+async function searchDDGGeneric(browser, platformKey, maxResults) {
+  const { site, urlTest } = PLATFORMS[platformKey];
+  return searchDDGRaw(browser, buildGenericQueries(site), urlTest, maxResults, platformKey);
 }
 
 // ─── Bing search (fallback) ───────────────────────────────────────────────────
 
-async function searchBing(page, keyword, maxResults = 20) {
-  const queries = [
-    `site:linkedin.com/posts "${keyword}" hiring`,
-    `site:linkedin.com/posts "${keyword}" email apply`,
-  ];
+async function searchBing(browser, keyword, maxResults = 20) {
+  const queries = buildSiteQueries('site:linkedin.com/posts', keyword);
 
   const seen    = new Set();
   const results = [];
+  let page = await browser.newPage();
 
   for (const q of queries) {
     if (results.length >= maxResults) break;
@@ -200,57 +291,78 @@ async function searchBing(page, keyword, maxResults = 20) {
         const url = decodeBingUrl(item.rawHref);
         if (url.includes('linkedin.com/posts/') && !seen.has(url)) {
           seen.add(url);
-          results.push({ url, snippet: item.snippet, engine: 'bing' });
+          results.push({ url, snippet: item.snippet, engine: 'bing', platform: 'linkedin' });
           console.log(`    + ${url.substring(0, 80)}`);
         }
       }
     } catch (err) {
       console.error(`  [bing] error: ${err.message}`);
+      if (page.isClosed() || /crashed|closed/i.test(err.message)) {
+        try { await page.close(); } catch (_) {}
+        page = await browser.newPage();
+      }
     }
 
     await sleep(2000);
   }
 
+  try { await page.close(); } catch (_) {}
   return results;
 }
 
 // ─── Google search (tertiary fallback) ───────────────────────────────────────
 
-async function searchGoogle(page, keyword, maxResults = 15) {
-  const q   = `site:linkedin.com/posts "${keyword}" hiring`;
-  const url = `https://www.google.com/search?q=${encodeURIComponent(q)}&num=10&hl=en&gl=in`;
+async function searchGoogle(browser, keyword, maxResults = 15) {
+  const queries = [
+    `site:linkedin.com/posts "${keyword}" hiring`,
+    `site:linkedin.com/posts "${keyword}" "we're hiring" OR "hiring for"`,
+  ];
 
-  console.log(`  [google] ${q}`);
+  const seen    = new Set();
+  const results = [];
+  let page = await browser.newPage();
 
-  try {
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await sleep(3000);
+  for (const q of queries) {
+    if (results.length >= maxResults) break;
+    const url = `https://www.google.com/search?q=${encodeURIComponent(q)}&num=10&hl=en&gl=in`;
+    console.log(`  [google] ${q}`);
 
-    const rawItems = await page.evaluate(() =>
-      [...document.querySelectorAll('a[jsname], .yuRUbf a, #search a[href*="linkedin.com/posts"]')].map(a => {
-        const href = a.href || '';
-        const parent = a.closest('.g, [data-sokoban-container], .MjjYud');
-        const snippet = parent?.querySelector('.VwiC3b, .s3v9rd, .st')?.innerText?.trim() || '';
-        return { rawHref: href, snippet };
-      }).filter(i => i.rawHref.includes('linkedin.com/posts/'))
-    );
+    try {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await sleep(3000);
 
-    console.log(`    ${rawItems.length} raw links`);
+      const rawItems = await page.evaluate(() =>
+        [...document.querySelectorAll('a[jsname], .yuRUbf a, #search a[href*="linkedin.com/posts"]')].map(a => {
+          const href = a.href || '';
+          const parent = a.closest('.g, [data-sokoban-container], .MjjYud');
+          const snippet = parent?.querySelector('.VwiC3b, .s3v9rd, .st')?.innerText?.trim() || '';
+          return { rawHref: href, snippet };
+        }).filter(i => i.rawHref.includes('linkedin.com/posts/'))
+      );
 
-    const seen    = new Set();
-    const results = [];
-    for (const item of rawItems) {
-      if (!seen.has(item.rawHref) && results.length < maxResults) {
-        seen.add(item.rawHref);
-        results.push({ url: item.rawHref, snippet: item.snippet, engine: 'google' });
-        console.log(`    + ${item.rawHref.substring(0, 80)}`);
+      console.log(`    ${rawItems.length} raw links`);
+
+      for (const item of rawItems) {
+        if (results.length >= maxResults) break;
+        if (!seen.has(item.rawHref)) {
+          seen.add(item.rawHref);
+          results.push({ url: item.rawHref, snippet: item.snippet, engine: 'google', platform: 'linkedin' });
+          console.log(`    + ${item.rawHref.substring(0, 80)}`);
+        }
+      }
+    } catch (err) {
+      console.error(`  [google] error: ${err.message}`);
+      if (page.isClosed() || /crashed|closed/i.test(err.message)) {
+        try { await page.close(); } catch (_) {}
+        page = await browser.newPage();
       }
     }
-    return results;
-  } catch (err) {
-    console.error(`  [google] error: ${err.message}`);
-    return [];
+
+    await sleep(2000);
   }
+
+  try { await page.close(); } catch (_) {}
+  return results;
 }
 
 // ─── Scrape individual LinkedIn post page ─────────────────────────────────────
@@ -348,20 +460,96 @@ async function main() {
   const browser = await launchBrowser();
   const posts   = [];
 
-  try {
-    const searchPage = await browser.newPage();
-    const perTitle   = Math.ceil(opts.limit / opts.titles.length);
+  // Reserve ~20% of the overall target for the title-agnostic "broad" pass
+  // (catches hiring posts for roles outside the configured title list).
+  const broadShare  = Math.max(3, Math.round(opts.limit * 0.2));
+  const perTitleBudget = Math.max(1, opts.limit - broadShare);
+  const perTitle    = Math.ceil(perTitleBudget / opts.titles.length);
 
+  // Extract-and-collect a batch of search results into `posts`, up to `cap`
+  // more entries. Slow-path page visits (DOM scrape) only make sense for
+  // LinkedIn — Twitter/Telegram rely on the search-snippet fast path only.
+  async function collectFromResults(searchResults, keyword, cap) {
+    let found = 0;
+    for (const result of searchResults) {
+      if (found >= cap) break;
+
+      let contact  = extractContact(result.snippet);
+      let postText = result.snippet;
+      let ogDesc   = result.snippet;
+
+      if (!hasContact(contact)) {
+        if (result.platform !== 'linkedin') continue; // no snippet contact, and no page-scrape support for this platform
+
+        process.stdout.write(`  [${found + 1}/${cap}] visiting post... `);
+        const pageData = await scrapePostPage(browser, result.url);
+        postText = pageData.text;
+        ogDesc   = pageData.ogDesc;
+        contact  = extractContact(postText);
+
+        if (!hasContact(contact)) {
+          process.stdout.write('no contact info found\n');
+          await sleep(1000);
+          continue;
+        }
+      }
+
+      const firstContact =
+        contact.emails[0]  || contact.gforms[0] ||
+        contact.waLinks[0] || contact.phones[0]  || '';
+
+      process.stdout.write(`OK [${result.platform}] — ${firstContact}\n`);
+
+      posts.push({
+        source:         'linkedin-feed',
+        title:          keyword,
+        company:        '',
+        location:       opts.location || 'India',
+        jobType:        'Feed Post',
+        salary:         '',
+        experience:     '',
+        tags:           keyword,
+        description:    (ogDesc || postText).slice(0, 600).replace(/\s+/g, ' ').trim(),
+        link:           result.url,
+        applyLink:      firstContact.startsWith('http') ? firstContact : result.url,
+        contactEmail:   contact.emails[0]  || '',
+        contactPhone:   contact.phones[0]  || '',
+        googleFormLink: contact.gforms[0]  || '',
+        whatsappLink:   contact.waLinks[0] || '',
+        allContacts:    JSON.stringify({
+          emails:  contact.emails,
+          phones:  contact.phones,
+          gforms:  contact.gforms,
+          waLinks: contact.waLinks,
+        }),
+        postedAt:  '',
+        scrapedAt: new Date().toISOString(),
+      });
+
+      found++;
+      await sleep(1500);
+    }
+    return found;
+  }
+
+  try {
     for (const keyword of opts.titles) {
+      if (posts.length >= opts.limit) break;
       console.log(`\n[keyword] "${keyword}" — target: ${perTitle} posts with contact`);
 
-      // Phase 1: collect LinkedIn post URLs from search engines
-      let searchResults = await searchDDG(searchPage, keyword, perTitle * 5);
-      console.log(`  [ddg total] ${searchResults.length} posts found`);
+      // Phase 1: collect post URLs across platforms
+      let searchResults = await searchDDG(browser, keyword, perTitle * 5);
+      console.log(`  [ddg/linkedin] ${searchResults.length} posts found`);
 
-      if (searchResults.length < 5) {
+      // Extra platforms — smaller budget each, fast-path (snippet) only
+      const twitterR  = await searchDDGPlatform(browser, keyword, 'twitter',  Math.ceil(perTitle * 1.5));
+      const telegramR = await searchDDGPlatform(browser, keyword, 'telegram', Math.ceil(perTitle * 1.5));
+      console.log(`  [ddg/twitter] ${twitterR.length} posts, [ddg/telegram] ${telegramR.length} posts`);
+      searchResults = searchResults.concat(twitterR, telegramR);
+
+      if (searchResults.filter(r => r.platform === 'linkedin').length < 5) {
         console.log('  Trying Bing as well...');
-        const bingR   = await searchBing(searchPage, keyword, perTitle * 5);
+        const bingR   = await searchBing(browser, keyword, perTitle * 5);
         const seenUrls = new Set(searchResults.map(r => r.url));
         for (const r of bingR) {
           if (!seenUrls.has(r.url)) { searchResults.push(r); seenUrls.add(r.url); }
@@ -369,9 +557,9 @@ async function main() {
         console.log(`  [combined] ${searchResults.length} posts after Bing merge`);
       }
 
-      if (searchResults.length < 3) {
+      if (searchResults.filter(r => r.platform === 'linkedin').length < 3) {
         console.log('  Trying Google as fallback...');
-        const gR      = await searchGoogle(searchPage, keyword, perTitle * 3);
+        const gR      = await searchGoogle(browser, keyword, perTitle * 3);
         const seenUrls = new Set(searchResults.map(r => r.url));
         for (const r of gR) {
           if (!seenUrls.has(r.url)) { searchResults.push(r); seenUrls.add(r.url); }
@@ -380,77 +568,38 @@ async function main() {
       }
 
       if (!searchResults.length) {
-        console.log(`  No LinkedIn post URLs found for "${keyword}". Skipping.`);
+        console.log(`  No post URLs found for "${keyword}". Skipping.`);
         continue;
       }
 
       // Phase 2: extract contact info from each post
-      let found = 0;
-      for (const result of searchResults) {
-        if (found >= perTitle) break;
-
-        // Fast path: contact already in search snippet
-        let contact  = extractContact(result.snippet);
-        let postText = result.snippet;
-        let ogDesc   = '';
-
-        if (!hasContact(contact)) {
-          // Slow path: visit LinkedIn post page
-          process.stdout.write(`  [${found + 1}/${perTitle}] visiting post... `);
-          const pageData = await scrapePostPage(browser, result.url);
-          postText = pageData.text;
-          ogDesc   = pageData.ogDesc;
-          contact  = extractContact(postText);
-
-          if (!hasContact(contact)) {
-            process.stdout.write('no contact info found\n');
-            await sleep(1000);
-            continue;
-          }
-        } else {
-          ogDesc = result.snippet;
-        }
-
-        const firstContact =
-          contact.emails[0]  || contact.gforms[0] ||
-          contact.waLinks[0] || contact.phones[0]  || '';
-
-        process.stdout.write(`OK — ${firstContact}\n`);
-
-        posts.push({
-          source:         'linkedin-feed',
-          title:          keyword,
-          company:        '',
-          location:       opts.location || 'India',
-          jobType:        'Feed Post',
-          salary:         '',
-          experience:     '',
-          tags:           keyword,
-          description:    (ogDesc || postText).slice(0, 600).replace(/\s+/g, ' ').trim(),
-          link:           result.url,
-          applyLink:      firstContact.startsWith('http') ? firstContact : result.url,
-          contactEmail:   contact.emails[0]  || '',
-          contactPhone:   contact.phones[0]  || '',
-          googleFormLink: contact.gforms[0]  || '',
-          whatsappLink:   contact.waLinks[0] || '',
-          allContacts:    JSON.stringify({
-            emails:  contact.emails,
-            phones:  contact.phones,
-            gforms:  contact.gforms,
-            waLinks: contact.waLinks,
-          }),
-          postedAt:  '',
-          scrapedAt: new Date().toISOString(),
-        });
-
-        found++;
-        await sleep(1500);
-      }
-
+      const found = await collectFromResults(searchResults, keyword, Math.min(perTitle, opts.limit - posts.length));
       console.log(`\n  -> ${found} posts with contact info collected for "${keyword}"`);
+
+      // Save progress after every title, not just at the very end — a run
+      // spanning many titles x platforms can take long enough to hit
+      // runScraperHeadless's 10-minute safety kill, and saveRawCache merges
+      // with what's already on disk, so this is safe to call repeatedly.
+      if (found > 0) saveRawCache(posts, OUTPUT_DIR);
     }
 
-    await searchPage.close();
+    // Broad pass: title-agnostic hiring queries, so posts for roles outside
+    // the configured title list still get picked up ("don't have to search
+    // based on other keywords or job titles" — this catches those too).
+    if (posts.length < opts.limit) {
+      const remaining = opts.limit - posts.length;
+      console.log(`\n[broad] title-agnostic hiring search — target: ${remaining} more posts`);
+
+      let broadResults = await searchDDGGeneric(browser, 'linkedin', remaining * 4);
+      const twitterB   = await searchDDGGeneric(browser, 'twitter',  remaining * 2);
+      const telegramB  = await searchDDGGeneric(browser, 'telegram', remaining * 2);
+      broadResults = broadResults.concat(twitterB, telegramB);
+      console.log(`  [broad total] ${broadResults.length} posts found across platforms`);
+
+      const found = await collectFromResults(broadResults, 'Hiring (General)', remaining);
+      console.log(`\n  -> ${found} posts collected from broad pass`);
+      if (found > 0) saveRawCache(posts, OUTPUT_DIR);
+    }
   } finally {
     await browser.close();
   }
