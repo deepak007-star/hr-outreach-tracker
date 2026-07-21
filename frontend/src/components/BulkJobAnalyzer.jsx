@@ -5,6 +5,13 @@ import { extractSkills } from '../data/techSkills.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { modifyResume, downloadAsPdf, downloadAsWord } from '../utils/resumeUtils.js';
 import ResumePreview from './ResumePreview.jsx';
+import StepGuide from './StepGuide.jsx';
+
+const STEPS = [
+  { n: '01', title: 'Paste every job URL', desc: 'One per line — we scrape each one and detect the skills every posting is asking for.' },
+  { n: '02', title: 'Add your resume once', desc: 'Upload a file, paste the text, or let your Profile resume load in automatically.' },
+  { n: '03', title: 'Merge & apply to all', desc: 'See your combined match score, merge the missing skills, then open every job tab at once.' },
+];
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -226,6 +233,8 @@ export default function BulkJobAnalyzer() {
           Paste every job you want to apply to — we'll score your combined skill match and open every tab at once.
         </p>
       </div>
+
+      <StepGuide steps={STEPS} />
 
       {/* ── Combined match score ─────────────────────────────────────────── */}
       {showAnalysis && (

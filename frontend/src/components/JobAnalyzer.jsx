@@ -5,6 +5,13 @@ import { extractSkills } from '../data/techSkills.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { modifyResume, downloadAsPdf, downloadAsWord } from '../utils/resumeUtils.js';
 import ResumePreview from './ResumePreview.jsx';
+import StepGuide from './StepGuide.jsx';
+
+const STEPS = [
+  { n: '01', title: 'Paste or fetch the job', desc: 'Drop in a job posting URL to auto-fetch it, or paste the description directly — either works.' },
+  { n: '02', title: 'Add your resume', desc: 'Upload a PDF/DOCX, paste the text, or use the resume already saved on your Profile.' },
+  { n: '03', title: 'Review your match score', desc: 'See your score and exactly which skills are missing, then merge them into your resume in one click.' },
+];
 
 // ── Skill chip ────────────────────────────────────────────────────────────
 
@@ -230,6 +237,8 @@ export default function JobAnalyzer() {
           Paste a job post and your resume — see your match score and exactly which skills are missing.
         </p>
       </div>
+
+      <StepGuide steps={STEPS} />
 
       {/* ── Match score ──────────────────────────────────────────────────── */}
       {showComparison && (
