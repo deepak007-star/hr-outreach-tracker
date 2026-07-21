@@ -10,8 +10,8 @@ const CATEGORIES = [
   {
     id:       'general',
     label:    '🏢 General Jobs',
-    desc:     'LinkedIn Jobs · Naukri.com · Internshala',
-    scrapers: ['linkedin-jobs', 'naukri', 'internshala'],
+    desc:     'LinkedIn Jobs · Naukri.com · Internshala · Instahyre · Foundit',
+    scrapers: ['linkedin-jobs', 'naukri', 'internshala', 'instahyre', 'foundit'],
     dbCat:    'general',
   },
   {

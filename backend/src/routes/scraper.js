@@ -18,6 +18,8 @@ const SCRAPER_CONFIGS = {
   'linkedin-jobs':       { script: 'scrapers/linkedin-jobs.js',      outDir: 'linkedin',      category: 'general'    },
   'naukri':              { script: 'scrapers/naukri.js',              outDir: 'naukri',         category: 'general'    },
   'internshala':         { script: 'scrapers/internshala.js',         outDir: 'internshala',    category: 'general'    },
+  'instahyre':           { script: 'scrapers/instahyre.js',           outDir: 'instahyre',      category: 'general'    },
+  'foundit':             { script: 'scrapers/foundit.js',             outDir: 'foundit',        category: 'general'    },
   'general':             { script: 'scrapers/general.js',             outDir: 'general',        category: 'remote'     },
   'linkedin-feed':       { script: 'scrapers/linkedin-feed.js',       outDir: 'linkedin-feed',  category: 'cold-email' },
   'linkedin-hr-contact': { script: 'scrapers/linkedin-hr-contact.js', outDir: 'linkedin-hr',    category: 'cold-email' },

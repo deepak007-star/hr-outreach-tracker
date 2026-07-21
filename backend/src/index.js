@@ -123,28 +123,32 @@ async function main() {
   );
 
   // Daily 7 AM IST prefetch (automatic): job listings across the 'general'
-  // (linkedin-jobs, naukri, internshala) and 'remote' (arbeitnow, remoteok,
-  // weworkremotely, remotive via the 'general' scraper key) categories, plus
-  // the LinkedIn feed HR-contact scraper (cold-email). Apify is NOT run
-  // automatically — it only runs when an admin manually clicks "Scrape Now
-  // (Apify)" in the Admin Panel. Regular users never trigger scraping
-  // themselves — this is the sole automatic source of fresh data for the
-  // user-facing feed.
+  // (linkedin-jobs, naukri, internshala, instahyre, foundit) and 'remote'
+  // (arbeitnow, remoteok, weworkremotely, remotive via the 'general' scraper
+  // key) categories, plus the LinkedIn feed HR-contact scraper (cold-email).
+  // Apify is NOT run automatically — it only runs when an admin manually
+  // clicks "Scrape Now (Apify)" in the Admin Panel. Regular users never
+  // trigger scraping themselves — this is the sole automatic source of
+  // fresh data for the user-facing feed.
   const { randomUUID } = require('crypto');
   const IST_OFFSET_MS  = 19_800_000; // +5:30
 
-  // linkedin-jobs/naukri drive a real Playwright browser against sites that
-  // actively fight scraping — their real per-keyword yield is bounded by a
-  // single page load regardless of --limit (see scrapers/linkedin-jobs.js,
-  // naukri.js), so raising this wouldn't add volume, only risk. Internshala
-  // (plain SSR HTML) and the remote-boards aggregator (legitimate public
-  // APIs/RSS) can safely aim much higher toward the 300-400/category/day
-  // target. Run sequentially, not in parallel — avoids two browser automations
-  // fighting for resources at once and looks less bot-like to the sites hit.
+  // linkedin-jobs/naukri/foundit each drive a real Playwright browser
+  // against sites that actively fight scraping (foundit sits behind Akamai
+  // Bot Manager) — their real per-keyword yield is bounded by a single page
+  // load regardless of --limit (see scrapers/*.js), so raising this wouldn't
+  // add volume, only risk. Internshala (plain SSR HTML), instahyre (its own
+  // public API, no bot protection encountered) and the remote-boards
+  // aggregator (legitimate public APIs/RSS) can safely aim much higher
+  // toward the 300-400/category/day target. Run sequentially, not in
+  // parallel — avoids multiple browser automations fighting for resources
+  // at once and looks less bot-like to the sites hit.
   const DAILY_SCRAPE_JOBS = [
     { scraper: 'linkedin-jobs', limit: 60,  category: 'general' },
     { scraper: 'naukri',        limit: 60,  category: 'general' },
+    { scraper: 'foundit',       limit: 60,  category: 'general' },
     { scraper: 'internshala',   limit: 200, category: 'general' },
+    { scraper: 'instahyre',     limit: 200, category: 'general' },
     { scraper: 'general',       limit: 350, category: 'remote',
       sites: ['arbeitnow', 'remoteok', 'weworkremotely', 'remotive'] },
   ];

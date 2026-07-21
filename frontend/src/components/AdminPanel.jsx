@@ -1167,7 +1167,7 @@ function ScraperSection() {
           <h3 className="font-bold text-gray-800 flex items-center gap-2">🔍 Job Scraper</h3>
           <p className="text-sm text-gray-500 mt-1">
             Every morning at 7:00 AM IST, the tracker automatically prefetches jobs across the configured role queries:
-            <strong> General</strong> (LinkedIn Jobs, Naukri.com, Internshala),
+            <strong> General</strong> (LinkedIn Jobs, Naukri.com, Internshala, Instahyre, Foundit),
             <strong> Remote</strong> (Arbeitnow, RemoteOK, We Work Remotely, Remotive),
             and the LinkedIn Feed HR-contact scraper (cold-email).
             Apify does <strong>not</strong> run automatically — trigger it manually below whenever you want a fresh Apify pull.
