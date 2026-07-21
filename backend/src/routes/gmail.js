@@ -16,15 +16,15 @@ function isGoogleConfigured() {
   return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 }
 
-// The connected Google account only grants gmail.send (see routes/oauth.js —
-// gmail.readonly was dropped to avoid Google's paid CASA assessment), so any
-// read call here (messages.list/get, threads.get) will fail with a 403
-// insufficient-scope error from Google. Surface that as a clear message
-// instead of the raw API error.
+// Accounts connected before gmail.metadata was added to routes/oauth.js's
+// GOOGLE_SCOPES only have gmail.send stored — any read call here (messages.
+// list/get, threads.get) will 403 with an insufficient-scope error until
+// they reconnect Google to re-grant the expanded scope set. Surface that as
+// a clear message instead of the raw API error.
 function friendlyGmailError(err) {
   const msg = err?.message || '';
   if (err?.code === 403 || /insufficient.*scope|insufficient permission/i.test(msg)) {
-    return 'Gmail Sync (reading your inbox) isn\'t available — this account is only authorized to send mail, not read it.';
+    return 'Gmail Sync needs an updated permission grant — disconnect and reconnect your Google account to enable it.';
   }
   return msg || 'Gmail Sync failed';
 }
@@ -34,16 +34,17 @@ function friendlyGmailError(err) {
 router.get('/status', requireAuth, async (req, res) => {
   try {
     const oauthRow = await db.prepare(
-      "SELECT email FROM oauth_accounts WHERE user_id = ? AND provider = 'google'"
+      "SELECT email, scope FROM oauth_accounts WHERE user_id = ? AND provider = 'google'"
     ).get(req.user.userId);
     const lastSync = await db.prepare(
       'SELECT MAX(last_synced_at) as ts FROM gmail_tracked_emails WHERE user_id = ?'
     ).get(req.user.userId);
     res.json({
-      connected:  !!oauthRow,
-      gmailEmail: oauthRow?.email || null,
-      lastSynced: lastSync?.ts || null,
-      configured: isGoogleConfigured(),
+      connected:         !!oauthRow,
+      gmailEmail:        oauthRow?.email || null,
+      lastSynced:        lastSync?.ts || null,
+      configured:        isGoogleConfigured(),
+      hasMetadataScope:  !!oauthRow?.scope?.includes('gmail.metadata'),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -81,25 +82,24 @@ router.post('/sync', requireAuth, async (req, res) => {
     ).get(userId);
 
     // Fetch sent emails from last 18 months (1.5 years)
-    const sinceDate = new Date(Date.now() - 548 * 86_400_000); // ~18 months
-    const after     = Math.floor(sinceDate.getTime() / 1000);
+    const sinceMs = Date.now() - 548 * 86_400_000;
 
-    // Search sent folder for HR-related emails
-    const hrKeywords = [
-      'job application', 'hiring', 'opportunity', 'resume', 'position',
-      'developer', 'engineer', 'internship', 'role', 'recruiter', 'HR',
-    ];
-    const query = `in:sent after:${after} (${hrKeywords.map(k => `"${k}"`).join(' OR ')})`;
-
+    // gmail.metadata scope does not allow the `q` search parameter at all
+    // ("Parameter cannot be used when accessing the api using the
+    // gmail.metadata scope" — Gmail API reference) — filter to the Sent
+    // folder via labelIds instead of `in:sent`, and rely on Gmail's default
+    // newest-first ordering to stop paginating as soon as a message is older
+    // than the 18-month cutoff, rather than a server-side date filter.
+    // This also means every sent contact is picked up, not just ones
+    // matching HR-ish keywords — matches "show all previous contacts."
     let messages   = [];
     let pageToken  = null;
     let iterations = 0;
 
-    // Collect up to 500 messages (rate-limit safe)
     while (iterations < 10) {
       const listResp = await gmail.users.messages.list({
         userId:    'me',
-        q:         query,
+        labelIds:  ['SENT'],
         maxResults: 50,
         pageToken: pageToken || undefined,
       });
@@ -113,6 +113,7 @@ router.post('/sync', requireAuth, async (req, res) => {
     }
 
     let imported = 0;
+    let scanned  = 0;
     const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
     for (const msg of messages) {
@@ -132,14 +133,20 @@ router.post('/sync', requireAuth, async (req, res) => {
         const dateHeader = getH('Date');
         const threadId   = detail.data.threadId;
 
+        const msgDate = dateHeader ? new Date(dateHeader) : null;
+        // Sent folder is returned newest-first — once we're past the
+        // 18-month cutoff there's nothing older left worth checking.
+        if (msgDate && !isNaN(msgDate) && msgDate.getTime() < sinceMs) break;
+        scanned++;
+
         // Extract recipient email
         const emailMatch = toHeader.match(/[\w._%+\-]+@[\w.\-]+\.[a-z]{2,}/i);
         if (!emailMatch) continue;
         const contactEmail = emailMatch[0].toLowerCase();
         const contactName  = toHeader.replace(emailMatch[0], '').replace(/[<>,"]/g, '').trim() || contactEmail;
 
-        const sentAt = dateHeader
-          ? new Date(dateHeader).toISOString().replace('T', ' ').slice(0, 19)
+        const sentAt = msgDate && !isNaN(msgDate)
+          ? msgDate.toISOString().replace('T', ' ').slice(0, 19)
           : now;
 
         // Check if thread has replies (reply = another message in thread not from 'me')
@@ -192,26 +199,17 @@ router.post('/sync', requireAuth, async (req, res) => {
           sentAt, emailStatus, repliedAt, replySnippet, now, now
         );
         imported++;
-
-        // Auto-create contact if not already tracked
-        const existingContact = await db.prepare('SELECT id FROM contacts WHERE email = ?').get(contactEmail);
-        if (!existingContact) {
-          const contactId = crypto.randomUUID();
-          await db.prepare(`
-            INSERT INTO contacts (id, name, email, email_source, status, date_added)
-            VALUES (?, ?, ?, 'gmail', ?, ?)
-            ON CONFLICT (email) DO NOTHING
-          `).run(contactId, contactName || contactEmail, contactEmail, emailStatus === 'replied' ? 'Replied' : 'Sent', now);
-        } else if (emailStatus === 'replied') {
-          // Update status if replied
-          await db.prepare(`
-            UPDATE contacts SET status='Replied', date_last_contacted=? WHERE email=? AND status IN ('Sent','Opened','New')
-          `).run(repliedAt || now, contactEmail);
-        }
+        // Deliberately NOT auto-creating a row in the shared `contacts`
+        // table here — that table has no per-user scoping (see routes/
+        // contacts.js), so every signed-in user sees every row in it.
+        // Silently writing someone's personal Gmail history there would
+        // leak their contacts to every other user of the app. Promoting a
+        // synced contact into the shared table is an explicit, per-contact
+        // action instead — see POST /emails/:id/add-contact below.
       } catch { /* skip individual message errors */ }
     }
 
-    res.json({ imported, total: messages.length });
+    res.json({ imported, scanned, total: messages.length });
   } catch (err) {
     console.error('[Gmail sync]', err.message);
     res.status(500).json({ error: friendlyGmailError(err) });
@@ -263,6 +261,70 @@ router.get('/emails', requireAuth, async (req, res) => {
 
     const rows = await db.prepare(q).all(...params);
     res.json({ emails: rows, total, page: pageNum, limit: limitNum, pages: Math.ceil(total / limitNum) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /api/gmail/emails/:id/add-contact — explicitly promote one synced
+// contact into the shared Contacts table (never automatic — see /sync) ────
+
+router.post('/emails/:id/add-contact', requireAuth, async (req, res) => {
+  try {
+    const row = await db.prepare(
+      'SELECT * FROM gmail_tracked_emails WHERE id = ? AND user_id = ?'
+    ).get(req.params.id, req.user.userId);
+    if (!row) return res.status(404).json({ error: 'Tracked email not found' });
+
+    const existing = await db.prepare('SELECT id FROM contacts WHERE email = ?').get(row.contact_email);
+    if (existing) return res.json({ ok: true, added: false, reason: 'already in Contacts' });
+
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    await db.prepare(`
+      INSERT INTO contacts (id, name, email, email_source, status, date_added, date_last_contacted, notes)
+      VALUES (?, ?, ?, 'gmail', ?, ?, ?, ?)
+      ON CONFLICT (email) DO NOTHING
+    `).run(
+      crypto.randomUUID(), row.contact_name || row.contact_email, row.contact_email,
+      row.email_status === 'replied' ? 'Replied' : 'Sent',
+      now, row.replied_at || row.sent_at, `Imported from Gmail Sync — last subject: "${row.subject}"`
+    );
+    res.json({ ok: true, added: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /api/gmail/add-all-contacts — promote every synced contact not ───
+// already in the shared Contacts table, deduped by email (most recent
+// tracked email per contact wins for name/subject/status) ──────────────────
+
+router.post('/add-all-contacts', requireAuth, async (req, res) => {
+  try {
+    const rows = await db.prepare(`
+      SELECT DISTINCT ON (contact_email) contact_email, contact_name, subject, email_status, sent_at, replied_at
+      FROM gmail_tracked_emails
+      WHERE user_id = ?
+      ORDER BY contact_email, sent_at DESC
+    `).all(req.user.userId);
+
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    let added = 0, skipped = 0;
+    for (const row of rows) {
+      const existing = await db.prepare('SELECT id FROM contacts WHERE email = ?').get(row.contact_email);
+      if (existing) { skipped++; continue; }
+      await db.prepare(`
+        INSERT INTO contacts (id, name, email, email_source, status, date_added, date_last_contacted, notes)
+        VALUES (?, ?, ?, 'gmail', ?, ?, ?, ?)
+        ON CONFLICT (email) DO NOTHING
+      `).run(
+        crypto.randomUUID(), row.contact_name || row.contact_email, row.contact_email,
+        row.email_status === 'replied' ? 'Replied' : 'Sent',
+        now, row.replied_at || row.sent_at, `Imported from Gmail Sync — last subject: "${row.subject}"`
+      );
+      added++;
+    }
+    res.json({ ok: true, added, skipped, total: rows.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

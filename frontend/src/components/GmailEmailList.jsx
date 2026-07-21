@@ -29,6 +29,9 @@ export default function GmailEmailList({ refreshKey, myName = '' }) {
   const [pages,       setPages]       = useState(1);
   const [replying,    setReplying]    = useState(null); // email object for QuickReplyModal
   const [replyOnly,   setReplyOnly]   = useState(false);
+  const [addingIds,   setAddingIds]   = useState(new Set());
+  const [addedIds,    setAddedIds]    = useState(new Set());
+  const [addingAll,   setAddingAll]   = useState(false);
 
   const fetchEmails = useCallback(async () => {
     setLoading(true);
@@ -51,6 +54,37 @@ export default function GmailEmailList({ refreshKey, myName = '' }) {
 
   useEffect(() => { fetchEmails(); }, [fetchEmails, refreshKey]);
   useEffect(() => { setPage(1); }, [since, statusFilter, search, replyOnly]);
+
+  async function addContact(email) {
+    setAddingIds(prev => new Set(prev).add(email.id));
+    try {
+      const r = await api.post(`/gmail/emails/${email.id}/add-contact`);
+      if (r.added) {
+        toast.success(`${email.contact_name || email.contact_email} added to Contacts`);
+        setAddedIds(prev => new Set(prev).add(email.contact_email));
+      } else {
+        toast(`${email.contact_name || email.contact_email} is already in Contacts`, { icon: 'ℹ️' });
+        setAddedIds(prev => new Set(prev).add(email.contact_email));
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to add contact');
+    } finally {
+      setAddingIds(prev => { const next = new Set(prev); next.delete(email.id); return next; });
+    }
+  }
+
+  async function addAllContacts() {
+    if (!window.confirm('Add every synced contact not already in your Contacts list?')) return;
+    setAddingAll(true);
+    try {
+      const r = await api.post('/gmail/add-all-contacts');
+      toast.success(`${r.added} new contact${r.added !== 1 ? 's' : ''} added — ${r.skipped} already existed`);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to add contacts');
+    } finally {
+      setAddingAll(false);
+    }
+  }
 
   function fmtDate(d) {
     if (!d) return '';
@@ -100,6 +134,14 @@ export default function GmailEmailList({ refreshKey, myName = '' }) {
           Replies only
         </label>
 
+        <button
+          onClick={addAllContacts}
+          disabled={addingAll || total === 0}
+          className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50 transition-colors whitespace-nowrap"
+        >
+          {addingAll ? '⏳ Adding…' : '+ Add All to Contacts'}
+        </button>
+
         {repliedInMonth > 0 && (
           <span className="ml-auto bg-purple-100 text-purple-800 text-xs font-semibold px-3 py-1.5 rounded-full border border-purple-200">
             🚩 {repliedInMonth} replied (this page)
@@ -110,6 +152,7 @@ export default function GmailEmailList({ refreshKey, myName = '' }) {
       {/* Stats row */}
       <div className="text-xs text-gray-500">
         {loading ? 'Loading…' : `${total} email${total !== 1 ? 's' : ''} tracked`}
+        {' · '}Reused contacts from past outreach stay private to you until added
       </div>
 
       {/* Email rows */}
@@ -170,6 +213,17 @@ export default function GmailEmailList({ refreshKey, myName = '' }) {
                     className="px-2.5 py-1 bg-purple-600 text-white rounded-lg text-xs font-semibold hover:bg-purple-700 transition-colors"
                   >
                     ↩ Quick Reply
+                  </button>
+                )}
+                {addedIds.has(email.contact_email) ? (
+                  <span className="text-xs text-emerald-600 font-medium">✓ In Contacts</span>
+                ) : (
+                  <button
+                    onClick={() => addContact(email)}
+                    disabled={addingIds.has(email.id)}
+                    className="px-2.5 py-1 border border-emerald-300 text-emerald-700 rounded-lg text-xs font-semibold hover:bg-emerald-50 disabled:opacity-50 transition-colors"
+                  >
+                    {addingIds.has(email.id) ? '…' : '+ Add to Contacts'}
                   </button>
                 )}
               </div>

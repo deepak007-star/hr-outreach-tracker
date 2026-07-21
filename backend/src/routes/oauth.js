@@ -9,12 +9,22 @@ const { encrypt } = require('../services/tokenCrypto');
 
 const router = express.Router();
 
-// gmail.readonly deliberately omitted — it's a "restricted" scope that
-// requires Google's paid annual CASA security assessment. gmail.send alone
-// is a "sensitive" scope: free verification, no CASA. See
-// google-oauth-verification/README.md for the full tradeoff.
+// gmail.readonly deliberately omitted — full-body read access, and a
+// "restricted" scope requiring Google's paid annual CASA security
+// assessment before it can be used beyond 100 manually-added test users.
+// gmail.metadata is *also* restricted (same CASA requirement to go past the
+// 100-test-user cap) but grants only headers/labels, no body — enough for
+// Gmail Sync's to/subject/date/reply-detection use case, so it's the
+// narrower of the two options. This app currently stays in Google's
+// "Testing" publishing status, where restricted scopes work for free for
+// up to 100 whitelisted accounts (added in the Cloud Console OAuth consent
+// screen) — going past that requires the paid CASA assessment. gmail.send
+// is a lighter "sensitive" scope: free verification, no CASA, no 100-user
+// cap once verified. See google-oauth-verification/README.md for the full
+// tradeoff.
 const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/gmail.send',
+  'https://www.googleapis.com/auth/gmail.metadata',
   'openid',
   'email',
   'profile',

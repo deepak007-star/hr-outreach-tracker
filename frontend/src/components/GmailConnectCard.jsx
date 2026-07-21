@@ -97,8 +97,9 @@ export default function GmailConnectCard({ onStatusChange }) {
         <div>
           <p className="font-semibold text-gray-800">Connect your Gmail</p>
           <p className="text-gray-500 text-xs mt-1">
-            Automatically track outreach emails sent to HRs in the last 18 months.
-            Status updates, reply detection, and quick-reply all work through Gmail.
+            Scan the last 18 months of your sent mail to surface every past contact — reply
+            detection and quick-reply all work through Gmail. Only headers and subjects are
+            read, never your message content.
           </p>
         </div>
         <button
@@ -107,6 +108,37 @@ export default function GmailConnectCard({ onStatusChange }) {
         >
           Connect Gmail Account
         </button>
+      </div>
+    );
+  }
+
+  if (!status.hasMetadataScope) {
+    return (
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center text-lg">🔒</div>
+          <div>
+            <p className="font-semibold text-amber-800 text-sm">Gmail connected — Sync needs a permission update</p>
+            <p className="text-amber-700 text-xs">{status.gmailEmail}</p>
+            <p className="text-amber-600 text-xs mt-0.5">
+              Reconnect to grant Gmail Sync read access (headers/subjects only — never your message content).
+            </p>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={handleConnect}
+            className="px-4 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-semibold hover:bg-amber-700 transition-colors"
+          >
+            Reconnect Gmail
+          </button>
+          <button
+            onClick={handleDisconnect}
+            className="px-3 py-1.5 text-red-500 hover:text-red-700 text-xs font-medium"
+          >
+            Disconnect
+          </button>
+        </div>
       </div>
     );
   }
