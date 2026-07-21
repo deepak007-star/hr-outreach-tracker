@@ -138,7 +138,9 @@ async function getFooter() {
 
 async function getSentToday() {
   const today = new Date().toISOString().slice(0, 10);
-  const row = await db.prepare("SELECT COUNT(*) as c FROM email_log WHERE LEFT(sent_at, 10) = ?").get(today);
+  const row = await db.prepare(
+    "SELECT COUNT(*) as c FROM email_log WHERE LEFT(sent_at, 10) = ? AND delivery_status = 'sent'"
+  ).get(today);
   return parseInt(row?.c || 0);
 }
 
@@ -151,7 +153,7 @@ async function wasRecentlySent(contactId) {
   const cutoff = new Date(Date.now() - 14 * 86_400_000).toISOString().replace('T', ' ').slice(0, 19);
   const row = await db.prepare(`
     SELECT id FROM email_log
-    WHERE contact_id = ? AND sent_at > ?
+    WHERE contact_id = ? AND sent_at > ? AND delivery_status = 'sent'
     LIMIT 1
   `).get(contactId, cutoff);
   return !!row;

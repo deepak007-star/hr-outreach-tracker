@@ -949,6 +949,137 @@ function DataManagementSection() {
   );
 }
 
+// ── Referrals Section (configurable per-pair limit + reset) ────────────────
+function ReferralsSection() {
+  const [limit,     setLimit]     = useState(2);
+  const [savedLimit, setSavedLimit] = useState(2);
+  const [rows,      setRows]      = useState([]);
+  const [loading,   setLoading]   = useState(true);
+  const [saving,    setSaving]    = useState(false);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    Promise.all([
+      api.get('/admin/referral-settings'),
+      api.get('/admin/referrals'),
+    ]).then(([s, r]) => {
+      setLimit(s?.limit || 2);
+      setSavedLimit(s?.limit || 2);
+      setRows(Array.isArray(r) ? r : []);
+    }).catch(() => toast.error('Failed to load referral data')).finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function saveLimit() {
+    setSaving(true);
+    try {
+      const r = await api.put('/admin/referral-settings', { limit });
+      setSavedLimit(r.limit);
+      toast.success(`Referral limit set to ${r.limit} per person`);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to save limit');
+    } finally { setSaving(false); }
+  }
+
+  async function resetPair(fromUserId, toUserId, fromName, toName) {
+    if (!window.confirm(`Reset referral request count from "${fromName}" to "${toName}"? They'll be able to request again.`)) return;
+    try {
+      await api.delete(`/admin/referrals/${fromUserId}/${toUserId}`);
+      setRows(rs => rs.filter(r => !(r.from_user_id === fromUserId && r.to_user_id === toUserId)));
+      toast.success('Reset — they can send referral requests to this person again');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Reset failed');
+    }
+  }
+
+  if (loading) return <div className="flex items-center justify-center h-32"><p className="text-sm text-gray-400 animate-pulse">Loading referral data…</p></div>;
+
+  return (
+    <div className="space-y-6">
+      {/* Global limit */}
+      <div className="bg-white border rounded-2xl p-5 space-y-3">
+        <h3 className="font-bold text-gray-800 flex items-center gap-2">🤝 Referral Request Limit</h3>
+        <p className="text-sm text-gray-500">
+          How many times a user can request a referral from the <em>same</em> community member before being blocked.
+          Currently <strong>{savedLimit}</strong> per pair.
+        </p>
+        <div className="flex items-end gap-3">
+          <div>
+            <label className="text-xs font-semibold text-gray-500 block mb-1">Max requests per person</label>
+            <input
+              type="number" min="1" max="100"
+              value={limit}
+              onChange={e => setLimit(parseInt(e.target.value) || 1)}
+              className="w-28 border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+            />
+          </div>
+          <button
+            onClick={saveLimit}
+            disabled={saving || limit === savedLimit}
+            className="px-5 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors"
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
+
+      {/* Per-pair usage + reset */}
+      <div className="bg-white border rounded-2xl overflow-hidden">
+        <div className="px-5 py-4 border-b">
+          <h3 className="font-bold text-gray-800">Requests Sent</h3>
+          <p className="text-xs text-gray-500 mt-0.5">Reset a pair to let that user request a referral from that person again, even past the limit.</p>
+        </div>
+        {rows.length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-10">No referral requests sent yet.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-100 text-xs font-bold text-gray-500 uppercase tracking-wide">
+                  <th className="text-left px-5 py-3">From</th>
+                  <th className="text-left px-4 py-3">To</th>
+                  <th className="text-left px-4 py-3">Count</th>
+                  <th className="text-left px-4 py-3">Last Sent</th>
+                  <th className="text-left px-4 py-3">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {rows.map(r => (
+                  <tr key={`${r.from_user_id}-${r.to_user_id}`} className="hover:bg-gray-50/60 transition-colors">
+                    <td className="px-5 py-3">
+                      <p className="font-medium text-gray-800">{r.from_name}</p>
+                      <p className="text-xs text-gray-400">{r.from_email}</p>
+                    </td>
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-gray-800">{r.to_name}</p>
+                      <p className="text-xs text-gray-400">{r.to_email}</p>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${parseInt(r.request_count) >= savedLimit ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'}`}>
+                        {r.request_count} / {savedLimit}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{fmtDate(r.last_sent_at)}</td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => resetPair(r.from_user_id, r.to_user_id, r.from_name, r.to_name)}
+                        className="text-xs text-amber-600 hover:text-amber-800 border border-amber-200 rounded-lg px-2 py-1 hover:bg-amber-50 transition font-medium"
+                      >
+                        Reset
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Job Scraper Section (Apify + LinkedIn feed, admin-only manual trigger) ──
 function ScraperSection() {
   const [showConfig,   setShowConfig]   = useState(false);
@@ -1113,6 +1244,7 @@ export default function AdminPanel() {
     { id: 'roles',     icon: '🛡️', label: 'Roles & Permissions'  },
     { id: 'passwords', icon: '🔐', label: 'Password Vault'       },
     { id: 'scraper',   icon: '🔍', label: 'Job Scraper'          },
+    { id: 'referrals', icon: '🤝', label: 'Referrals'            },
     { id: 'data',      icon: '🗄️', label: 'Data & Backup'       },
   ];
 
@@ -1171,6 +1303,7 @@ export default function AdminPanel() {
         </div>
       )}
       {tab === 'scraper' && <ScraperSection />}
+      {tab === 'referrals' && <ReferralsSection />}
       {tab === 'data'  && <DataManagementSection />}
     </div>
   );

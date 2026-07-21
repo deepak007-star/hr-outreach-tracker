@@ -296,8 +296,7 @@ async function initialize() {
       to_user_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       subject      TEXT NOT NULL DEFAULT '',
       message      TEXT NOT NULL DEFAULT '',
-      created_at   TEXT NOT NULL DEFAULT (${NOW_EXPR}),
-      UNIQUE(from_user_id, to_user_id)
+      created_at   TEXT NOT NULL DEFAULT (${NOW_EXPR})
     );
 
     CREATE TABLE IF NOT EXISTS resume_versions (
@@ -381,6 +380,10 @@ async function initialize() {
   await db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_leads_email_unique ON leads (email)`).catch(() => {});
   // Schema: add status column to referral_requests
   await addCol('referral_requests', 'status', `TEXT NOT NULL DEFAULT 'pending'`);
+  // Schema: referral request limit is now a configurable count (see
+  // routes/referrals.js + settings.referral_request_limit), not a hard
+  // one-per-pair rule, so the old UNIQUE(from_user_id, to_user_id) has to go.
+  await db.exec(`ALTER TABLE referral_requests DROP CONSTRAINT IF EXISTS referral_requests_from_user_id_to_user_id_key`).catch(() => {});
   // Delivery tracking: email_log enrichment
   await addCol('email_log', 'user_id',           `TEXT REFERENCES users(id)`);
   await addCol('email_log', 'delivery_status',   `TEXT NOT NULL DEFAULT 'sent'`);

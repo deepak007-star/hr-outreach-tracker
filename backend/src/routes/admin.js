@@ -75,6 +75,51 @@ router.put('/users/:id/password', async (req, res) => {
   res.json({ ok: true });
 });
 
+// GET /api/admin/referral-settings
+router.get('/referral-settings', async (req, res) => {
+  const row = await db.prepare("SELECT value FROM settings WHERE key = 'referral_request_limit'").get();
+  res.json({ limit: parseInt(row?.value || '2') });
+});
+
+// PUT /api/admin/referral-settings — global per-pair referral request limit
+router.put('/referral-settings', async (req, res) => {
+  const limit = parseInt(req.body.limit);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100)
+    return res.status(400).json({ error: 'Limit must be a whole number between 1 and 100' });
+  await db.prepare(`
+    INSERT INTO settings (key, value) VALUES ('referral_request_limit', ?)
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+  `).run(String(limit));
+  res.json({ limit });
+});
+
+// GET /api/admin/referrals — every (sender, target) pair with how many
+// requests have gone out, for the admin panel's reset UI
+router.get('/referrals', async (req, res) => {
+  const rows = await db.prepare(`
+    SELECT
+      r.from_user_id, r.to_user_id,
+      fu.name AS from_name, fu.email AS from_email,
+      tu.name AS to_name,   tu.email AS to_email,
+      COUNT(*)       AS request_count,
+      MAX(r.created_at) AS last_sent_at
+    FROM referral_requests r
+    JOIN users fu ON fu.id = r.from_user_id
+    JOIN users tu ON tu.id = r.to_user_id
+    GROUP BY r.from_user_id, r.to_user_id, fu.name, fu.email, tu.name, tu.email
+    ORDER BY last_sent_at DESC
+  `).all();
+  res.json(rows);
+});
+
+// DELETE /api/admin/referrals/:fromUserId/:toUserId — reset one pair's
+// count to 0 so that sender can request a referral from that user again
+router.delete('/referrals/:fromUserId/:toUserId', async (req, res) => {
+  await db.prepare('DELETE FROM referral_requests WHERE from_user_id = ? AND to_user_id = ?')
+    .run(req.params.fromUserId, req.params.toUserId);
+  res.json({ ok: true });
+});
+
 // GET /api/admin/vault — list all vault entries across users (passwords omitted)
 router.get('/vault', async (req, res) => {
   const rows = await db.prepare(

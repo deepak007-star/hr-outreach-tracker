@@ -25,7 +25,7 @@ function Avatar({ name, size = 'md' }) {
   );
 }
 
-function ComposeModal({ target, myUser, myProfile, onClose, onSent }) {
+function ComposeModal({ target, myUser, myProfile, limit, remaining, onClose, onSent }) {
   const senderName    = myProfile?.full_name || myUser?.name || '';
   const senderTitle   = myProfile?.current_title   || '';
   const senderCompany = myProfile?.current_company || '';
@@ -117,7 +117,8 @@ function ComposeModal({ target, myUser, myProfile, onClose, onSent }) {
             />
           </div>
           <p className="text-xs text-gray-400">
-            This email will be sent once from your connected mail account. You cannot send another request to the same person.
+            This email will be sent from your connected mail account. You can send up to {limit} request{limit !== 1 ? 's' : ''} to this person
+            {typeof remaining === 'number' ? ` (${remaining} remaining after this one is sent)` : ''}.
           </p>
         </div>
 
@@ -139,7 +140,7 @@ function ComposeModal({ target, myUser, myProfile, onClose, onSent }) {
   );
 }
 
-function UserCard({ user, onAsk, sent }) {
+function UserCard({ user, onAsk, sent, limit }) {
   const skills = (() => {
     try {
       const raw = typeof user.skills === 'string' ? JSON.parse(user.skills || '[]') : (user.skills || []);
@@ -149,6 +150,7 @@ function UserCard({ user, onAsk, sent }) {
   })();
 
   const lookingFor = [user.job_title_1, user.job_title_2, user.job_title_3].filter(Boolean).join(' / ');
+  const count = user.request_count || 0;
 
   return (
     <div className={`bg-white border rounded-xl p-4 flex flex-col gap-3 shadow-sm hover:shadow-md transition-all ${sent ? 'border-green-200 bg-green-50/30' : 'hover:border-blue-200'}`}>
@@ -161,7 +163,11 @@ function UserCard({ user, onAsk, sent }) {
           {user.current_title   && <p className="text-sm text-gray-600 truncate">{user.current_title}</p>}
           {user.current_company && <p className="text-xs text-gray-400 truncate">{user.current_company}</p>}
         </div>
-        {sent && <span className="text-xs text-green-600 font-semibold bg-green-100 px-2 py-0.5 rounded-full shrink-0">Requested</span>}
+        {count > 0 && (
+          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full shrink-0 ${sent ? 'text-green-600 bg-green-100' : 'text-amber-600 bg-amber-100'}`}>
+            {sent ? 'Requested' : `Sent ${count}/${limit}`}
+          </span>
+        )}
       </div>
 
       {/* Location + email */}
@@ -217,6 +223,7 @@ function UserCard({ user, onAsk, sent }) {
 export default function AskReferral() {
   const { user }                   = useAuth();
   const [users, setUsers]          = useState([]);
+  const [limit, setLimit]          = useState(2);
   const [myProfile, setMyProfile]  = useState(null);
   const [loading, setLoading]      = useState(true);
   const [search, setSearch]        = useState('');
@@ -232,7 +239,8 @@ export default function AskReferral() {
         api.get('/referrals/users'),
         api.get('/profile').catch(() => ({})),
       ]);
-      setUsers(Array.isArray(usersRes) ? usersRes : []);
+      setUsers(Array.isArray(usersRes?.users) ? usersRes.users : []);
+      setLimit(usersRes?.limit || 2);
       setMyProfile(profileRes || {});
     } catch {
       toast.error('Failed to load community members');
@@ -259,7 +267,11 @@ export default function AskReferral() {
   }, [activeTab, loadReceived]);
 
   const handleSent = (targetId) => {
-    setUsers(prev => prev.map(u => u.id === targetId ? { ...u, request_sent: 1 } : u));
+    setUsers(prev => prev.map(u => {
+      if (u.id !== targetId) return u;
+      const nextCount = (u.request_count || 0) + 1;
+      return { ...u, request_count: nextCount, request_sent: nextCount >= limit ? 1 : 0 };
+    }));
   };
 
   const filtered = users.filter(u => {
@@ -296,7 +308,7 @@ export default function AskReferral() {
         </div>
         <div className="flex items-center gap-2 text-sm text-gray-500 bg-blue-50 border border-blue-100 px-3 py-2 rounded-lg">
           <span>💡</span>
-          <span>You can send only one request per person to prevent spam.</span>
+          <span>You can send up to {limit} request{limit !== 1 ? 's' : ''} per person to prevent spam.</span>
         </div>
       </div>
 
@@ -362,6 +374,7 @@ export default function AskReferral() {
                         key={u.id}
                         user={u}
                         sent={false}
+                        limit={limit}
                         onAsk={() => setComposeTo(u)}
                       />
                     ))}
@@ -380,6 +393,7 @@ export default function AskReferral() {
                         key={u.id}
                         user={u}
                         sent={true}
+                        limit={limit}
                         onAsk={() => {}}
                       />
                     ))}
@@ -436,6 +450,8 @@ export default function AskReferral() {
           target={composeTo}
           myUser={user}
           myProfile={myProfile}
+          limit={limit}
+          remaining={Math.max(0, limit - (composeTo.request_count || 0) - 1)}
           onClose={() => setComposeTo(null)}
           onSent={handleSent}
         />

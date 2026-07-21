@@ -9,27 +9,42 @@ const { getTransportForUser } = require('../services/mailTransport');
 const router = express.Router();
 router.use(requireAuth);
 
+// Per-pair send limit, admin-configurable (see routes/admin.js) — defaults
+// to 2 so a normal user isn't stuck at the old hard-coded "once ever".
+async function getReferralLimit() {
+  const row = await db.prepare("SELECT value FROM settings WHERE key = 'referral_request_limit'").get();
+  return parseInt(row?.value || '2');
+}
+
 // GET /api/referrals/users
-// Returns all users except the caller, with profile info and whether
-// the caller has already sent them a referral request.
+// Returns all users except the caller, with profile info and how many
+// times the caller has already requested a referral from them.
 router.get('/users', async (req, res) => {
   try {
-    const myId = req.user.userId;
-    const users = await db.prepare(`
+    const myId  = req.user.userId;
+    const limit = await getReferralLimit();
+    // request_count via correlated subquery, not a LEFT JOIN on the pair —
+    // a JOIN would duplicate the user row once more than one request per
+    // pair is allowed.
+    const rows = await db.prepare(`
       SELECT
         u.id, u.name, u.email, u.created_at,
         p.current_title, p.current_company, p.location,
         p.skills, p.summary, p.linkedin_url,
         p.job_title_1, p.job_title_2, p.job_title_3,
-        CASE WHEN r.id IS NOT NULL THEN 1 ELSE 0 END AS request_sent
+        (SELECT COUNT(*) FROM referral_requests r
+          WHERE r.from_user_id = ? AND r.to_user_id = u.id) AS request_count
       FROM users u
       LEFT JOIN profiles p ON p.user_id = u.id
-      LEFT JOIN referral_requests r
-             ON r.from_user_id = ? AND r.to_user_id = u.id
       WHERE u.id != ?
       ORDER BY u.name ASC
     `).all(myId, myId);
-    res.json(users);
+    const users = rows.map(u => ({
+      ...u,
+      request_count: parseInt(u.request_count) || 0,
+      request_sent:  parseInt(u.request_count) >= limit ? 1 : 0,
+    }));
+    res.json({ users, limit });
   } catch (err) {
     console.error('[referrals] GET /users error:', err);
     res.status(500).json({ error: 'Failed to load community members' });
@@ -77,7 +92,9 @@ router.get('/sent', async (req, res) => {
 });
 
 // POST /api/referrals/ask/:targetUserId
-// Sends a referral-request email to another user (one-time only per pair).
+// Sends a referral-request email to another user, up to the configurable
+// per-pair limit (settings.referral_request_limit, default 2 — admins can
+// raise it or reset a specific pair's count from the admin panel).
 router.post('/ask/:targetUserId', async (req, res) => {
   try {
     const { targetUserId } = req.params;
@@ -90,11 +107,14 @@ router.post('/ask/:targetUserId', async (req, res) => {
     if (!message?.trim())
       return res.status(400).json({ error: 'Message is required' });
 
-    const existing = await db.prepare(
-      'SELECT id FROM referral_requests WHERE from_user_id = ? AND to_user_id = ?'
+    const limit = await getReferralLimit();
+    const { c: sentCount } = await db.prepare(
+      'SELECT COUNT(*) as c FROM referral_requests WHERE from_user_id = ? AND to_user_id = ?'
     ).get(myId, targetUserId);
-    if (existing)
-      return res.status(409).json({ error: 'You have already sent a referral request to this user' });
+    if (parseInt(sentCount) >= limit)
+      return res.status(409).json({
+        error: `You've already sent ${limit} referral request${limit !== 1 ? 's' : ''} to this user`,
+      });
 
     const target = await db.prepare('SELECT id, name, email FROM users WHERE id = ?').get(targetUserId);
     if (!target) return res.status(404).json({ error: 'User not found' });
