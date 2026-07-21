@@ -3,6 +3,8 @@ import { toast } from 'react-hot-toast';
 import { api } from '../api/client.js';
 import { RESUME_TEMPLATES } from '../data/resumeTemplates.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
+import RichEditor, { toHtml } from './RichEditor.jsx';
+import AttachmentPicker from './AttachmentPicker.jsx';
 
 const TEMPLATE_VARS = ['{{name}}', '{{company}}', '{{role}}', '{{your_name}}', '{{title}}'];
 
@@ -79,7 +81,10 @@ function EmailPreview({ subject, body }) {
 
         {/* Body */}
         <div className="px-5 py-5 min-h-[140px]">
-          <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap font-sans">{filledBody}</p>
+          <div
+            className="text-sm text-gray-800 leading-relaxed font-sans"
+            dangerouslySetInnerHTML={{ __html: toHtml(filledBody) || '' }}
+          />
           <div className="mt-5 pt-4 border-t border-gray-100 text-xs text-gray-400 italic">
             To unsubscribe from these emails, reply with UNSUBSCRIBE.
           </div>
@@ -325,49 +330,71 @@ function PanelToggle({ view, setView }) {
 
 // ── Email Templates section ───────────────────────────────────────────────────
 function EmailTemplatesSection() {
-  const [templates, setTemplates] = useState([]);
-  const [selected,  setSelected]  = useState(null);
-  const [form,      setForm]      = useState({ name: '', subject: '', body: '' });
-  const [saving,    setSaving]    = useState(false);
-  const [dirty,     setDirty]     = useState(false);
-  const [view,      setView]      = useState('split'); // 'editor' | 'split' | 'preview'
-  const bodyRef = useRef();
+  const [templates,       setTemplates]       = useState([]);
+  const [selected,        setSelected]        = useState(null);
+  const [form,            setForm]            = useState({ name: '', subject: '', body: '' });
+  const [saving,          setSaving]          = useState(false);
+  const [dirty,           setDirty]           = useState(false);
+  const [view,            setView]            = useState('split');
+  const [selectAttachment, setSelectAttachment] = useState(null);
+  const [showAttachPicker, setShowAttachPicker] = useState(false);
+  const [profile,         setProfile]         = useState(null);
+  const bodyEditorRef = useRef(null);
 
   useEffect(() => {
-    api.get('/email-templates')
-      .then(data => {
-        setTemplates(data);
-        if (data.length) { setSelected(data[0]); setForm({ name: data[0].name, subject: data[0].subject, body: data[0].body }); }
-      })
-      .catch(() => toast.error('Could not load email templates'));
+    Promise.all([
+      api.get('/email-templates'),
+      api.get('/profile').catch(() => null),
+    ]).then(([data, prof]) => {
+      setTemplates(Array.isArray(data) ? data : []);
+      setProfile(prof && prof.user_id ? prof : null);
+      if (data.length) {
+        const first = data[0];
+        setSelected(first);
+        setForm({ name: first.name, subject: first.subject, body: first.body });
+        const att = first.attachment_json;
+        setSelectAttachment(att && typeof att === 'object' ? att : null);
+      }
+    }).catch(() => toast.error('Could not load email templates'));
   }, []);
 
-  function open(t) { setSelected(t); setForm({ name: t.name, subject: t.subject, body: t.body }); setDirty(false); }
-  function newTpl() { setSelected({ _new: true }); setForm({ name: '', subject: '', body: '' }); setDirty(false); }
+  function open(t) {
+    setSelected(t);
+    setForm({ name: t.name, subject: t.subject, body: t.body });
+    const att = t.attachment_json;
+    setSelectAttachment(att && typeof att === 'object' ? att : null);
+    setDirty(false);
+  }
+  function newTpl() {
+    setSelected({ _new: true });
+    setForm({ name: '', subject: '', body: '' });
+    setSelectAttachment(null);
+    setDirty(false);
+  }
   function change(field, val) { setForm(f => ({ ...f, [field]: val })); setDirty(true); }
 
   function insertVar(v) {
-    const el = bodyRef.current;
-    if (!el) { change('body', form.body + v); return; }
-    const s = el.selectionStart ?? form.body.length;
-    const e = el.selectionEnd   ?? form.body.length;
-    const newBody = form.body.slice(0, s) + v + form.body.slice(e);
-    change('body', newBody);
-    setTimeout(() => { el.selectionStart = el.selectionEnd = s + v.length; el.focus(); }, 0);
+    bodyEditorRef.current?.insertText(v);
+    setDirty(true);
   }
 
   async function save() {
     if (!form.name.trim()) return toast.error('Name is required');
     setSaving(true);
     try {
+      const attachToSave = selectAttachment?.type && selectAttachment.type !== 'local' ? selectAttachment : null;
+      if (selectAttachment?.type === 'local') {
+        toast('Local file attachment not saved with template — re-attach before sending', { icon: 'ℹ️' });
+      }
       if (selected?._new) {
-        const created = await api.post('/email-templates', form);
-        setTemplates(ts => [...ts, created]);
-        setSelected(created);
+        const created = await api.post('/email-templates', { ...form, attachment_json: attachToSave });
+        const withAtt = { ...created, attachment_json: attachToSave };
+        setTemplates(ts => [...ts, withAtt]);
+        setSelected(withAtt);
       } else {
-        await api.put(`/email-templates/${selected.id}`, form);
-        setTemplates(ts => ts.map(t => t.id === selected.id ? { ...t, ...form } : t));
-        setSelected(s => ({ ...s, ...form }));
+        await api.put(`/email-templates/${selected.id}`, { ...form, attachment_json: attachToSave });
+        setTemplates(ts => ts.map(t => t.id === selected.id ? { ...t, ...form, attachment_json: attachToSave } : t));
+        setSelected(s => ({ ...s, ...form, attachment_json: attachToSave }));
       }
       setDirty(false);
       toast.success('Template saved');
@@ -383,15 +410,31 @@ function EmailTemplatesSection() {
       const next = templates.filter(x => x.id !== t.id);
       setTemplates(next);
       if (selected?.id === t.id) {
-        if (next.length) { setSelected(next[0]); setForm({ name: next[0].name, subject: next[0].subject, body: next[0].body }); }
-        else { setSelected(null); setForm({ name: '', subject: '', body: '' }); }
+        if (next.length) {
+          setSelected(next[0]);
+          setForm({ name: next[0].name, subject: next[0].subject, body: next[0].body });
+          const att = next[0].attachment_json;
+          setSelectAttachment(att && typeof att === 'object' ? att : null);
+        } else {
+          setSelected(null);
+          setForm({ name: '', subject: '', body: '' });
+          setSelectAttachment(null);
+        }
       }
       toast.success('Deleted');
     } catch { toast.error('Delete failed'); }
   }
 
   return (
-    <div className="flex h-[680px] rounded-2xl border border-gray-200 shadow-sm overflow-hidden bg-white">
+    <>
+      {showAttachPicker && (
+        <AttachmentPicker
+          profile={profile}
+          onSelect={a => { setSelectAttachment(a); setShowAttachPicker(false); setDirty(true); }}
+          onClose={() => setShowAttachPicker(false)}
+        />
+      )}
+    <div className="flex h-[720px] rounded-2xl border border-gray-200 shadow-sm overflow-hidden bg-white">
 
       {/* ── Sidebar ── */}
       <div className="w-56 border-r bg-gray-50 flex flex-col shrink-0">
@@ -458,9 +501,9 @@ function EmailTemplatesSection() {
 
             {/* Editor panel */}
             {(view === 'editor' || view === 'split') && (
-              <div className={`flex flex-col border-r ${view === 'split' ? 'w-1/2' : 'flex-1'}`}>
+              <div className={`flex flex-col border-r min-h-0 ${view === 'split' ? 'w-1/2' : 'flex-1'}`}>
                 {/* Subject */}
-                <div className="flex items-center gap-2 px-4 py-2.5 border-b bg-white">
+                <div className="flex items-center gap-2 px-4 py-2.5 border-b bg-white shrink-0">
                   <span className="text-xs text-gray-400 font-semibold w-14 shrink-0">Subject</span>
                   <input value={form.subject} onChange={e => change('subject', e.target.value)}
                     placeholder="Hi {{name}}, exploring roles at {{company}}"
@@ -468,32 +511,53 @@ function EmailTemplatesSection() {
                 </div>
 
                 {/* Var chips */}
-                <div className="flex items-center gap-1.5 px-4 py-1.5 border-b bg-gray-50 flex-wrap">
+                <div className="flex items-center gap-1.5 px-4 py-1.5 border-b bg-gray-50 flex-wrap shrink-0">
                   <span className="text-[10px] text-gray-400 font-medium">Insert:</span>
                   {TEMPLATE_VARS.map(v => (
-                    <button key={v} onClick={() => insertVar(v)}
+                    <button key={v} onMouseDown={e => { e.preventDefault(); insertVar(v); }}
                       className="text-[10px] font-mono bg-indigo-50 text-indigo-600 border border-indigo-200 px-2 py-0.5 rounded hover:bg-indigo-100 transition">
                       {v}
                     </button>
                   ))}
                 </div>
 
-                {/* Body textarea */}
-                <textarea
-                  ref={bodyRef}
-                  value={form.body}
-                  onChange={e => change('body', e.target.value)}
-                  spellCheck={false}
-                  placeholder={"Hi {{name}},\n\nWrite your email body here…"}
-                  className="flex-1 px-4 py-3 text-sm font-mono text-gray-800 outline-none resize-none leading-relaxed placeholder-gray-300"
-                />
+                {/* Rich body editor */}
+                <div className="flex-1 overflow-y-auto px-4 py-3">
+                  <RichEditor
+                    ref={bodyEditorRef}
+                    value={form.body}
+                    onChange={v => change('body', v)}
+                    minRows={11}
+                  />
+                </div>
+
+                {/* Attachment row */}
+                <div className="px-4 py-2.5 border-t bg-gray-50 flex items-center gap-2 shrink-0">
+                  <span className="text-xs text-gray-500 shrink-0">Default attachment:</span>
+                  {selectAttachment ? (
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <span className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded px-2 py-0.5 truncate flex-1">
+                        {selectAttachment.label}
+                        {selectAttachment.type === 'local' && ' (not saved)'}
+                      </span>
+                      <button onClick={() => { setSelectAttachment(null); setDirty(true); }} className="text-xs text-red-400 hover:text-red-600 shrink-0">✕</button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setShowAttachPicker(true)}
+                      className="text-xs px-2.5 py-1 border border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-blue-400 hover:text-blue-600 transition"
+                    >
+                      + Pick resume (vault / drive / local / profile)
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 
             {/* Preview panel */}
             {(view === 'preview' || view === 'split') && (
               <div className={`flex flex-col ${view === 'split' ? 'w-1/2' : 'flex-1'}`}>
-                <div className="px-4 py-2 border-b bg-gray-50 flex items-center gap-2">
+                <div className="px-4 py-2 border-b bg-gray-50 flex items-center gap-2 shrink-0">
                   <span className="text-xs font-semibold text-gray-500">Live Preview</span>
                   <span className="text-[10px] text-gray-300">— sample data substituted</span>
                 </div>
@@ -504,6 +568,7 @@ function EmailTemplatesSection() {
         </div>
       )}
     </div>
+    </>
   );
 }
 
