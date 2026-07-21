@@ -107,7 +107,10 @@ router.get('/', requireAuth, async (req, res) => {
     try {
       let q = `SELECT * FROM scraped_jobs WHERE scraper_type = 'linkedin-feed'`;
       const params = [];
-      if (cutoff) { q += ' AND created_at >= ?'; params.push(cutoff); }
+      // scraped_at (last confirmed still-live), not created_at (first-ever-seen) —
+      // same fix as routes/scraped-jobs.js: a post re-surfacing in search results
+      // days after it was first found should still count as "today" if rescraped today.
+      if (cutoff) { q += ' AND scraped_at >= ?'; params.push(cutoff); }
       if (search) {
         q += ' AND (title ILIKE ? OR company ILIKE ? OR description ILIKE ? OR contact_email ILIKE ?)';
         const s = `%${search}%`;

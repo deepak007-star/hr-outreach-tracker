@@ -362,6 +362,28 @@ async function initialize() {
   // scraped_jobs index for fast date-range queries
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_scraped_jobs_created_at ON scraped_jobs (created_at)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_scraped_jobs_category ON scraped_jobs (job_category)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_scraped_jobs_scraped_at ON scraped_jobs (scraped_at)`);
+  // One-time backfill: scraped_at was written in whatever format each
+  // scraper's `new Date().toISOString()` happened to produce (with 'T'/'Z'/
+  // milliseconds) instead of the app's standard 'YYYY-MM-DD HH:MM:SS' text
+  // format. routes/scraped-jobs.js's since-window filter compares this as
+  // plain text, and the format mismatch broke lexicographic date ordering
+  // across the 'T' vs ' ' boundary — silently hiding still-current jobs
+  // (re-confirmed by later scrapes) from date-range filters. Now-fixed at
+  // write time (routes/scraper.js's storeScrapedJobs); this repairs
+  // already-stored rows once.
+  const scrapedAtFixKey = 'migration_scraped_at_normalized';
+  const scrapedAtFixDone = await db.prepare('SELECT value FROM settings WHERE key = ?').get(scrapedAtFixKey);
+  if (!scrapedAtFixDone) {
+    await db.exec(`
+      UPDATE scraped_jobs SET scraped_at = to_char(scraped_at::timestamptz, 'YYYY-MM-DD HH24:MI:SS')
+      WHERE scraped_at ~ 'T.*Z$'
+    `).catch(() => {});
+    await db.prepare(`
+      INSERT INTO settings (key, value) VALUES (?, '1')
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+    `).run(scrapedAtFixKey);
+  }
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_gmail_tracked_user ON gmail_tracked_emails (user_id, sent_at)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_gmail_tracked_status ON gmail_tracked_emails (user_id, email_status)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_password_vault_user ON password_vault (user_id)`);

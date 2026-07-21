@@ -36,7 +36,10 @@ router.get('/', requireAuth, async (req, res) => {
 
     const cutoff = sinceToCutoff(since);
     const params = [cutoff];
-    let q = 'SELECT * FROM scraped_jobs WHERE created_at >= ?';
+    // Filter on scraped_at (last confirmed still-live), not created_at
+    // (first-ever-discovered) — a job re-scraped/reconfirmed today but
+    // first seen weeks ago should still show up in a "last 7 days" view.
+    let q = 'SELECT * FROM scraped_jobs WHERE scraped_at >= ?';
 
     if (category) { q += ' AND job_category = ?'; params.push(category); }
     if (scraper)  { q += ' AND scraper_type = ?';  params.push(scraper); }
@@ -140,7 +143,7 @@ router.get('/feed-contacts', requireAuth, async (req, res) => {
              WHERE scraper_type = 'linkedin-feed'
                AND contact_email IS NOT NULL
                AND contact_email != ''
-               AND created_at >= ?`;
+               AND scraped_at >= ?`;
 
     if (search) {
       q += ` AND (title ILIKE ? OR company ILIKE ? OR contact_email ILIKE ? OR description ILIKE ?)`;
