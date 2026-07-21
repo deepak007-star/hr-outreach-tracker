@@ -14,14 +14,44 @@ function SkillChip({ label, color = 'gray', selected, onClick }) {
     green:  `bg-green-50  border-green-300  text-green-700  hover:bg-green-100`,
     red:    `bg-red-50    border-red-300    text-red-700    hover:bg-red-100`,
     blue:   selected
-      ? 'bg-blue-600  border-blue-600    text-white'
-      : 'bg-blue-50   border-blue-300    text-blue-700   hover:bg-blue-100',
+      ? 'bg-emerald-600 border-emerald-600 text-white'
+      : 'bg-emerald-50  border-emerald-300 text-emerald-700 hover:bg-emerald-100',
     gray:   `bg-gray-100  border-gray-300    text-gray-600`,
   };
   return (
     <span className={`${base} ${colors[color]}`} onClick={onClick}>
       {label}
     </span>
+  );
+}
+
+// ── Match score ring ─────────────────────────────────────────────────────
+function MatchScoreCard({ score, presentCount, missingCount }) {
+  const ring = score >= 70 ? 'border-emerald-500' : score >= 40 ? 'border-amber-400' : 'border-red-400';
+  return (
+    <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-5 flex items-center gap-5">
+      <div className={`w-20 h-20 rounded-full border-4 ${ring} flex flex-col items-center justify-center shrink-0`}>
+        <span className="font-display text-2xl font-bold text-stone-900 leading-none">{score}</span>
+        <span className="text-[10px] text-stone-400">/100</span>
+      </div>
+      <div className="flex-1 space-y-1.5">
+        <p className="text-xs font-semibold text-stone-600 uppercase tracking-wide">Skill Match Score</p>
+        <div className="flex items-center gap-3 text-xs">
+          <span className="w-16 text-stone-500 shrink-0">Present</span>
+          <div className="flex-1 h-1.5 rounded-full bg-stone-100 overflow-hidden">
+            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${score}%` }} />
+          </div>
+          <span className="w-6 text-right text-stone-500 font-medium">{presentCount}</span>
+        </div>
+        <div className="flex items-center gap-3 text-xs">
+          <span className="w-16 text-stone-500 shrink-0">Missing</span>
+          <div className="flex-1 h-1.5 rounded-full bg-stone-100 overflow-hidden">
+            <div className="h-full rounded-full bg-red-400" style={{ width: `${100 - score}%` }} />
+          </div>
+          <span className="w-6 text-right text-stone-500 font-medium">{missingCount}</span>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -188,9 +218,23 @@ export default function JobAnalyzer() {
   const hasResumeText   = resumeText.trim().length > 50;
   const showComparison  = hasJobContent && hasResumeText;
   const showPreview     = addedSkills.length > 0 && hasResumeText;
+  const matchScore      = jobSkills.length ? Math.round((presentSkills.length / jobSkills.length) * 100) : 0;
 
   return (
-    <div className="space-y-4">
+    <div className="font-landing space-y-4">
+
+      {/* ── Section header ──────────────────────────────────────────────── */}
+      <div className="bg-gradient-to-r from-emerald-600 to-teal-600 rounded-2xl p-5 text-white">
+        <h2 className="font-display text-lg font-bold">🎯 Job Analyzer</h2>
+        <p className="text-emerald-100 text-sm mt-0.5">
+          Paste a job post and your resume — see your match score and exactly which skills are missing.
+        </p>
+      </div>
+
+      {/* ── Match score ──────────────────────────────────────────────────── */}
+      {showComparison && (
+        <MatchScoreCard score={matchScore} presentCount={presentSkills.length} missingCount={missingSkills.length} />
+      )}
 
       {/* ── Resume Vault suggestion banner ─────────────────────────────────── */}
       {vaultSuggest && !suggestDismiss && (
@@ -227,8 +271,11 @@ export default function JobAnalyzer() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
 
         {/* ── LEFT: Job Post ──────────────────────────────────────────────── */}
-        <div className="bg-white rounded-xl border shadow-sm p-5 space-y-4">
-          <h2 className="text-sm font-bold text-gray-800">📋 Job Post</h2>
+        <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-5 space-y-4">
+          <div>
+            <p className="text-[11px] font-bold tracking-widest text-emerald-700 uppercase">Job Post</p>
+            <h2 className="text-sm font-bold text-gray-800 mt-0.5">📋 Paste or fetch the job</h2>
+          </div>
 
           {/* URL input */}
           <div className="space-y-2">
@@ -240,12 +287,12 @@ export default function JobAnalyzer() {
                 onChange={e => setJobUrl(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleScrape()}
                 placeholder="https://careers.company.com/job/12345"
-                className="flex-1 border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+                className="flex-1 border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-300 outline-none"
               />
               <button
                 onClick={handleScrape}
                 disabled={scraping || !jobUrl.trim()}
-                className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition whitespace-nowrap"
+                className="px-4 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition whitespace-nowrap"
               >
                 {scraping ? 'Fetching…' : 'Fetch'}
               </button>
@@ -282,7 +329,7 @@ export default function JobAnalyzer() {
               onChange={e => setJobContent(e.target.value)}
               placeholder="Paste the full job description here…"
               rows={10}
-              className="w-full border rounded-lg px-3 py-2 text-xs font-mono resize-none focus:ring-2 focus:ring-blue-300 outline-none"
+              className="w-full border rounded-lg px-3 py-2 text-xs font-mono resize-none focus:ring-2 focus:ring-emerald-300 outline-none"
             />
           </div>
 
@@ -314,20 +361,23 @@ export default function JobAnalyzer() {
         </div>
 
         {/* ── RIGHT: Resume ────────────────────────────────────────────────── */}
-        <div className="bg-white rounded-xl border shadow-sm p-5 space-y-4">
-          <h2 className="text-sm font-bold text-gray-800">📄 Your Resume</h2>
+        <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-5 space-y-4">
+          <div>
+            <p className="text-[11px] font-bold tracking-widest text-emerald-700 uppercase">Your Resume</p>
+            <h2 className="text-sm font-bold text-gray-800 mt-0.5">📄 Upload or paste your resume</h2>
+          </div>
 
           {/* Upload */}
           <div className="space-y-2">
             {usingProfileResume && (
-              <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
-                <div className="flex items-center gap-2 text-xs text-blue-700">
+              <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                <div className="flex items-center gap-2 text-xs text-emerald-700">
                   <span>👤</span>
                   <span><strong>Using resume from your Profile.</strong> Skills pre-loaded.</span>
                 </div>
                 <button
                   onClick={() => { setResumeText(''); setUsingProfileResume(false); setAddedSkills([]); setSelectedSkills(new Set()); }}
-                  className="text-xs text-blue-500 hover:text-red-500 underline ml-2 whitespace-nowrap"
+                  className="text-xs text-emerald-500 hover:text-red-500 underline ml-2 whitespace-nowrap"
                 >
                   Clear
                 </button>
@@ -343,7 +393,7 @@ export default function JobAnalyzer() {
             <button
               onClick={() => fileRef.current?.click()}
               disabled={parsingResume}
-              className="w-full border-2 border-dashed border-gray-300 rounded-lg py-4 text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition disabled:opacity-50"
+              className="w-full border-2 border-dashed border-gray-300 rounded-lg py-4 text-sm text-gray-500 hover:border-emerald-400 hover:text-emerald-600 hover:bg-emerald-50 transition disabled:opacity-50"
             >
               {parsingResume
                 ? '⏳ Parsing resume…'
@@ -386,7 +436,7 @@ export default function JobAnalyzer() {
               onChange={e => setResumeText(e.target.value)}
               placeholder="Paste your resume text here…"
               rows={10}
-              className="w-full border rounded-lg px-3 py-2 text-xs font-mono resize-none focus:ring-2 focus:ring-blue-300 outline-none"
+              className="w-full border rounded-lg px-3 py-2 text-xs font-mono resize-none focus:ring-2 focus:ring-emerald-300 outline-none"
             />
           </div>
 
@@ -437,7 +487,7 @@ export default function JobAnalyzer() {
                     <button
                       onClick={addSelected}
                       disabled={selectedSkills.size === 0}
-                      className="px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-40 transition"
+                      className="px-4 py-2 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700 disabled:opacity-40 transition"
                     >
                       ✚ Add Selected ({selectedSkills.size})
                     </button>
@@ -536,7 +586,7 @@ export default function JobAnalyzer() {
           {user ? (
             <button
               onClick={() => window.open(jobUrl, '_blank', 'noopener')}
-              className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition whitespace-nowrap"
+              className="px-5 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 transition whitespace-nowrap"
             >
               Open Job Post &amp; Apply →
             </button>
@@ -549,7 +599,7 @@ export default function JobAnalyzer() {
                 onClick={() => {/* App.jsx will handle this via context — we use a custom event */
                   window.dispatchEvent(new CustomEvent('hr-open-login'));
                 }}
-                className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition whitespace-nowrap"
+                className="px-5 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 transition whitespace-nowrap"
               >
                 Sign In to Apply →
               </button>

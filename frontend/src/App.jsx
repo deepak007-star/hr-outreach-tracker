@@ -25,6 +25,7 @@ import JobScraperSection from './components/JobScraperSection.jsx';
 import UnsavedChangesModal from './components/UnsavedChangesModal.jsx';
 import AskReferral        from './components/AskReferral.jsx';
 import ResumeVault        from './components/ResumeVault.jsx';
+import LandingPage        from './components/LandingPage.jsx';
 import { clearDraft } from './hooks/useDraft.js';
 import { api, API_ROOT } from './api/client.js';
 
@@ -98,6 +99,7 @@ export default function App() {
   const planName     = PLAN_NAMES[user?.plan]  ?? PLAN_NAMES.guest;
 
   const fetchContacts = useCallback(async () => {
+    if (!user) { setLoading(false); return; } // guests land on LandingPage, not the contacts table
     setLoading(true);
     try {
       const params = {};
@@ -110,7 +112,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter]);
+  }, [search, statusFilter, user]);
 
   useEffect(() => { fetchContacts(); }, [fetchContacts]);
 
@@ -287,6 +289,23 @@ export default function App() {
           <p className="text-sm">Loading…</p>
         </div>
       </div>
+    );
+  }
+
+  // Guests get the marketing landing page instead of the dashboard shell —
+  // every feature here requires an account anyway (contacts, email sending,
+  // job analyzer results are all gated), so there's nothing useful to show
+  // pre-login besides "sign in".
+  if (!user) {
+    return (
+      <>
+        <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
+        <LandingPage
+          onGetStarted={() => setShowAuthModal(true)}
+          onSignIn={() => setShowAuthModal(true)}
+        />
+        {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
+      </>
     );
   }
 
