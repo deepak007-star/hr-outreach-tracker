@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import Logo from './Logo.jsx';
 
 const FEATURES = [
   {
@@ -252,7 +253,7 @@ export default function LandingPage({ onGetStarted, onSignIn }) {
       <header className="border-b border-stone-200 bg-stone-50/90 backdrop-blur sticky top-0 z-40">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center text-sm">📋</span>
+            <Logo size={32} />
             <span className="font-semibold text-stone-900">HR Outreach Tracker</span>
           </div>
           <nav className="hidden sm:flex items-center gap-7">
@@ -468,7 +469,7 @@ export default function LandingPage({ onGetStarted, onSignIn }) {
         <div className="max-w-6xl mx-auto px-6 py-10 flex flex-col sm:flex-row justify-between gap-8">
           <div className="max-w-sm">
             <div className="flex items-center gap-2 mb-2">
-              <span className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center text-xs">📋</span>
+              <Logo size={28} rounded="rounded-lg" />
               <span className="font-semibold text-stone-900">HR Outreach Tracker</span>
             </div>
             <p className="text-sm text-stone-500">

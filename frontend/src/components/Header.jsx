@@ -1,5 +1,6 @@
 import { useAuth } from '../contexts/AuthContext.jsx';
 import NotificationPanel from './NotificationPanel.jsx';
+import Logo from './Logo.jsx';
 
 export default function Header({ onLoginClick }) {
   const { user, logout } = useAuth();
@@ -7,9 +8,12 @@ export default function Header({ onLoginClick }) {
   return (
     <header className="bg-slate-900 text-white shadow-lg">
       <div className="max-w-screen-2xl mx-auto px-6 py-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">HR Outreach Tracker</h1>
-          <p className="text-slate-400 text-xs mt-0.5">Excel file auto-syncs on every add / edit / delete</p>
+        <div className="flex items-center gap-3">
+          <Logo size={36} />
+          <div>
+            <h1 className="text-xl font-bold tracking-tight">HR Outreach Tracker</h1>
+            <p className="text-slate-400 text-xs mt-0.5">Excel file auto-syncs on every add / edit / delete</p>
+          </div>
         </div>
 
         <div className="flex items-center gap-3 text-xs text-slate-400">
