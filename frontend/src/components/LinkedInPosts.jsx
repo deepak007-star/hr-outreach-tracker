@@ -310,7 +310,11 @@ export default function LinkedInPosts() {
   const [composeTo,     setComposeTo]  = useState(null);
   const [activePost,    setActivePost] = useState(null);
   const [profile,       setProfile]    = useState(null);
+  const [showAllRoles,  setShowAllRoles]  = useState(false);
+  const [matchedTerms,  setMatchedTerms]  = useState([]);
+  const [customKeywords, setCustomKeywords] = useState('');
   const logsEndRef = useRef(null);
+  const isAdmin = user?.role === 'admin';
 
   useEffect(() => {
     if (user) api.get('/profile').then(p => setProfile(p)).catch(() => {});
@@ -321,30 +325,42 @@ export default function LinkedInPosts() {
   }, [scraperLogs]);
 
   // ── Fetch from scraper-primary endpoint ─────────────────────────────────────
+  // Defaults to matching the caller's own target roles (job_title_1/2/3 on
+  // their profile) server-side — every user gets a feed relevant to them
+  // instead of the identical global list. "Show all roles" opts out.
   const fetchPosts = useCallback(async () => {
     setLoading(true);
     try {
       const params = { since, limit: 500, source: includeApify ? 'all' : 'scraper' };
-      if (search)     params.search      = search;
-      if (hiringOnly) params.hiring_only = 'true';
+      if (search)      params.search       = search;
+      if (hiringOnly)  params.hiring_only  = 'true';
+      if (showAllRoles) params.matchProfile = 'false';
       const data = await api.get('/linkedin-feed', { params });
       setPosts(data.posts || []);
+      setMatchedTerms(data.matched_profile_terms || []);
     } catch { toast.error('Failed to load posts'); }
     finally  { setLoading(false); }
-  }, [search, since, hiringOnly, includeApify]);
+  }, [search, since, hiringOnly, includeApify, showAllRoles]);
 
   useEffect(() => { fetchPosts(); }, [fetchPosts]);
 
   // ── Scraper trigger ──────────────────────────────────────────────────────────
+  // Admins can override with custom keywords; everyone else always gets
+  // titles/limit derived server-side from their own profile (the backend
+  // ignores whatever's sent here for non-admins), so this just needs to send
+  // an admin's intent when present.
   const runScraper = async () => {
     if (scraping) return;
     setScraping(true);
     setLogs([]);
     setShowLogs(true);
 
-    const keywords = [profile?.job_title_1, profile?.job_title_2, profile?.job_title_3, profile?.current_title]
+    const customTitles = isAdmin
+      ? customKeywords.split(',').map(t => t.trim()).filter(Boolean)
+      : [];
+    const profileTitles = [profile?.job_title_1, profile?.job_title_2, profile?.job_title_3, profile?.current_title]
       .filter(Boolean).slice(0, 3);
-    const titles   = keywords.length ? keywords : ['Software Developer'];
+    const titles   = customTitles.length ? customTitles : (profileTitles.length ? profileTitles : ['Software Developer']);
     const location = profile?.preferred_city || profile?.location || 'India';
 
     const addLog = (type, text) => setLogs(prev => [...prev, { type, text }]);
@@ -363,6 +379,7 @@ export default function LinkedInPosts() {
         let msg = `Scraper error (${resp.status})`;
         try { const d = await resp.json(); msg = d.error || msg; } catch {}
         addLog('error', msg);
+        toast.error(msg);
         setScraping(false);
         return;
       }
@@ -475,14 +492,34 @@ export default function LinkedInPosts() {
             <input type="checkbox" checked={includeApify} onChange={e => setIncludeApify(e.target.checked)} className="rounded accent-blue-600" />
             Include Apify posts
           </label>
-          {user?.role === 'admin' && (
-            <button onClick={runScraper} disabled={scraping}
-                    className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 transition">
-              {scraping ? '⏳ Scraping…' : '🔍 Scrape Now (admin)'}
-            </button>
+          {isAdmin && (
+            <input type="text" placeholder="Custom keywords (comma-separated)…"
+                   value={customKeywords} onChange={e => setCustomKeywords(e.target.value)}
+                   title="Overrides your profile's target roles for this scrape only"
+                   className="border rounded-lg px-2.5 py-1.5 text-xs w-52 focus:ring-2 focus:ring-blue-300 outline-none bg-white" />
           )}
+          <button onClick={runScraper} disabled={scraping}
+                  className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 transition">
+            {scraping ? '⏳ Scraping…' : isAdmin ? '🔍 Scrape Now (admin)' : '🔍 Find My Matches'}
+          </button>
         </div>
       </div>
+
+      {/* ── Personalization banner ───────────────────────────────────────── */}
+      {!search && (
+        matchedTerms.length > 0 ? (
+          <div className="flex items-center gap-2 flex-wrap text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+            <span>Showing posts matching your target roles: <strong>{matchedTerms.join(', ')}</strong></span>
+            <button onClick={() => setShowAllRoles(v => !v)} className="ml-auto underline hover:no-underline font-medium shrink-0">
+              {showAllRoles ? 'Back to my matches' : 'Show all roles instead'}
+            </button>
+          </div>
+        ) : !showAllRoles && (
+          <div className="flex items-center gap-2 flex-wrap text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+            <span>Add target roles on your Profile to see a feed matched to you — showing everything for now.</span>
+          </div>
+        )
+      )}
 
       {/* ── Log panel ────────────────────────────────────────────────────── */}
       {showLogs && (
@@ -507,13 +544,14 @@ export default function LinkedInPosts() {
             The feed refreshes automatically every morning at 7:00 AM IST with new HR hiring posts —
             email addresses, phone numbers, and Google Forms. Apify-sourced listings are added
             whenever an admin runs a manual Apify scrape.
-            Try a wider date range above, or check back after the next morning refresh.
+            Try a wider date range above, click below to search now, or check back after the next morning refresh.
           </p>
-          {user?.role === 'admin' && (
-            <button onClick={runScraper} disabled={scraping}
-                    className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50">
-              {scraping ? '⏳ Scraping…' : '🔍 Scrape Now (admin)'}
-            </button>
+          <button onClick={runScraper} disabled={scraping}
+                  className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50">
+            {scraping ? '⏳ Scraping…' : isAdmin ? '🔍 Scrape Now (admin)' : '🔍 Find My Matches'}
+          </button>
+          {!isAdmin && (
+            <p className="text-xs text-gray-400">Uses your target roles from Profile — limited to once every few hours.</p>
           )}
         </div>
       )}

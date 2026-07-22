@@ -6,7 +6,8 @@ const path     = require('path');
 const fs       = require('fs');
 const crypto   = require('crypto');
 const db       = require('../db/database');
-const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { requireAuth } = require('../middleware/auth');
+const rateLimiter = require('../middleware/rateLimiter');
 
 const router = express.Router();
 
@@ -169,10 +170,42 @@ function runScraperHeadless(scraper, body, onLog = () => {}) {
   });
 }
 
-// ─── POST /api/scraper/run — SSE streaming scrape (admin only) ────────────────
+// ─── POST /api/scraper/run — SSE streaming scrape ─────────────────────────────
+// Admins can trigger any configured scraper with arbitrary keywords/titles.
+// Non-admin users can only trigger 'linkedin-feed', and only with titles
+// derived from their own profile (job_title_1/2/3, current_title) — the
+// client-supplied `titles`/`scraper`/`limit` are ignored/overridden for them,
+// so one user can't spend another's scraping budget or point the shared
+// scraper at arbitrary keywords. Rate-limited to prevent concurrent users
+// hammering the same external search engines the scraper depends on.
 
-router.post('/run', requireAuth, requireAdmin, (req, res) => {
-  const { scraper } = req.body;
+router.post('/run', requireAuth, async (req, res) => {
+  const isAdmin = req.user.role === 'admin';
+  let body = req.body;
+
+  if (!isAdmin) {
+    const limitCheck = rateLimiter.check(req.user.userId, 'linkedinFeedScrape');
+    if (!limitCheck.allowed) {
+      const resetStr = limitCheck.resetAt
+        ? ` Try again after ${limitCheck.resetAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}.`
+        : '';
+      return res.status(429).json({ error: `You can run this once every few hours.${resetStr}` });
+    }
+
+    const profile = await db.prepare('SELECT * FROM profiles WHERE user_id = ?').get(req.user.userId);
+    const titles = [profile?.job_title_1, profile?.job_title_2, profile?.job_title_3, profile?.current_title]
+      .filter(Boolean).slice(0, 3);
+
+    body = {
+      scraper:  'linkedin-feed',
+      titles:   titles.length ? titles : ['Software Developer'],
+      location: profile?.preferred_city || profile?.preferred_location || profile?.location || 'India',
+      limit:    15,
+    };
+    rateLimiter.record(req.user.userId, 'linkedinFeedScrape');
+  }
+
+  const { scraper } = body;
   if (!SCRAPER_CONFIGS[scraper]) {
     return res.status(400).json({ error: `Unknown scraper: ${scraper}. Valid: ${Object.keys(SCRAPER_CONFIGS).join(', ')}` });
   }
@@ -192,7 +225,7 @@ router.post('/run', requireAuth, requireAdmin, (req, res) => {
     if (!res.writableEnded) res.write(': ping\n\n');
   }, 5000);
 
-  runScraperHeadless(scraper, req.body, send).then(({ code, stored }) => {
+  runScraperHeadless(scraper, body, send).then(({ code, stored }) => {
     clearInterval(hb);
     send('done', { code, stored });
     res.end();

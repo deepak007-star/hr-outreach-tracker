@@ -84,13 +84,29 @@ function fromScraper(p) {
   };
 }
 
+// Builds an `AND (... OR ... OR ...)` clause matching ANY of `terms` against
+// ANY of `columns` (ILIKE substring per term/column pair) and appends the
+// bound params in the same order the placeholders are emitted.
+function termsClause(terms, columns) {
+  if (!terms.length) return { clause: '', params: [] };
+  const params = [];
+  const group = terms.map(t => {
+    const cond = columns.map(c => `${c} ILIKE ?`).join(' OR ');
+    columns.forEach(() => params.push(`%${t}%`));
+    return `(${cond})`;
+  }).join(' OR ');
+  return { clause: ` AND (${group})`, params };
+}
+
 // ─── GET /api/linkedin-feed ───────────────────────────────────────────────────
-// Query: search, hiring_only (true|false), since (7d|30d|90d|all), limit, page
+// Query: search, hiring_only (true|false), since (7d|30d|90d|all), limit, page,
+// matchProfile (default 'true' when `search` is blank — set to 'false' to see
+// the full unfiltered shared feed instead of just your own target roles)
 
 // source param: 'scraper' (default) = scraper-only; 'all' = scraper + Apify merged
 router.get('/', requireAuth, async (req, res) => {
   try {
-    const { search, hiring_only, since = 'today', limit = '200', page = '1', source = 'scraper' } = req.query;
+    const { search, hiring_only, since = 'today', limit = '200', page = '1', source = 'scraper', matchProfile } = req.query;
     const limitNum   = Math.min(parseInt(limit) || 200, 1000);
     const pageNum    = Math.max(parseInt(page)  || 1,   1);
     const includeApify = source === 'all';
@@ -101,6 +117,23 @@ router.get('/', requireAuth, async (req, res) => {
       : daysMap[since]
         ? new Date(Date.now() - daysMap[since] * 86_400_000).toISOString().replace('T', ' ').slice(0, 19)
         : null;
+
+    // ── Default the feed to the caller's own target roles ──────────────────────
+    // Without this, every user saw the identical global list regardless of what
+    // they're actually looking for. An explicit `search` always wins; profile
+    // matching only kicks in when the box is empty and the caller hasn't opted
+    // out (matchProfile=false) — and it no-ops if the profile has no target
+    // roles set, so an incomplete profile still sees the full feed.
+    let profileTerms = [];
+    if (!search && matchProfile !== 'false') {
+      const profile = await db.prepare(
+        'SELECT job_title_1, job_title_2, job_title_3, current_title FROM profiles WHERE user_id = ?'
+      ).get(req.user.userId);
+      profileTerms = [...new Set(
+        [profile?.job_title_1, profile?.job_title_2, profile?.job_title_3, profile?.current_title]
+          .map(t => t?.trim()).filter(Boolean)
+      )];
+    }
 
     // ── 1. Scraper posts (always fetched — primary source) ────────────────────
     let scraperPosts = [];
@@ -115,6 +148,9 @@ router.get('/', requireAuth, async (req, res) => {
         q += ' AND (title ILIKE ? OR company ILIKE ? OR description ILIKE ? OR contact_email ILIKE ?)';
         const s = `%${search}%`;
         params.push(s, s, s, s);
+      } else if (profileTerms.length) {
+        const { clause, params: p } = termsClause(profileTerms, ['title', 'tags', 'description', 'company']);
+        q += clause; params.push(...p);
       }
       q += ' ORDER BY created_at DESC LIMIT 2000';
       scraperPosts = await db.prepare(q).all(...params);
@@ -134,6 +170,9 @@ router.get('/', requireAuth, async (req, res) => {
           q += ' AND (title ILIKE ? OR description ILIKE ? OR company_name ILIKE ? OR author_name ILIKE ?)';
           const s = `%${search}%`;
           params.push(s, s, s, s);
+        } else if (profileTerms.length) {
+          const { clause, params: p } = termsClause(profileTerms, ['title', 'description', 'company_name']);
+          q += clause; params.push(...p);
         }
         q += ' ORDER BY scraped_at DESC LIMIT 2000';
         apifyPosts = await db.prepare(q).all(...params);
@@ -187,6 +226,7 @@ router.get('/', requireAuth, async (req, res) => {
       pages:          Math.ceil(total / limitNum),
       limit:          limitNum,
       source_filter:  source,
+      matched_profile_terms: profileTerms, // [] means no filter applied (either opted out, or no target roles set on profile)
     });
   } catch (err) {
     console.error('[linkedin-feed]', err);

@@ -3,6 +3,11 @@
 const LIMITS = {
   email: { max: 20, windowMs: 3 * 60 * 60 * 1000, label: 'Email sends' },
   apply: { max: 30, windowMs: 3 * 60 * 60 * 1000, label: 'Job applications' },
+  // Non-admin "find my matches" trigger on the LinkedIn feed — each run spawns
+  // a real browser and hits external search engines, so this is capped hard
+  // to stop concurrent users from hammering (and getting CAPTCHA-blocked by)
+  // the same shared IP.
+  linkedinFeedScrape: { max: 1, windowMs: 6 * 60 * 60 * 1000, label: 'LinkedIn feed scrape' },
 };
 
 const store = new Map(); // `${uid}:${type}` → number[]
