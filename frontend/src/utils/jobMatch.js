@@ -5,7 +5,8 @@ import { extractSkills } from '../data/techSkills';
 // deep-dive (contact info, section headers, quantification) that don't apply
 // to a bulk feed.
 export function computeJobMatch(post, profileSkills = []) {
-  if (!profileSkills.length) return { matchPercent: null, matchedSkills: [] };
+  const skills = Array.isArray(profileSkills) ? profileSkills : [];
+  if (!skills.length) return { matchPercent: null, matchedSkills: [] };
 
   const jobSkills = new Set([
     ...extractSkills(post.description || ''),
@@ -13,7 +14,7 @@ export function computeJobMatch(post, profileSkills = []) {
   ]);
   if (!jobSkills.size) return { matchPercent: null, matchedSkills: [] };
 
-  const resumeSkillsLower = new Set(profileSkills.map(s => String(s).toLowerCase()));
+  const resumeSkillsLower = new Set(skills.map(s => String(s).toLowerCase()));
   const matchedSkills = [...jobSkills].filter(s => resumeSkillsLower.has(s.toLowerCase()));
 
   return {

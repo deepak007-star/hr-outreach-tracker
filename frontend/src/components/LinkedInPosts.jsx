@@ -456,7 +456,12 @@ export default function LinkedInPosts() {
   };
 
   // ── Filter ───────────────────────────────────────────────────────────────────
-  const profileSkills = profile?.skills || [];
+  const profileSkills = (() => {
+    const raw = profile?.skills;
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw;
+    try { const p = JSON.parse(raw); return Array.isArray(p) ? p : []; } catch { return []; }
+  })();
   const filtered = posts.filter(p => {
     if (filter === 'email') return !!p.contact_email;
     if (filter === 'phone') return !!p.contact_phone;
