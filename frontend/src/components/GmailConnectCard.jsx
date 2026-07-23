@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { toast } from 'react-hot-toast';
 import { api } from '../api/client.js';
+import { confirm } from '../utils/confirm.js';
 
 export default function GmailConnectCard({ onStatusChange }) {
   const [status, setStatus]   = useState(null); // { connected, gmailEmail, lastSynced, configured }
@@ -55,7 +56,7 @@ export default function GmailConnectCard({ onStatusChange }) {
   }
 
   async function handleDisconnect() {
-    if (!window.confirm('Disconnect Gmail? Your tracked emails will be preserved.')) return;
+    if (!await confirm('Disconnect Gmail? Your tracked emails will be preserved.')) return;
     try {
       await api.delete('/gmail/disconnect');
       toast('Gmail disconnected');

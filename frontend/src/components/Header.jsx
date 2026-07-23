@@ -28,7 +28,7 @@ export default function Header({ onLoginClick }) {
             <div className="flex items-center gap-2">
               {/* Avatar */}
               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-xs font-bold">
-                {(user.name || 'U').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
+                {(user.name || 'U').split(' ').filter(w => w).map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'U'}
               </div>
               <div className="hidden sm:block text-right">
                 <p className="text-white text-xs font-medium leading-tight">{user.name}</p>

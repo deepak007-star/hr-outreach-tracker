@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, Fragment } from 'react';
 
 const STATUSES = ['New','Drafted','Sent','Opened','Replied','Interview','Rejected','Do Not Contact'];
 
@@ -150,10 +150,10 @@ export default function ContactTable({
               const emailVisible = idx < visibleLimit; // within this user's plan limit
 
               return (
-                <>
+                <Fragment key={c.id}>
                 {/* Upgrade divider — injected once right at the limit boundary */}
                 {idx === visibleLimit && (
-                  <tr key={`__divider__`} className="border-y-2 border-amber-300">
+                  <tr className="border-y-2 border-amber-300">
                     <td colSpan={10} className="bg-amber-50 px-4 py-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <p className="text-xs text-amber-800 font-medium">
@@ -169,7 +169,7 @@ export default function ContactTable({
                     </td>
                   </tr>
                 )}
-                <tr key={c.id} className={`${emailVisible ? rowBg : 'bg-gray-50 opacity-80'} hover:brightness-[0.97] transition-all`}>
+                <tr className={`${emailVisible ? rowBg : 'bg-gray-50 opacity-80'} hover:brightness-[0.97] transition-all`}>
                   <td className="px-3 py-2">
                     <input
                       type="checkbox"
@@ -260,7 +260,7 @@ export default function ContactTable({
                     </div>
                   </td>
                 </tr>
-                </>
+                </Fragment>
               );
             })}
           </tbody>

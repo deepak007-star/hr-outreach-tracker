@@ -306,23 +306,19 @@ Best regards,
 {{phone}} | {{linkedin_url}}`,
   },
   {
-    name: 'Java Backend — Direct Outreach (Personal)',
+    name: 'Java Backend — Direct Outreach',
     category: 'cold-outreach',
-    tags: ['java', 'spring boot', 'backend', 'microservices', 'kafka', 'redis', 'personal', 'direct'],
-    subject: 'Java Backend Developer — Reaching out to {{company}}',
-    body: `Hi there,
+    tags: ['java', 'spring boot', 'backend', 'microservices', 'kafka', 'redis', 'direct'],
+    subject: 'Backend Developer — Reaching out to {{company}}',
+    body: `Hi {{name}},
 
-Hope you're doing well. I'm a Java Backend Developer with 5 years of experience, currently looking to make a move, and wanted to reach out directly in case there's a suitable opening on your side.
+Hope you're doing well. I'm a {{current_title}} with {{experience}} of experience, currently exploring new opportunities and wanted to reach out directly in case there's a suitable opening on your side.
 
 A quick summary of my background:
-Core stack: Java, Spring Boot, Microservices, Hibernate/JPA, Spring Security, Spring Batch, Spring AI
-System design: HLD & LLD, Design Patterns, Distributed Architecture, Scalable Systems
-Data & messaging: PostgreSQL, MongoDB, DynamoDB, Redis, Kafka, RabbitMQ
-Infra & tooling: Docker, Kubernetes, AWS, Grafana
-Testing: JUnit, Mockito
+{{skills}}
 
 My official notice period is {{notice_period}}, I'm based in {{location}}, and open to relocation or remote roles.
-I've attached my resume for reference — if there's any suitable Java Backend Developer opening currently or coming up, I'd really appreciate you keeping me in mind. Happy to jump on a quick call at your convenience.
+I've attached my resume for reference — happy to jump on a quick call at your convenience.
 
 LinkedIn: {{linkedin_url}}
 Thanks & regards,
@@ -332,6 +328,15 @@ Thanks & regards,
 ];
 
 async function seedTemplates() {
+  // One-time migration: rename the old hardcoded personal template to the generic version
+  await db.prepare(
+    "UPDATE email_templates SET name = 'Java Backend — Direct Outreach', subject = ?, body = ?, tags = ? WHERE name = 'Java Backend — Direct Outreach (Personal)' AND body LIKE '%Core stack: Java, Spring Boot%'"
+  ).run(
+    'Backend Developer — Reaching out to {{company}}',
+    `Hi {{name}},\n\nHope you're doing well. I'm a {{current_title}} with {{experience}} of experience, currently exploring new opportunities and wanted to reach out directly in case there's a suitable opening on your side.\n\nA quick summary of my background:\n{{skills}}\n\nMy official notice period is {{notice_period}}, I'm based in {{location}}, and open to relocation or remote roles.\nI've attached my resume for reference — happy to jump on a quick call at your convenience.\n\nLinkedIn: {{linkedin_url}}\nThanks & regards,\n{{your_name}}\n{{phone}}`,
+    JSON.stringify(['java', 'spring boot', 'backend', 'microservices', 'kafka', 'redis', 'direct']),
+  );
+
   for (const t of SEEDS) {
     const existing = await db.prepare('SELECT id FROM email_templates WHERE name = ?').get(t.name);
     if (!existing) {
@@ -339,7 +344,7 @@ async function seedTemplates() {
         'INSERT INTO email_templates (id, name, subject, body, category, tags, is_default) VALUES (?, ?, ?, ?, ?, ?, 1)'
       ).run(crypto.randomUUID(), t.name, t.subject, t.body, t.category || 'general', JSON.stringify(t.tags || []));
     } else {
-      // Update category/tags for existing system seeds without overwriting user-edited subject/body
+      // Update category and tags for existing seeds (never overwrites user-edited subject/body)
       await db.prepare(
         'UPDATE email_templates SET category = ?, tags = ? WHERE id = ? AND is_default = 1'
       ).run(t.category || 'general', JSON.stringify(t.tags || []), existing.id);

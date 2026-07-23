@@ -1,8 +1,11 @@
 const ExcelJS = require('exceljs');
 const path = require('path');
+const fs   = require('fs');
 const db = require('../db/database');
 
 const EXCEL_PATH = path.join(__dirname, '../../data/HR_Outreach_Tracker.xlsx');
+// Ensure the data directory exists before any write attempt
+fs.mkdirSync(path.dirname(EXCEL_PATH), { recursive: true });
 
 const STATUS_FILL = {
   'New':            { argb: 'FFF5F5F5' },

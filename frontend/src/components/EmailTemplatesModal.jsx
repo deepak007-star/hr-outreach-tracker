@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '../api/client.js';
+import { confirm } from '../utils/confirm.js';
 import { toast } from 'react-hot-toast';
 import RichEditor, { toHtml } from './RichEditor.jsx';
 import AttachmentPicker from './AttachmentPicker.jsx';
@@ -231,7 +232,7 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
   }
 
   async function handleDelete(t) {
-    if (!window.confirm(`Delete "${t.name}"?`)) return;
+    if (!await confirm(`Delete "${t.name}"?`)) return;
     try {
       await api.delete(`/email-templates/${t.id}`);
       setTemplates(ts => ts.filter(x => x.id !== t.id));

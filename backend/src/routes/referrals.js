@@ -28,7 +28,7 @@ router.get('/users', async (req, res) => {
     // pair is allowed.
     const rows = await db.prepare(`
       SELECT
-        u.id, u.name, u.email, u.created_at,
+        u.id, u.name, u.created_at,
         p.current_title, p.current_company, p.location,
         p.skills, p.summary, p.linkedin_url,
         p.job_title_1, p.job_title_2, p.job_title_3,
@@ -127,7 +127,9 @@ router.post('/ask/:targetUserId', async (req, res) => {
         error: 'No email account connected. Connect your Gmail or configure SMTP in Settings first.',
       });
 
-    const { transport, fromEmail, fromName } = mail;
+    const { transport, fromEmail } = mail;
+    const fromName = (mail.fromName || '').replace(/[\r\n\t"<>]/g, '').trim();
+    const toName   = (target.name  || '').replace(/[\r\n\t"<>]/g, '').trim();
     const finalSubject = subject?.trim() || `Referral Request from ${sender.name}`;
     const finalMessage = message.trim();
 
@@ -136,7 +138,7 @@ router.post('/ask/:targetUserId', async (req, res) => {
     // every retry even though no email ever went out.
     await transport.sendMail({
       from:    fromName ? `"${fromName}" <${fromEmail}>` : fromEmail,
-      to:      `"${target.name}" <${target.email}>`,
+      to:      toName ? `"${toName}" <${target.email}>` : target.email,
       subject: finalSubject,
       text:    finalMessage,
       html:    `<div style="font-family:sans-serif;font-size:14px;line-height:1.7;white-space:pre-wrap">${finalMessage.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>')}</div>`,

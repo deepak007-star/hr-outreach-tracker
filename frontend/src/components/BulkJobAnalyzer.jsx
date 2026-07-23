@@ -121,6 +121,11 @@ export default function BulkJobAnalyzer() {
 
   const handleAnalyzeAll = async () => {
     if (!jobUrls.length) { toast.error('Enter at least one job URL'); return; }
+    const invalidUrls = jobUrls.filter(u => { try { new URL(u); return !/^https?:\/\//i.test(u); } catch { return true; } });
+    if (invalidUrls.length) {
+      toast.error(`${invalidUrls.length} invalid URL${invalidUrls.length > 1 ? 's' : ''} — each must start with https://`);
+      return;
+    }
     setAnalyzing(true);
     setAddedSkills([]);
     setSelectedSkills(new Set());

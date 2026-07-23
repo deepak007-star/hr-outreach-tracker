@@ -104,6 +104,17 @@ export default function SmtpSettingsModal({ onClose }) {
   };
 
   const handleSave = async () => {
+    // If Google not connected, require at least the basic SMTP fields
+    if (!google?.connected) {
+      if (!smtp.host.trim()) { toast.error('SMTP host is required'); return; }
+      const port = parseInt(smtp.port, 10);
+      if (!smtp.port || isNaN(port) || port < 1 || port > 65535) {
+        toast.error('Enter a valid port number (1–65535)');
+        return;
+      }
+      if (!smtp.user.trim()) { toast.error('Username / From Email is required'); return; }
+      if (!smtp.pass.trim()) { toast.error('Password / App Password is required'); return; }
+    }
     setSaving(true);
     try {
       await api.put('/settings', {

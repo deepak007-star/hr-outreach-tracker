@@ -180,9 +180,9 @@ export default function Dashboard({
   );
 
   // Unique companies from contacts for company research
-  const myCompanies = useMemo(() => {
-    const s = new Set(contacts.map(c => c.company).filter(Boolean));
-    return [...s].slice(0, 12);
+  const { companyCount, myCompanies } = useMemo(() => {
+    const all = [...new Set(contacts.map(c => c.company).filter(Boolean))];
+    return { companyCount: all.length, myCompanies: all.slice(0, 12) };
   }, [contacts]);
 
   const researchedCompany = companySearch.trim();
@@ -236,7 +236,7 @@ export default function Dashboard({
           <ImpactCard icon="📡" value={activeOutreach} label="Active Outreach"      sub="in pipeline"  gradient="bg-gradient-to-br from-amber-500 to-orange-600"   accent="bg-amber-400/30 text-amber-100" />
           <ImpactCard icon="💬" value={`${responseRate}%`} label="Response Rate"   sub={`${replied} replied`} gradient="bg-gradient-to-br from-green-500 to-emerald-700" accent="bg-green-400/30 text-green-100" />
           <ImpactCard icon="🎯" value={interviews}     label="Interviews"           sub="scheduled"    gradient="bg-gradient-to-br from-pink-500 to-rose-600"       accent="bg-pink-400/30 text-pink-100" />
-          <ImpactCard icon="🏢" value={myCompanies.length} label="Companies"        sub="researched"   gradient="bg-gradient-to-br from-slate-600 to-slate-800"     accent="bg-slate-400/30 text-slate-200" />
+          <ImpactCard icon="🏢" value={companyCount}       label="Companies"        sub="researched"   gradient="bg-gradient-to-br from-slate-600 to-slate-800"     accent="bg-slate-400/30 text-slate-200" />
         </div>
       </div>
 

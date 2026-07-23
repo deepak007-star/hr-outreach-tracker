@@ -9,6 +9,15 @@ const { encrypt } = require('../services/tokenCrypto');
 
 const router = express.Router();
 
+// ── One-time login-code store ──────────────────────────────────────────────
+// Maps code → { userId, role, plan, expiresAt }
+// Codes are single-use and expire in 60 seconds — the JWT never touches a URL.
+const _loginCodes = new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of _loginCodes) if (now > v.expiresAt) _loginCodes.delete(k);
+}, 60_000);
+
 // gmail.readonly deliberately omitted — full-body read access, and a
 // "restricted" scope requiring Google's paid annual CASA security
 // assessment before it can be used beyond 100 manually-added test users.
@@ -142,18 +151,55 @@ router.get('/google/callback', async (req, res) => {
     `).run(userId, email, encrypt(tokens.refresh_token), GOOGLE_SCOPES.join(' '));
 
     if (payload.purpose === 'google-login') {
-      const user = await db.prepare('SELECT role FROM users WHERE id = ?').get(userId);
-      const sessionToken = jwt.sign({ userId, plan: 'demo', role: user.role || 'user' }, SECRET, { expiresIn: '30d' });
-      res.cookie('hr_session', sessionToken, COOKIE_OPTS);
-      return res.redirect(`${frontend}/?google_login_token=${encodeURIComponent(sessionToken)}`);
+      const user = await db.prepare('SELECT role, plan FROM users WHERE id = ?').get(userId);
+      const role = user?.role || 'user';
+      const plan = user?.plan || 'demo';
+
+      // Issue a short-lived one-time code instead of embedding the JWT in the redirect URL.
+      // The frontend will exchange this code (POST /api/oauth/exchange) for the real session token.
+      // Code is valid for 60 seconds and is deleted on first use.
+      const loginCode = crypto.randomBytes(32).toString('hex');
+      _loginCodes.set(loginCode, { userId, role, plan, expiresAt: Date.now() + 60_000 });
+
+      return res.redirect(`${frontend}/?google_login_code=${loginCode}`);
     }
 
     res.redirect(`${frontend}/?oauth=connected`);
   } catch (err) {
     console.error('[OAuth] Google callback failed:', err.message);
     const errParam = payload.purpose === 'google-login' ? 'google_login_error' : 'oauth_error';
-    res.redirect(`${frontend}/?${errParam}=${encodeURIComponent(err.message)}`);
+    // Never include raw error messages in redirect URLs — use a generic code
+    const safeMsg = encodeURIComponent('Google sign-in failed. Please try again.');
+    res.redirect(`${frontend}/?${errParam}=${safeMsg}`);
   }
+});
+
+// ── POST /api/oauth/exchange ───────────────────────────────────────────────
+// Frontend exchanges the short-lived one-time code from the redirect URL
+// for a real 30-day session JWT. Code is deleted immediately after use.
+router.post('/exchange', (req, res) => {
+  const { code } = req.body;
+  if (!code || typeof code !== 'string') {
+    return res.status(400).json({ error: 'Code is required.' });
+  }
+  const entry = _loginCodes.get(code);
+  if (!entry) {
+    return res.status(401).json({ error: 'Invalid or expired login code. Please sign in again.' });
+  }
+  if (Date.now() > entry.expiresAt) {
+    _loginCodes.delete(code);
+    return res.status(401).json({ error: 'Login code expired. Please sign in again.' });
+  }
+  // Single-use: delete immediately
+  _loginCodes.delete(code);
+
+  const sessionToken = jwt.sign(
+    { userId: entry.userId, plan: entry.plan, role: entry.role },
+    SECRET,
+    { expiresIn: '30d' },
+  );
+  res.cookie('hr_session', sessionToken, COOKIE_OPTS);
+  res.json({ token: sessionToken, userId: entry.userId, role: entry.role, plan: entry.plan });
 });
 
 // ── GET /api/oauth/status ──────────────────────────────────────────────────

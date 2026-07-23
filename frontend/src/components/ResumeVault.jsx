@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { api, API_ROOT } from '../api/client.js';
+import { confirm } from '../utils/confirm.js';
 import toast from 'react-hot-toast';
 
 const MAX = 5;
@@ -446,7 +447,7 @@ export default function ResumeVault() {
   useEffect(() => { load(); }, [load]);
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Remove this version from vault?')) return;
+    if (!await confirm('Remove this version from vault?')) return;
     try {
       await api.delete(`/resume-versions/${id}`);
       setVersions(prev => prev.filter(v => v.id !== id));

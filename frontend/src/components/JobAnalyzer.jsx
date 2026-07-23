@@ -135,7 +135,12 @@ export default function JobAnalyzer() {
 
   const handleScrape = async () => {
     const url = jobUrl.trim();
-    if (!url) return;
+    if (!url) { setScrapeErr('Please enter a job posting URL'); return; }
+    try { new URL(url); } catch {
+      setScrapeErr('Enter a valid URL starting with https://');
+      return;
+    }
+    if (!/^https?:\/\//i.test(url)) { setScrapeErr('URL must start with http:// or https://'); return; }
     setScraping(true); setScrapeErr('');
     try {
       const data = await api.post('/jobs/scrape', { url });

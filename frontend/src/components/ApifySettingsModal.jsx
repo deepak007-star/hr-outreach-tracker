@@ -47,6 +47,10 @@ export default function ApifySettingsModal({ onClose, onSaved }) {
     const queries = queriesText.split('\n').map(l => l.trim()).filter(Boolean);
     if (!queries.length) { toast.error('Add at least one search query'); return; }
     if (!form.actorId.trim()) { toast.error('Actor ID is required'); return; }
+    const maxPostsNum = parseInt(form.maxPosts, 10);
+    if (isNaN(maxPostsNum) || maxPostsNum < 5 || maxPostsNum > 500) {
+      toast.error('Max Posts must be between 5 and 500'); return;
+    }
 
     setSaving(true);
     try {
@@ -124,7 +128,7 @@ export default function ApifySettingsModal({ onClose, onSaved }) {
               <input
                 type="number" min="5" max="500"
                 value={form.maxPosts}
-                onChange={e => set('maxPosts', parseInt(e.target.value))}
+                onChange={e => set('maxPosts', e.target.value === '' ? '' : parseInt(e.target.value, 10))}
                 className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
               />
             </div>

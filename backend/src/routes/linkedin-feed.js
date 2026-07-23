@@ -103,13 +103,13 @@ function termsClause(terms, columns) {
 // matchProfile (default 'true' when `search` is blank — set to 'false' to see
 // the full unfiltered shared feed instead of just your own target roles)
 
-// source param: 'scraper' (default) = scraper-only; 'all' = scraper + Apify merged
+// source param: 'all' (default) = scraper + Apify merged; 'scraper' = scraper-only
 router.get('/', requireAuth, async (req, res) => {
   try {
-    const { search, hiring_only, since = 'today', limit = '200', page = '1', source = 'scraper', matchProfile } = req.query;
+    const { search, hiring_only, since = 'today', limit = '200', page = '1', source = 'all', matchProfile } = req.query;
     const limitNum   = Math.min(parseInt(limit) || 200, 1000);
     const pageNum    = Math.max(parseInt(page)  || 1,   1);
-    const includeApify = source === 'all';
+    const includeApify = source !== 'scraper';
 
     const daysMap = { '1d': 1, '3d': 3, '7d': 7, '14d': 14, '30d': 30, '90d': 90 };
     const cutoff  = since === 'today'
@@ -215,7 +215,54 @@ router.get('/', requireAuth, async (req, res) => {
     }
 
     // Sort newest first, paginate
-    const all   = [...byUrl.values()].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+    let all   = [...byUrl.values()].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+    let sinceFallbackUsed = false;
+
+    // Auto-fallback: if "today" returns 0 posts, extend to 7 days so the feed
+    // is never empty when the morning scrape ran late or found nothing new.
+    if (all.length === 0 && since === 'today') {
+      sinceFallbackUsed = true;
+      const fb7d = new Date(Date.now() - 7 * 86_400_000).toISOString().replace('T', ' ').slice(0, 19);
+
+      // Scraper fallback
+      let qFb = `SELECT * FROM scraped_jobs WHERE scraper_type = 'linkedin-feed' AND scraped_at >= ?`;
+      const pFb = [fb7d];
+      if (search) {
+        qFb += ' AND (title ILIKE ? OR company ILIKE ? OR description ILIKE ? OR contact_email ILIKE ?)';
+        const s = `%${search}%`; pFb.push(s, s, s, s);
+      } else if (profileTerms.length) {
+        const tc = termsClause(profileTerms, ['title', 'tags', 'description', 'company']);
+        qFb += tc.clause; pFb.push(...tc.params);
+      }
+      qFb += ' ORDER BY created_at DESC LIMIT 2000';
+      const scraperFb = await db.prepare(qFb).all(...pFb);
+
+      // Apify fallback
+      let apifyFb = [];
+      if (includeApify) {
+        let qAFb = 'SELECT * FROM linkedin_posts WHERE scraped_at >= ?';
+        const pAFb = [fb7d];
+        if (hiring_only === 'true') { qAFb += ' AND is_hiring = 1'; }
+        if (search) {
+          qAFb += ' AND (title ILIKE ? OR description ILIKE ? OR company_name ILIKE ? OR author_name ILIKE ?)';
+          const s = `%${search}%`; pAFb.push(s, s, s, s);
+        } else if (profileTerms.length) {
+          const tc = termsClause(profileTerms, ['title', 'description', 'company_name']);
+          qAFb += tc.clause; pAFb.push(...tc.params);
+        }
+        qAFb += ' ORDER BY scraped_at DESC LIMIT 2000';
+        apifyFb = await db.prepare(qAFb).all(...pAFb);
+      }
+
+      const fbMap = new Map();
+      for (const p of scraperFb) fbMap.set((p.link || p.id).trim(), fromScraper(p));
+      for (const p of apifyFb) {
+        const key = (p.post_url || p.id).trim();
+        if (!fbMap.has(key)) fbMap.set(key, fromApify(p));
+      }
+      all = [...fbMap.values()].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+    }
+
     const total = all.length;
     const paged = all.slice((pageNum - 1) * limitNum, pageNum * limitNum);
 
@@ -226,7 +273,9 @@ router.get('/', requireAuth, async (req, res) => {
       pages:          Math.ceil(total / limitNum),
       limit:          limitNum,
       source_filter:  source,
-      matched_profile_terms: profileTerms, // [] means no filter applied (either opted out, or no target roles set on profile)
+      matched_profile_terms: profileTerms,
+      since_used:     sinceFallbackUsed ? '7d' : since,
+      since_fallback: sinceFallbackUsed,
     });
   } catch (err) {
     console.error('[linkedin-feed]', err);

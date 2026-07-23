@@ -3,9 +3,10 @@ const multer  = require('multer');
 const path    = require('path');
 const os      = require('os');
 const fs      = require('fs');
+const { scrapeLimiter } = require('../middleware/security');
 
 const router = express.Router();
-const upload = multer({ dest: os.tmpdir(), limits: { fileSize: 10 * 1024 * 1024 } });
+const upload = multer({ dest: os.tmpdir(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -36,7 +37,7 @@ function stripHtml(html) {
 }
 
 // ── POST /api/jobs/scrape ──────────────────────────────────────────────────
-router.post('/scrape', async (req, res) => {
+router.post('/scrape', scrapeLimiter, async (req, res) => {
   const { url } = req.body;
   if (!url || !url.startsWith('http')) {
     return res.status(400).json({ error: 'A valid URL is required.' });

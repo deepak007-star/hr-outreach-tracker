@@ -61,10 +61,13 @@ export default function ChangePassword() {
 
     setSaving(true);
     try {
-      await api.put('/auth/change-password', {
+      const data = await api.put('/auth/change-password', {
         currentPassword: form.currentPassword,
         newPassword: form.newPassword,
       });
+      // Backend issues a fresh token with updated token_version — update storage
+      // so this session stays valid and other sessions are revoked
+      if (data?.token) localStorage.setItem('hr_token', data.token);
       setSuccess('Password changed successfully.');
       setForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
     } catch (e) {

@@ -2,11 +2,12 @@ const express = require('express');
 const crypto  = require('crypto');
 const db      = require('../db/database');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { leadLimiter } = require('../middleware/security');
 
 const router = express.Router();
 
 // ── POST /api/leads — public submit (upsert by email so users can edit) ─────
-router.post('/', async (req, res) => {
+router.post('/', leadLimiter, async (req, res) => {
   const { name, email, mobile, plan_interest, experience, job_type, other_info,
           linkedin_url, twitter_handle, github_url, preferred_contact } = req.body;
   if (!name?.trim())  return res.status(400).json({ error: 'Name is required.' });

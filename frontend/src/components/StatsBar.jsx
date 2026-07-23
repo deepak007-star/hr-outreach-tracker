@@ -1,7 +1,7 @@
 export default function StatsBar({ contacts }) {
   const total      = contacts.length;
   const contacted  = contacts.filter(c => ['Sent','Opened','Replied','Interview'].includes(c.status)).length;
-  const replied    = contacts.filter(c => ['Replied','Interview'].includes(c.status)).length;
+  const replied    = contacts.filter(c => c.status === 'Replied').length;
   const interviews = contacts.filter(c => c.status === 'Interview').length;
   const pct = n => total ? `${Math.round((n / total) * 100)}%` : '—';
 

@@ -26,6 +26,8 @@ import UnsavedChangesModal from './components/UnsavedChangesModal.jsx';
 import AskReferral        from './components/AskReferral.jsx';
 import ResumeVault        from './components/ResumeVault.jsx';
 import LandingPage        from './components/LandingPage.jsx';
+import ConfirmDialog from './components/ConfirmDialog.jsx';
+import { confirm }   from './utils/confirm.js';
 import { clearDraft } from './hooks/useDraft.js';
 import { api, API_ROOT } from './api/client.js';
 
@@ -220,7 +222,7 @@ export default function App() {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Delete this contact? This cannot be undone.')) return;
+    if (!await confirm('Delete this contact? This cannot be undone.')) return;
     try {
       await api.delete(`/contacts/${id}`);
       toast.success('Deleted — Excel updated');
@@ -232,7 +234,7 @@ export default function App() {
   };
 
   const handleBulkDelete = async () => {
-    if (!window.confirm(`Permanently delete ${selected.length} contacts?`)) return;
+    if (!await confirm(`Permanently delete ${selected.length} contacts?`)) return;
     try {
       await api.post('/contacts/bulk-delete', { ids: selected });
       toast.success(`${selected.length} deleted — Excel updated`);
@@ -311,6 +313,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <ConfirmDialog />
       <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
       <EarlyAccessBanner />
       <Header onLoginClick={() => setShowAuthModal(true)} />
@@ -341,6 +344,12 @@ export default function App() {
               {tab.label}{tab.requiresAuth && !user ? ' 🔒' : ''}
             </button>
           ))}
+          <button
+            onClick={() => setShowPlans(true)}
+            className="px-4 py-3.5 text-sm font-medium border-b-2 border-transparent text-purple-600 hover:text-purple-800 hover:border-purple-400 transition-colors whitespace-nowrap"
+          >
+            💎 Plans
+          </button>
         </div>
       </div>
 
@@ -434,14 +443,18 @@ export default function App() {
         {/* Cold Emailing sub-tab */}
         {contactSubTab === 'cold-email' && (
           <div className="bg-gray-50 rounded-b-xl border border-t-0 p-4">
-            <ColdEmailSection />
+            <TabErrorBoundary>
+              <ColdEmailSection />
+            </TabErrorBoundary>
           </div>
         )}
 
         {/* Job Links sub-tab */}
         {contactSubTab === 'job-links' && (
           <div className="bg-gray-50 rounded-b-xl border border-t-0 p-4">
-            <JobScraperSection />
+            <TabErrorBoundary>
+              <JobScraperSection />
+            </TabErrorBoundary>
           </div>
         )}
 

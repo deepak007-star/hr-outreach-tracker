@@ -50,11 +50,14 @@ function detectFromResume(text, key) {
       return '';
     }
     case 'current_title': {
-      const m = text.match(/(Senior|Junior|Lead|Principal|Staff|Software|Backend|Frontend|Full[- ]?Stack|Data|DevOps|Cloud|Java|Python|React)[^\n]{4,60}(Engineer|Developer|Architect|Scientist|Analyst|Manager|Consultant|Specialist)/i);
+      // {0,60} instead of {4,60} so "Full-stack developer" (zero chars between) also matches
+      const m = text.match(/(Senior|Junior|Lead|Principal|Staff|Software|Backend|Frontend|Full[- ]?Stack|Data|DevOps|Cloud|Java|Python|React)[^\n]{0,60}(Engineer|Developer|Architect|Scientist|Analyst|Manager|Consultant|Specialist)/i);
       return m ? m[0].trim() : '';
     }
     case 'current_company': {
-      const m = text.match(/(?:at|@|with)\s+([A-Z][A-Za-z0-9& ]{2,30}(?:Inc|Ltd|Pvt|Pvt\.?\s*Ltd|Technologies|Solutions|Systems|Tech|Labs)?)\b/);
+      // "with" excluded — "worked with BullMQ and Redis" matches tech names, not employers.
+      // Only "at" and "@" reliably introduce a company name in resume text.
+      const m = text.match(/(?:at|@)\s+([A-Z][A-Za-z0-9&.]{1,30}(?:\s+(?:Inc|Ltd|Pvt\.?\s*Ltd|Technologies|Solutions|Systems|Tech|Labs))?)\b/);
       return m ? m[1].trim() : '';
     }
     case 'phone': {
@@ -82,8 +85,24 @@ function detectFromResume(text, key) {
       return m?.[0] || '';
     }
     case 'summary': {
+      // Primary: locate the PROFESSIONAL SUMMARY section header, grab lines until next header
+      const lines = text.split('\n');
+      const headerIdx = lines.findIndex(l => /^(PROFESSIONAL\s+SUMMARY|SUMMARY|OBJECTIVE|PROFILE)\s*$/i.test(l.trim()));
+      if (headerIdx >= 0) {
+        const buf = [];
+        for (let i = headerIdx + 1; i < lines.length; i++) {
+          const l = lines[i].trim();
+          if (!l) continue;
+          if (/^[A-Z][A-Z\s&/]{4,}$/.test(l)) break; // next ALL-CAPS section header
+          buf.push(l);
+          if (buf.join(' ').length > 600) break;
+        }
+        const result = buf.join(' ').trim();
+        if (result.length > 40) return result.slice(0, 600);
+      }
+      // Fallback: first paragraph >80 chars that doesn't start with a section keyword
       const paras = text.split(/\n{2,}/).map(p => p.trim())
-        .filter(p => p.length > 80 && !/^(EDUCATION|EXPERIENCE|SKILLS|CERTIF|PROJECT|WORK|LANGUAGE)/i.test(p));
+        .filter(p => p.length > 80 && !/^(EDUCATION|EXPERIENCE|SKILLS|CERTIF|PROJECT|WORK|LANGUAGE|CONTACT|REFERENCE)/i.test(p));
       return paras[0]?.slice(0, 600) || '';
     }
     default: return '';

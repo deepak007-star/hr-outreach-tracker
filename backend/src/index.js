@@ -8,9 +8,11 @@ const database = require('./db/database');
 const PORT = process.env.PORT || 3001;
 
 async function main() {
-  // Ensure upload directory exists
+  // Ensure required directories exist
   const uploadsDir = path.join(__dirname, '../uploads');
+  const dataDir    = path.join(__dirname, '../data');
   if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+  if (!fs.existsSync(dataDir))    fs.mkdirSync(dataDir,    { recursive: true });
 
   // Initialise DB before any routes touch it
   const dbUrl = process.env.DATABASE_URL || 'postgres://localhost/hr_outreach_tracker';
@@ -67,7 +69,32 @@ async function main() {
   const { sendReminderEmail } = require('./routes/reminder');
 
   const cookieParser = require('cookie-parser');
+  const helmet       = require('helmet');
+  const { globalApiLimiter, bodySanitizer, safeErrorHandler } = require('./middleware/security');
+
   const app = express();
+
+  // Trust the first proxy hop (needed for accurate req.ip behind nginx/Docker)
+  app.set('trust proxy', 1);
+
+  // ── Security headers (helmet) ──────────────────────────────────────────────
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc:  ["'self'"],
+        scriptSrc:   ["'self'"],
+        styleSrc:    ["'self'", "'unsafe-inline'"],
+        imgSrc:      ["'self'", 'data:', 'https:'],
+        connectSrc:  ["'self'"],
+        fontSrc:     ["'self'", 'https:', 'data:'],
+        objectSrc:   ["'none'"],
+        frameAncestors: ["'none'"],
+      },
+    },
+    crossOriginEmbedderPolicy: false, // needed for PDFs / iframes in resume preview
+  }));
+
+  // ── CORS ───────────────────────────────────────────────────────────────────
   // Accept multiple origins: env var (single or comma-separated), plus localhost fallback
   const rawOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
     .split(',').map(o => o.trim()).filter(Boolean);
@@ -79,9 +106,14 @@ async function main() {
     },
     credentials: true,
   }));
+
   app.use(cookieParser());
   app.use(express.json({ limit: '2mb' }));
-  app.use(express.urlencoded({ extended: true }));
+  app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+
+  // ── Global API rate limiter + XSS body sanitizer ──────────────────────────
+  app.use('/api', globalApiLimiter);
+  app.use(bodySanitizer);
 
   app.use('/api/contacts', contactsRouter);
   app.use('/api/settings', settingsRouter);
@@ -113,10 +145,7 @@ async function main() {
     res.json({ status: 'ok', timestamp: new Date().toISOString() })
   );
 
-  app.use((err, _req, res, _next) => {
-    console.error(err);
-    res.status(500).json({ error: err.message || 'Internal server error' });
-  });
+  app.use(safeErrorHandler);
 
   app.listen(PORT, () =>
     console.log(`HR Outreach Tracker backend → http://localhost:${PORT}`)
@@ -213,13 +242,16 @@ async function main() {
   }, 5 * 60_000); // every 5 minutes
 
   // Reminder email scheduler — fires every minute
+  // Uses IST (UTC+5:30) for time/day comparison so "send at 9:00 AM" means
+  // 9 AM IST regardless of the server's system timezone (UTC in Docker).
+  // IST_OFFSET_MS is already declared above (19_800_000 ms = 5h30m).
   const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   setInterval(async () => {
     try {
-      const now      = new Date();
-      const hhmm     = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-      const todayDay = DAYS[now.getDay()];
-      const todayStr = now.toISOString().split('T')[0];
+      const nowIST   = new Date(Date.now() + IST_OFFSET_MS);
+      const hhmm     = `${String(nowIST.getUTCHours()).padStart(2,'0')}:${String(nowIST.getUTCMinutes()).padStart(2,'0')}`;
+      const todayDay = DAYS[nowIST.getUTCDay()];
+      const todayStr = nowIST.toISOString().split('T')[0];
 
       const rows = await database.prepare("SELECT key, value FROM settings WHERE key LIKE 'reminder_%'").all();
       for (const row of rows) {

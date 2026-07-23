@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { toast } from 'react-hot-toast';
 import { api } from '../api/client.js';
+import { confirm } from '../utils/confirm.js';
 
 const RESOURCE_LABELS = {
   contacts: '👥 Contacts',
@@ -113,7 +114,7 @@ export default function RolesPermissions() {
   }
 
   async function deleteRole(role) {
-    if (!window.confirm(`Delete role "${role.name}"? Users with this role will be moved to "user".`)) return;
+    if (!await confirm(`Delete role "${role.name}"? Users with this role will be moved to "user".`)) return;
     try {
       await api.delete(`/rbac/roles/${role.id}`);
       toast.success(`Role "${role.name}" deleted`);

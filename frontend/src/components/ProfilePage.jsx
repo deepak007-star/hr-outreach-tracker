@@ -31,7 +31,7 @@ function clearProfileCache() {
 // ── Detection helpers ─────────────────────────────────────────────────────────
 function detectName(t)  { const lines = t.split('\n').map(l=>l.trim()).filter(Boolean); for (const l of lines.slice(0,6)) if (/^[A-Z][a-z]+([\s-][A-Z][a-z]+){1,3}$/.test(l)) return l; return ''; }
 function detectPhone(t) { const m = t.match(/(?:\+\d{1,3}[\s-]?)?\(?\d{3,5}\)?[\s.-]?\d{3,5}[\s.-]?\d{3,5}/); return m ? m[0].trim() : ''; }
-function detectTitle(t) { const m = t.match(/(Senior|Junior|Lead|Principal|Staff|Software|Backend|Frontend|Full[- ]?Stack|Data|DevOps|Cloud|Java|Python|React)[^\n]{4,60}(Engineer|Developer|Architect|Scientist|Analyst|Manager|Consultant|Specialist)/i); return m ? m[0].trim() : ''; }
+function detectTitle(t) { const m = t.match(/(Senior|Junior|Lead|Principal|Staff|Software|Backend|Frontend|Full[- ]?Stack|Data|DevOps|Cloud|Java|Python|React)[^\n]{0,60}(Engineer|Developer|Architect|Scientist|Analyst|Manager|Consultant|Specialist)/i); return m ? m[0].trim() : ''; }
 function detectExp(t)   { const m = t.match(/(\d+\.?\d*)\s*\+?\s*years?\s*(of\s+)?(experience|exp)/i); return m ? `${m[1]} years` : ''; }
 
 function Avatar({ name, size = 'lg' }) {
@@ -153,6 +153,10 @@ function OverviewTab({ profile, onSave, onDirtyChange }) {
   }
 
   async function save() {
+    if (form.phone.trim() && !/^[\d\s\+\-\(\)]{7,20}$/.test(form.phone.trim())) {
+      toast.error('Phone number looks invalid — use digits, spaces, +, -, ()');
+      return;
+    }
     setSaving(true);
     try {
       await onSave(form);
@@ -345,6 +349,17 @@ function ResumeSkillsTab({ profile, onSave }) {
 
   async function handleUpload(file) {
     if (!file) return;
+    const MAX_MB = 5;
+    if (file.size > MAX_MB * 1024 * 1024) {
+      toast.error(`File is too large — maximum size is ${MAX_MB} MB`);
+      return;
+    }
+    const allowed = ['.pdf', '.docx', '.doc', '.txt'];
+    const ext = '.' + file.name.split('.').pop().toLowerCase();
+    if (!allowed.includes(ext)) {
+      toast.error('Only PDF, DOCX, DOC, and TXT files are supported');
+      return;
+    }
     setUploading(true);
     const fd = new FormData();
     fd.append('resume', file);
@@ -506,6 +521,21 @@ function LinksTab({ profile, user, onSave, onDirtyChange }) {
   }
 
   async function save() {
+    const urlFields = ['linkedin_url', 'github_url', 'portfolio_url'];
+    for (const key of urlFields) {
+      const val = (form[key] || '').trim();
+      if (!val) continue;
+      try { new URL(val); } catch {
+        const label = key === 'linkedin_url' ? 'LinkedIn' : key === 'github_url' ? 'GitHub' : 'Portfolio';
+        toast.error(`${label} URL is invalid — must start with https://`);
+        return;
+      }
+      if (!/^https?:\/\//i.test(val)) {
+        const label = key === 'linkedin_url' ? 'LinkedIn' : key === 'github_url' ? 'GitHub' : 'Portfolio';
+        toast.error(`${label} URL must start with https://`);
+        return;
+      }
+    }
     setSaving(true);
     try {
       await onSave(form);

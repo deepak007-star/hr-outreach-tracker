@@ -1,4 +1,4 @@
-import React from 'react';
+import { useState } from 'react';
 
 const SOURCE_COLORS = {
   linkedin:    'bg-blue-100   text-blue-800',
@@ -18,6 +18,8 @@ function fmtDate(d) {
 export default function JobCard({ job }) {
   const srcColor = SOURCE_COLORS[job.scraper_type] || 'bg-gray-100 text-gray-700';
   const isRemote = job.is_remote === 1 || job.is_remote === true;
+  const [expanded, setExpanded] = useState(false);
+  const LONG_DESC = job.description && job.description.length > 200;
 
   function openLink(url) {
     if (!url) return;
@@ -67,9 +69,21 @@ export default function JobCard({ job }) {
         )}
       </div>
 
-      {/* Description snippet */}
+      {/* Description */}
       {job.description && (
-        <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed">{job.description}</p>
+        <div>
+          <p className={`text-xs text-gray-500 leading-relaxed whitespace-pre-line ${expanded ? '' : 'line-clamp-2'}`}>
+            {job.description}
+          </p>
+          {LONG_DESC && (
+            <button
+              onClick={() => setExpanded(e => !e)}
+              className="text-xs text-blue-500 hover:text-blue-700 mt-0.5"
+            >
+              {expanded ? 'Show less' : 'Show more'}
+            </button>
+          )}
+        </div>
       )}
 
       {/* HR Contact info (LinkedIn Feed jobs) */}
@@ -114,7 +128,7 @@ export default function JobCard({ job }) {
             onClick={() => openLink(job.apply_link || job.link)}
             className="px-3 py-1 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold transition-colors"
           >
-            Apply →
+            {job.apply_link ? 'Apply →' : 'View →'}
           </button>
         </div>
       </div>

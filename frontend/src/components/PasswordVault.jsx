@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'react-hot-toast';
 import { api } from '../api/client.js';
+import { confirm } from '../utils/confirm.js';
 
 const CATEGORIES = ['general', 'job-board', 'social', 'email', 'banking', 'work', 'other'];
 
@@ -143,16 +144,28 @@ function VaultForm({ initial, onSave, onCancel, saving }) {
 
 // ── Single vault card ────────────────────────────────────────────────────────
 function VaultCard({ entry, onEdit, onDelete, revealEndpoint }) {
-  const [revealed, setRevealed]   = useState(null);
-  const [revealing, setRevealing] = useState(false);
-  const [showPw, setShowPw]       = useState(false);
-  const [copied, setCopied]       = useState(false);
+  const [revealed,   setRevealed]   = useState(null);
+  const [revealing,  setRevealing]  = useState(false);
+  const [showPw,     setShowPw]     = useState(false);
+  const [copied,     setCopied]     = useState(false);
+  const [countdown,  setCountdown]  = useState(0);
 
-  // Auto-hide password after 30s
+  // Auto-hide password after 30s with live countdown
   useEffect(() => {
-    if (!revealed) return;
-    const t = setTimeout(() => { setRevealed(null); setShowPw(false); }, 30_000);
-    return () => clearTimeout(t);
+    if (!revealed) { setCountdown(0); return; }
+    setCountdown(30);
+    const tick = setInterval(() => {
+      setCountdown(c => {
+        if (c <= 1) {
+          clearInterval(tick);
+          setRevealed(null);
+          setShowPw(false);
+          return 0;
+        }
+        return c - 1;
+      });
+    }, 1000);
+    return () => clearInterval(tick);
   }, [revealed]);
 
   const handleReveal = async () => {
@@ -237,7 +250,7 @@ function VaultCard({ entry, onEdit, onDelete, revealEndpoint }) {
         </div>
       </div>
       {revealed && (
-        <p className="text-xs text-gray-400 mt-1 text-right">Auto-hides in 30s</p>
+        <p className="text-xs text-gray-400 mt-1 text-right">Auto-hides in {countdown}s</p>
       )}
       {entry.notes && (
         <p className="text-xs text-gray-500 mt-2 italic border-t border-gray-100 pt-2">{entry.notes}</p>
@@ -297,7 +310,7 @@ export default function PasswordVault({ isAdmin = false }) {
   };
 
   const handleDelete = async (entry) => {
-    if (!window.confirm(`Delete "${entry.title}"? This cannot be undone.`)) return;
+    if (!await confirm(`Delete "${entry.title}"? This cannot be undone.`)) return;
     try {
       await api.delete(`/vault/${entry.id}`);
       setEntries(es => es.filter(e => e.id !== entry.id));

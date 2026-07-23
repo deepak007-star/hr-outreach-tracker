@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { toast } from 'react-hot-toast';
 import { api, API_ROOT } from '../api/client.js';
+import { confirm } from '../utils/confirm.js';
 import { RESUME_TEMPLATES } from '../data/resumeTemplates.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 
@@ -85,7 +86,7 @@ export default function ResumeTemplateModal({ onClose, onSaved }) {
   }
 
   async function handleDeleteUser(v) {
-    if (!window.confirm(`Delete "${v.label}"?`)) return;
+    if (!await confirm(`Delete "${v.label}"?`)) return;
     try {
       await api.delete(`/resume-versions/${v.id}`);
       setUserTemplates(ts => ts.filter(t => t.id !== v.id));

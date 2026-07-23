@@ -6,6 +6,22 @@ const db       = require('../db/database');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { getTransportForUser } = require('../services/mailTransport');
 
+async function getSentToday(userId) {
+  const today = new Date().toISOString().slice(0, 10);
+  const row = await db.prepare(
+    "SELECT COUNT(*) as c FROM email_log WHERE LEFT(sent_at, 10) = ? AND user_id = ? AND delivery_status = 'sent'"
+  ).get(today, userId);
+  return parseInt(row?.c || 0);
+}
+async function getDailyCap() {
+  const row = await db.prepare("SELECT value FROM settings WHERE key = 'daily_send_cap'").get();
+  return parseInt(row?.value || '20');
+}
+function sanitizeHeaderValue(val) {
+  if (!val || typeof val !== 'string') return '';
+  return val.replace(/[\r\n\t"<>]/g, '').trim();
+}
+
 const router = express.Router();
 
 // ─── GET /api/scraped-jobs ────────────────────────────────────────────────────
@@ -123,9 +139,23 @@ router.post('/purge', requireAdmin, async (req, res) => {
 });
 
 // ─── GET /api/scraped-jobs/feed-contacts ──────────────────────────────────────
-// Email contacts from the linkedin-feed scraper, with per-user "already emailed"
-// flag. Used by the Gmail Tracking tab for auto-synced cold-email leads.
+// Email contacts for cold outreach, sourced from two places:
+//   1. scraped_jobs (Playwright scraper) — has explicit contact_email fields
+//   2. linkedin_posts (Apify) — emails extracted from description text via regex
+// The Playwright linkedin-feed scraper is unreliable (search engines don't index
+// LinkedIn posts), so Apify descriptions are the primary real source of contacts.
 // Query params: since (7d|14d|30d|90d), limit, page, search
+
+const CONTACT_EMAIL_RE = /\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b/g;
+const CONTACT_SPAM     = ['noreply','no-reply','example.','donotreply','linkedin.com',
+                          'sentry.io','google.com','amazonaws','@2x','@3x',
+                          'privacy@','legal@','support@linkedin','jobs@linkedin'];
+
+function extractFirstEmail(text) {
+  const emails = (text.match(CONTACT_EMAIL_RE) || [])
+    .filter(e => !CONTACT_SPAM.some(s => e.toLowerCase().includes(s)));
+  return emails[0] || null;
+}
 
 router.get('/feed-contacts', requireAuth, async (req, res) => {
   try {
@@ -138,36 +168,87 @@ router.get('/feed-contacts', requireAuth, async (req, res) => {
     const cutoff  = new Date(Date.now() - (daysMap[since] || 30) * 86_400_000)
       .toISOString().replace('T', ' ').slice(0, 19);
 
-    const params = [cutoff];
-    let q = `SELECT * FROM scraped_jobs
-             WHERE scraper_type = 'linkedin-feed'
-               AND contact_email IS NOT NULL
-               AND contact_email != ''
-               AND scraped_at >= ?`;
-
+    // ── 1. Playwright scraper contacts (explicit contact_email field) ─────────
+    const scParams = [cutoff];
+    let scQ = `SELECT id, title, company, location, description, link,
+                      contact_email, contact_phone, google_form_link, whatsapp_link,
+                      created_at, scraped_at, 'scraper' as source
+               FROM scraped_jobs
+               WHERE scraper_type = 'linkedin-feed'
+                 AND contact_email IS NOT NULL AND contact_email != ''
+                 AND scraped_at >= ?`;
     if (search) {
-      q += ` AND (title ILIKE ? OR company ILIKE ? OR contact_email ILIKE ? OR description ILIKE ?)`;
-      const s = `%${search}%`;
-      params.push(s, s, s, s);
+      scQ += ` AND (title ILIKE ? OR company ILIKE ? OR contact_email ILIKE ? OR description ILIKE ?)`;
+      const s = `%${search}%`; scParams.push(s, s, s, s);
+    }
+    scQ += ' ORDER BY created_at DESC LIMIT 2000';
+    const scraperContacts = await db.prepare(scQ).all(...scParams);
+
+    // ── 2. Apify posts — extract emails from description text ─────────────────
+    // linkedin_posts.description often contains "email: hr@company.com" or similar.
+    // PostgreSQL's ~* operator filters to rows that likely have an email address;
+    // we then extract the first non-spam email in JS.
+    const apParams = [cutoff];
+    let apQ = `SELECT id::text as id, title, company_name as company, location,
+                      description, post_url as link, author_name,
+                      scraped_at as created_at, scraped_at
+               FROM linkedin_posts
+               WHERE description ~* '[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}'
+                 AND scraped_at >= ?`;
+    if (search) {
+      apQ += ` AND (title ILIKE ? OR company_name ILIKE ? OR description ILIKE ?)`;
+      const s = `%${search}%`; apParams.push(s, s, s);
+    }
+    apQ += ' ORDER BY scraped_at DESC LIMIT 2000';
+
+    let apifyContacts = [];
+    try {
+      const apifyRaw = await db.prepare(apQ).all(...apParams);
+      for (const post of apifyRaw) {
+        const email = extractFirstEmail(post.description || '');
+        if (email) {
+          apifyContacts.push({
+            id:               `apify_${post.id}`,
+            title:            post.title     || '',
+            company:          post.company   || post.author_name || '',
+            location:         post.location  || '',
+            description:      post.description,
+            link:             post.link      || '',
+            contact_email:    email,
+            contact_phone:    null,
+            google_form_link: null,
+            whatsapp_link:    null,
+            created_at:       post.created_at,
+            scraped_at:       post.scraped_at,
+            source:           'apify',
+          });
+        }
+      }
+    } catch (e) {
+      console.error('[feed-contacts] apify email extraction failed:', e.message);
     }
 
-    q += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
-    params.push(limitNum, offset);
+    // ── 3. Merge: scraper wins on duplicate emails, Apify fills the rest ──────
+    const seenEmails = new Set(scraperContacts.map(c => c.contact_email?.toLowerCase()));
+    const merged = [
+      ...scraperContacts,
+      ...apifyContacts.filter(c => !seenEmails.has(c.contact_email?.toLowerCase())),
+    ].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
 
-    const contacts = await db.prepare(q).all(...params);
+    const contacts = merged.slice(offset, offset + limitNum);
 
     // Mark which ones the current user has already emailed
     if (contacts.length) {
-      const emails    = [...new Set(contacts.map(c => c.contact_email).filter(Boolean))];
+      const emails       = [...new Set(contacts.map(c => c.contact_email).filter(Boolean))];
       const placeholders = emails.map(() => '?').join(',');
-      const emailed   = await db.prepare(
+      const emailed      = await db.prepare(
         `SELECT DISTINCT contact_email FROM gmail_tracked_emails WHERE user_id = ? AND contact_email IN (${placeholders})`
       ).all(req.user.userId, ...emails);
       const emailedSet = new Set(emailed.map(r => r.contact_email));
       contacts.forEach(c => { c.already_emailed = emailedSet.has(c.contact_email) ? 1 : 0; });
     }
 
-    res.json({ contacts, page: pageNum, limit: limitNum });
+    res.json({ contacts, page: pageNum, limit: limitNum, total: merged.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -185,13 +266,20 @@ router.post('/send-feed-emails', requireAuth, async (req, res) => {
     if (!subject?.trim() || !body?.trim())
       return res.status(400).json({ error: 'subject and body required' });
 
+    const cap = await getDailyCap();
+    const sentToday = await getSentToday(req.user.userId);
+    if (sentToday >= cap)
+      return res.status(429).json({ error: `Daily send cap of ${cap} reached. Try again tomorrow.` });
+
     const mail = await getTransportForUser(req.user.userId);
     if (!mail)
       return res.status(400).json({
         error: 'No email account connected. Connect Gmail or configure SMTP in Settings first.',
       });
 
-    const { transport, fromEmail, fromName } = mail;
+    const { transport, fromEmail } = mail;
+    const fromName = sanitizeHeaderValue(mail.fromName);
+    let remaining = cap - sentToday;
     const now     = new Date().toISOString().replace('T', ' ').slice(0, 19);
     const results = [];
     const htmlBody = body.trim()
@@ -202,14 +290,25 @@ router.post('/send-feed-emails', requireAuth, async (req, res) => {
       const { email, name = '', company = '' } = contact;
       if (!email) { results.push({ email, ok: false, error: 'Missing email' }); continue; }
 
+      if (remaining <= 0) {
+        results.push({ email, ok: false, error: 'Daily cap reached' }); continue;
+      }
+
+      const safeName = sanitizeHeaderValue(name);
       try {
         await transport.sendMail({
           from:    fromName ? `"${fromName}" <${fromEmail}>` : fromEmail,
-          to:      name ? `"${name}" <${email}>` : email,
+          to:      safeName ? `"${safeName}" <${email}>` : email,
           subject: subject.trim(),
           text:    body.trim(),
           html:    `<div style="font-family:sans-serif;font-size:14px;line-height:1.7">${htmlBody}</div>`,
         });
+
+        // Record in email_log so cap accounting stays accurate
+        await db.prepare(`
+          INSERT INTO email_log (id, contact_id, user_id, subject, body_snapshot, delivery_status)
+          SELECT ?, c.id, ?, ?, ?, 'sent' FROM contacts c WHERE LOWER(c.email) = LOWER(?) LIMIT 1
+        `).run(crypto.randomUUID(), req.user.userId, subject.trim(), body.trim().slice(0, 500), email);
 
         await db.prepare(`
           INSERT INTO gmail_tracked_emails
@@ -218,10 +317,11 @@ router.post('/send-feed-emails', requireAuth, async (req, res) => {
           ON CONFLICT DO NOTHING
         `).run(
           crypto.randomUUID(), req.user.userId,
-          email, name,
+          email, safeName,
           subject.trim(), body.trim().slice(0, 200), body.trim(), now
         );
 
+        remaining--;
         results.push({ email, ok: true });
       } catch (e) {
         results.push({ email, ok: false, error: e.message });

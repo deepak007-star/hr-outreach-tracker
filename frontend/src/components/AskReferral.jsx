@@ -62,7 +62,8 @@ function ComposeModal({ target, myUser, myProfile, limit, remaining, onClose, on
   const [sending, setSending] = useState(false);
 
   const handleSend = async () => {
-    if (!subject.trim() || !message.trim()) return;
+    if (!subject.trim()) { toast.error('Subject is required'); return; }
+    if (!message.trim()) { toast.error('Message cannot be empty'); return; }
     setSending(true);
     try {
       await api.post(`/referrals/ask/${target.id}`, { subject: subject.trim(), message: message.trim() });

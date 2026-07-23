@@ -94,7 +94,12 @@ export default function ReminderModal({ onClose }) {
   const config = { enabled, time, days, message, deliveryToast, deliveryBrowser, deliveryEmail };
 
   const save = async () => {
+    if (enabled && !time) { toast.error('Please set a reminder time'); return; }
     if (enabled && days.length === 0) { toast.error('Select at least one day'); return; }
+    if (enabled && !deliveryToast && !deliveryBrowser && !deliveryEmail) {
+      toast.error('Enable at least one delivery method (toast, browser, or email)');
+      return;
+    }
     setSaving(true);
     try {
       localStorage.setItem(LS_KEY, JSON.stringify(config));

@@ -313,6 +313,7 @@ export default function LinkedInPosts() {
   const [showAllRoles,  setShowAllRoles]  = useState(false);
   const [matchedTerms,  setMatchedTerms]  = useState([]);
   const [customKeywords, setCustomKeywords] = useState('');
+  const [sinceFallback, setSinceFallback] = useState(false);
   const logsEndRef = useRef(null);
   const isAdmin = user?.role === 'admin';
 
@@ -332,17 +333,25 @@ export default function LinkedInPosts() {
     setLoading(true);
     try {
       const params = { since, limit: 500, source: includeApify ? 'all' : 'scraper' };
-      if (search)      params.search       = search;
-      if (hiringOnly)  params.hiring_only  = 'true';
+      if (search)       params.search       = search;
+      if (hiringOnly)   params.hiring_only  = 'true';
       if (showAllRoles) params.matchProfile = 'false';
       const data = await api.get('/linkedin-feed', { params });
       setPosts(data.posts || []);
       setMatchedTerms(data.matched_profile_terms || []);
+      setSinceFallback(!!data.since_fallback);
     } catch { toast.error('Failed to load posts'); }
     finally  { setLoading(false); }
   }, [search, since, hiringOnly, includeApify, showAllRoles]);
 
   useEffect(() => { fetchPosts(); }, [fetchPosts]);
+
+  // Auto-refresh when the user returns to this tab after being away
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') fetchPosts(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [fetchPosts]);
 
   // ── Scraper trigger ──────────────────────────────────────────────────────────
   // Admins can override with custom keywords; everyone else always gets
@@ -505,7 +514,13 @@ export default function LinkedInPosts() {
         </div>
       </div>
 
-      {/* ── Personalization banner ───────────────────────────────────────── */}
+      {/* ── Personalization / fallback banners ──────────────────────────── */}
+      {sinceFallback && (
+        <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          <span>⚠ No new posts scraped today — showing posts from the last 7 days instead.</span>
+          <button onClick={fetchPosts} className="ml-auto underline hover:no-underline font-medium shrink-0">Refresh</button>
+        </div>
+      )}
       {!search && (
         matchedTerms.length > 0 ? (
           <div className="flex items-center gap-2 flex-wrap text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
@@ -515,8 +530,8 @@ export default function LinkedInPosts() {
             </button>
           </div>
         ) : !showAllRoles && (
-          <div className="flex items-center gap-2 flex-wrap text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-            <span>Add target roles on your Profile to see a feed matched to you — showing everything for now.</span>
+          <div className="flex items-center gap-2 flex-wrap text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            <span>Set your target roles in <strong>Profile → Overview</strong> (Target Role 1/2/3) to see a personalized feed — showing all posts for now.</span>
           </div>
         )
       )}

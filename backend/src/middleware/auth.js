@@ -1,6 +1,9 @@
 const jwt = require('jsonwebtoken');
 
 const SECRET = process.env.JWT_SECRET || 'hr-tracker-local-secret-2026';
+if (!process.env.JWT_SECRET) {
+  console.error('[SECURITY] JWT_SECRET env var is not set — using insecure hardcoded fallback. Set JWT_SECRET in production!');
+}
 
 // In-memory permission cache: roleName → Set<permName>
 const _permCache = new Map();
@@ -35,10 +38,18 @@ async function requireAuth(req, res, next) {
   if (!token) return res.status(401).json({ error: 'Authentication required.' });
   try {
     const decoded = jwt.verify(token, SECRET);
-    // Always read fresh role/plan from DB so manual DB updates are reflected immediately
+    // Always read fresh role/plan/token_version from DB so manual changes and password
+    // changes take effect immediately without waiting for token expiry.
     if (_cacheDb) {
-      const row = await _cacheDb.prepare('SELECT role, plan FROM users WHERE id = ?').get(decoded.userId);
-      if (row) { decoded.role = row.role; decoded.plan = row.plan; }
+      const row = await _cacheDb.prepare('SELECT role, plan, token_version FROM users WHERE id = ?').get(decoded.userId);
+      if (row) {
+        decoded.role = row.role;
+        decoded.plan = row.plan;
+        // Reject tokens issued before the last password change
+        if ((decoded.tokenVersion ?? 0) !== (row.token_version ?? 0)) {
+          return res.status(401).json({ error: 'Session invalidated. Please log in again.' });
+        }
+      }
     }
     req.user = decoded;
     next();

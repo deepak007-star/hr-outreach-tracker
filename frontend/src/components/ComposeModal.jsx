@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { toast } from 'react-hot-toast';
 import { api } from '../api/client.js';
+import { confirm } from '../utils/confirm.js';
 import EmailTemplatesModal from './EmailTemplatesModal.jsx';
 import RichEditor from './RichEditor.jsx';
 import AttachmentPicker from './AttachmentPicker.jsx';
@@ -115,6 +116,8 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
   const [step,             setStep]             = useState('compose');
   const [subject,          setSubject]          = useState(DEFAULT_SUBJECT);
   const [body,             setBody]             = useState(DEFAULT_BODY);
+  const [subjectError,     setSubjectError]     = useState(false);
+  const [bodyError,        setBodyError]        = useState(false);
   const [previews,         setPreviews]         = useState([]);
   const [stats,            setStats]            = useState(null);
   const [loading,          setLoading]          = useState(false);
@@ -160,9 +163,13 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
   };
 
   const handlePreview = async () => {
-    if (!subject.trim()) { toast.error('Subject is required'); return; }
-    const bodyText = body.trim().replace(/<[^>]+>/g, '').trim();
-    if (!bodyText) { toast.error('Body is required'); return; }
+    const subjEmpty = !subject.trim();
+    const bodyText  = body.trim().replace(/<[^>]+>/g, '').trim();
+    const bodyEmpty = !bodyText;
+    setSubjectError(subjEmpty);
+    setBodyError(bodyEmpty);
+    if (subjEmpty) { toast.error('Subject is required'); return; }
+    if (bodyEmpty) { toast.error('Body is required'); return; }
     setLoading(true);
     try {
       const res = await api.post('/email/preview', { contactIds: contacts.map(c => c.id), subject, body });
@@ -176,7 +183,7 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
   const handleSend = async () => {
     const eligible = previews.filter(p => !p.blocked);
     if (!eligible.length) { toast.error('No eligible contacts'); return; }
-    if (!window.confirm(`Send ${eligible.length} email${eligible.length !== 1 ? 's' : ''}? This cannot be undone.`)) return;
+    if (!await confirm(`Send ${eligible.length} email${eligible.length !== 1 ? 's' : ''}? This cannot be undone.`)) return;
     setSending(true);
     try {
       const payload = {
@@ -288,19 +295,25 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Subject *</label>
-                <input ref={subjRef} value={subject} onChange={e => setSubject(e.target.value)}
+                <label className="block text-xs font-semibold text-gray-600 mb-1">
+                  Subject *{subjectError && <span className="ml-2 text-red-500 font-normal text-[11px]">Subject is required</span>}
+                </label>
+                <input ref={subjRef} value={subject}
+                  onChange={e => { setSubject(e.target.value); setSubjectError(false); }}
                   onFocus={() => setFocused('subject')}
-                  className="w-full border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none" />
+                  className={`w-full border rounded-xl px-3 py-2 text-sm focus:ring-2 outline-none ${subjectError ? 'border-red-400 focus:ring-red-200 bg-red-50' : 'focus:ring-blue-300'}`} />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Body *</label>
-                <div onFocus={() => setFocused('body')}>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">
+                  Body *{bodyError && <span className="ml-2 text-red-500 font-normal text-[11px]">Body is required</span>}
+                </label>
+                <div onFocus={() => { setFocused('body'); setBodyError(false); }}
+                  className={bodyError ? 'ring-2 ring-red-300 rounded-xl' : ''}>
                   <RichEditor
                     ref={bodyEditorRef}
                     value={body}
-                    onChange={setBody}
+                    onChange={v => { setBody(v); setBodyError(false); }}
                     minRows={11}
                   />
                 </div>

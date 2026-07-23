@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { toast } from 'react-hot-toast';
 import { api } from '../api/client.js';
+import { confirm } from '../utils/confirm.js';
 import { RESUME_TEMPLATES } from '../data/resumeTemplates.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import RichEditor, { toHtml } from './RichEditor.jsx';
@@ -379,7 +380,10 @@ function EmailTemplatesSection() {
   }
 
   async function save() {
-    if (!form.name.trim()) return toast.error('Name is required');
+    if (!form.name.trim()) return toast.error('Template name is required');
+    if (!form.subject.trim()) return toast.error('Subject line is required');
+    const bodyText = (form.body || '').replace(/<[^>]+>/g, '').trim();
+    if (!bodyText) return toast.error('Email body cannot be empty');
     setSaving(true);
     try {
       const attachToSave = selectAttachment?.type && selectAttachment.type !== 'local' ? selectAttachment : null;
@@ -404,7 +408,7 @@ function EmailTemplatesSection() {
 
   async function del(t, e) {
     e.stopPropagation();
-    if (!window.confirm(`Delete "${t.name}"?`)) return;
+    if (!await confirm(`Delete "${t.name}"?`)) return;
     try {
       await api.delete(`/email-templates/${t.id}`);
       const next = templates.filter(x => x.id !== t.id);

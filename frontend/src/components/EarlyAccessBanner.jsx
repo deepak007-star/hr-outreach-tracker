@@ -40,7 +40,14 @@ export default function EarlyAccessBanner() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.name.trim() || !form.email.trim()) { toast.error('Name and email are required'); return; }
+    if (!form.name.trim()) { toast.error('Name is required'); return; }
+    if (!form.email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+      toast.error('Enter a valid email address'); return;
+    }
+    if (form.linkedin_url.trim()) {
+      try { new URL(form.linkedin_url.trim()); }
+      catch { toast.error('LinkedIn URL must be a valid URL (https://...)'); return; }
+    }
     setSubmitting(true);
     try {
       const res = await api.post('/leads', form);
@@ -197,7 +204,10 @@ export default function EarlyAccessBanner() {
 
                     <button type="button"
                       onClick={() => {
-                        if (!form.name.trim() || !form.email.trim()) { toast.error('Name and email are required'); return; }
+                        if (!form.name.trim()) { toast.error('Name is required'); return; }
+                        if (!form.email.trim()) { toast.error('Email is required'); return; }
+                        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) { toast.error('Enter a valid email address'); return; }
+                        if (form.mobile.trim() && !/^[\d\s\+\-\(\)]{7,20}$/.test(form.mobile.trim())) { toast.error('Mobile number looks invalid'); return; }
                         setStep(2);
                       }}
                       className="w-full py-3 bg-purple-600 text-white rounded-xl text-sm font-bold hover:bg-purple-700 transition">

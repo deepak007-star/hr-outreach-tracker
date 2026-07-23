@@ -4,18 +4,22 @@ const STATUSES    = ['New','Drafted','Sent','Opened','Replied','Interview','Reje
 const SOURCES     = ['manual','csv_import','enrichment_api','job_board_scrape'];
 const CONFIDENCES = ['unknown','guessed','verified'];
 
-function Field({ label, required, children }) {
+function Field({ label, required, error, children }) {
   return (
     <div>
       <label className="block text-xs font-medium text-gray-600 mb-1">
         {label}{required && <span className="text-red-500 ml-0.5">*</span>}
       </label>
       {children}
+      {error && <p className="mt-1 text-xs text-red-500 font-medium">{error}</p>}
     </div>
   );
 }
 
-const inp = 'w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none transition';
+const inp = (err) =>
+  `w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 outline-none transition ${
+    err ? 'border-red-400 focus:ring-red-200 bg-red-50' : 'border-gray-200 focus:ring-blue-300'
+  }`;
 
 export default function ContactForm({ contact, onSave, onClose }) {
   const [form, setForm] = useState({
@@ -30,14 +34,43 @@ export default function ContactForm({ contact, onSave, onClose }) {
     notes:             contact?.notes            || '',
     tags:              (Array.isArray(contact?.tags) ? contact.tags : []).join(', '),
   });
+  const [errors, setErrors] = useState({});
 
-  const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
+  const set = k => e => {
+    setForm(f => ({ ...f, [k]: e.target.value }));
+    setErrors(err => ({ ...err, [k]: '' }));
+  };
+
+  function validate() {
+    const errs = {};
+    if (!form.name.trim()) {
+      errs.name = 'Name is required';
+    } else if (form.name.trim().length < 2) {
+      errs.name = 'Name must be at least 2 characters';
+    }
+    if (!form.email.trim()) {
+      errs.email = 'Email is required';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+      errs.email = 'Enter a valid email address';
+    }
+    if (form.source_url.trim()) {
+      try { new URL(form.source_url.trim()); }
+      catch { errs.source_url = 'Enter a valid URL (starting with https://)'; }
+    }
+    return errs;
+  }
 
   const handleSubmit = e => {
     e.preventDefault();
+    const errs = validate();
+    if (Object.keys(errs).length) { setErrors(errs); return; }
     onSave({
       ...form,
-      tags: form.tags.split(',').map(t => t.trim()).filter(Boolean),
+      name:    form.name.trim(),
+      email:   form.email.trim(),
+      company: form.company.trim(),
+      title:   form.title.trim(),
+      tags:    form.tags.split(',').map(t => t.trim()).filter(Boolean),
     });
   };
 
@@ -49,48 +82,48 @@ export default function ContactForm({ contact, onSave, onClose }) {
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="p-6 space-y-4" noValidate>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Full Name" required>
-              <input required value={form.name} onChange={set('name')} placeholder="Priya Sharma" className={inp} />
+            <Field label="Full Name" required error={errors.name}>
+              <input value={form.name} onChange={set('name')} placeholder="Priya Sharma" className={inp(errors.name)} />
             </Field>
             <Field label="Job Title">
-              <input value={form.title} onChange={set('title')} placeholder="HR Manager" className={inp} />
+              <input value={form.title} onChange={set('title')} placeholder="HR Manager" className={inp()} />
             </Field>
             <Field label="Company">
-              <input value={form.company} onChange={set('company')} placeholder="Acme Corp" className={inp} />
+              <input value={form.company} onChange={set('company')} placeholder="Acme Corp" className={inp()} />
             </Field>
-            <Field label="Email" required>
-              <input required type="email" value={form.email} onChange={set('email')} placeholder="priya@acme.com" className={inp} />
+            <Field label="Email" required error={errors.email}>
+              <input type="email" value={form.email} onChange={set('email')} placeholder="priya@acme.com" className={inp(errors.email)} />
             </Field>
             <Field label="Status">
-              <select value={form.status} onChange={set('status')} className={inp}>
+              <select value={form.status} onChange={set('status')} className={inp()}>
                 {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </Field>
             <Field label="Source">
-              <select value={form.email_source} onChange={set('email_source')} className={inp}>
+              <select value={form.email_source} onChange={set('email_source')} className={inp()}>
                 {SOURCES.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
               </select>
             </Field>
             <Field label="Email Confidence">
-              <select value={form.email_confidence} onChange={set('email_confidence')} className={inp}>
+              <select value={form.email_confidence} onChange={set('email_confidence')} className={inp()}>
                 {CONFIDENCES.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </Field>
             <Field label="Tags (comma-separated)">
-              <input value={form.tags} onChange={set('tags')} placeholder="fintech, priority" className={inp} />
+              <input value={form.tags} onChange={set('tags')} placeholder="fintech, priority" className={inp()} />
             </Field>
           </div>
 
-          <Field label="Source URL (job posting or career page)">
-            <input type="url" value={form.source_url} onChange={set('source_url')} placeholder="https://..." className={inp} />
+          <Field label="Source URL (job posting or career page)" error={errors.source_url}>
+            <input type="url" value={form.source_url} onChange={set('source_url')} placeholder="https://..." className={inp(errors.source_url)} />
           </Field>
 
           <Field label="Notes">
             <textarea value={form.notes} onChange={set('notes')} rows={3}
               placeholder="Any notes about this contact…"
-              className={`${inp} resize-none`} />
+              className={`${inp()} resize-none`} />
           </Field>
 
           <div className="flex gap-3 pt-1">

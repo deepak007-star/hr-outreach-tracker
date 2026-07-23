@@ -8,6 +8,26 @@ const { syncExcel } = require('../services/excelSync');
 const { middleware: rlMiddleware } = require('../middleware/rateLimiter');
 const { requireAuth } = require('../middleware/auth');
 const { getTransportForUser, createLegacyTransport } = require('../services/mailTransport');
+const sanitizeHtml = require('sanitize-html');
+const { scrapeLimiter } = require('../middleware/security');
+
+// Allowed HTML subset for outgoing email bodies: safe formatting, no scripts/iframes
+const EMAIL_HTML_OPTS = {
+  allowedTags: ['b','i','u','s','strong','em','del','ins','br','hr','p','div','span',
+                 'ul','ol','li','blockquote','h1','h2','h3','a'],
+  allowedAttributes: {
+    '*':  ['style', 'class'],
+    'a':  ['href', 'target', 'rel'],
+  },
+  allowedSchemes: ['http', 'https', 'mailto'],
+  disallowedTagsMode: 'discard',
+};
+
+// Strip control chars and quote marks that could inject extra headers in From:/To: fields
+function sanitizeHeaderValue(val) {
+  if (!val || typeof val !== 'string') return '';
+  return val.replace(/[\r\n\t"<>]/g, '').trim();
+}
 
 const router = express.Router();
 router.use(requireAuth);
@@ -136,11 +156,11 @@ async function getFooter() {
   return row?.value || 'To opt out of future emails, reply with UNSUBSCRIBE.';
 }
 
-async function getSentToday() {
+async function getSentToday(userId) {
   const today = new Date().toISOString().slice(0, 10);
   const row = await db.prepare(
-    "SELECT COUNT(*) as c FROM email_log WHERE LEFT(sent_at, 10) = ? AND delivery_status = 'sent'"
-  ).get(today);
+    "SELECT COUNT(*) as c FROM email_log WHERE LEFT(sent_at, 10) = ? AND user_id = ? AND delivery_status = 'sent'"
+  ).get(today, userId);
   return parseInt(row?.c || 0);
 }
 
@@ -199,7 +219,7 @@ router.post('/preview', async (req, res) => {
     return res.status(400).json({ error: 'subject and body are required' });
 
   const footer    = await getFooter();
-  const sentToday = await getSentToday();
+  const sentToday = await getSentToday(req.user.userId);
   const cap       = await getDailyCap();
   const profile   = await db.prepare('SELECT * FROM profiles WHERE user_id = ?').get(req.user.userId);
   const previews  = [];
@@ -259,15 +279,16 @@ router.post('/send', rlMiddleware('email'), async (req, res) => {
     return res.status(400).json({
       error: 'No email account connected. Connect Google or configure SMTP in Settings first.'
     });
-  const { transport, fromEmail, fromName } = mail;
+  const { transport, fromEmail } = mail;
+  const fromName = sanitizeHeaderValue(mail.fromName);
 
   const cap = await getDailyCap();
-  if (await getSentToday() >= cap)
+  if (await getSentToday(req.user.userId) >= cap)
     return res.status(429).json({ error: `Daily send cap of ${cap} reached. Try again tomorrow.` });
 
   const footer      = await getFooter();
   const results     = [];
-  let sentCount     = await getSentToday();
+  let sentCount     = await getSentToday(req.user.userId);
   const attachments = await resolveAttachment(attachment, req.user.userId);
 
   for (let i = 0; i < sends.length; i++) {
@@ -294,11 +315,13 @@ router.post('/send', rlMiddleware('email'), async (req, res) => {
     }
 
     const isHtml   = /<[a-zA-Z]/.test(body);
+    // Sanitize HTML to strip any injected script/iframe/event-handler payloads
+    const safeBody = isHtml ? sanitizeHtml(body, EMAIL_HTML_OPTS) : body;
     const textBody = isHtml
-      ? stripHtml(body) + `\n\n---\n${footer}`
-      : `${body}\n\n---\n${footer}`;
+      ? stripHtml(safeBody) + `\n\n---\n${footer}`
+      : `${safeBody}\n\n---\n${footer}`;
     const htmlBody = isHtml
-      ? `<div style="font-family:sans-serif;font-size:14px;line-height:1.7">${body}<p style="margin:16px 0 0;color:#999;font-size:12px">---<br>${footer}</p></div>`
+      ? `<div style="font-family:sans-serif;font-size:14px;line-height:1.7">${safeBody}<p style="margin:16px 0 0;color:#999;font-size:12px">---<br>${footer}</p></div>`
       : `<div style="font-family:sans-serif;font-size:14px;line-height:1.6">${
           textBody.split('\n').map(l => `<p style="margin:0 0 4px">${l}</p>`).join('')
         }</div>`;
@@ -428,7 +451,7 @@ router.post('/send', rlMiddleware('email'), async (req, res) => {
 });
 
 // ── POST /api/email/test ───────────────────────────────────────────────────
-router.post('/test', async (req, res) => {
+router.post('/test', scrapeLimiter, async (req, res) => {
   const { host, port, user, pass } = req.body;
   if (!host || !user || !pass)
     return res.status(400).json({ error: 'host, user, and pass are required' });
@@ -453,7 +476,7 @@ router.post('/send-direct', rlMiddleware('email'), async (req, res) => {
   const { transport, fromEmail, fromName } = mail;
 
   const cap = await getDailyCap();
-  if (await getSentToday() >= cap)
+  if (await getSentToday(req.user.userId) >= cap)
     return res.status(429).json({ error: `Daily send cap of ${cap} reached.` });
 
   const footer   = await getFooter();
@@ -485,9 +508,10 @@ router.get('/log', async (req, res) => {
            c.name, c.email, c.company
     FROM email_log el
     JOIN contacts c ON c.id = el.contact_id
+    WHERE el.user_id = ?
   `;
-  const p = [];
-  if (contactId) { q += ' WHERE el.contact_id = ?'; p.push(contactId); }
+  const p = [req.user.userId];
+  if (contactId) { q += ' AND el.contact_id = ?'; p.push(contactId); }
   q += ' ORDER BY el.sent_at DESC LIMIT ?';
   p.push(limit);
 
@@ -496,15 +520,15 @@ router.get('/log', async (req, res) => {
 
 // ── GET /api/email/stats ───────────────────────────────────────────────────
 router.get('/stats', async (req, res) => {
-  const sentToday = await getSentToday();
+  const sentToday = await getSentToday(req.user.userId);
   const cap       = await getDailyCap();
-  const totalRow  = await db.prepare('SELECT COUNT(*) as c FROM email_log').get();
+  const totalRow  = await db.prepare('SELECT COUNT(*) as c FROM email_log WHERE user_id = ?').get(req.user.userId);
   const total     = parseInt(totalRow?.c || 0);
 
-  // Delivery status breakdown across all logs
+  // Delivery status breakdown for this user's logs
   const deliveryRows = await db.prepare(
-    `SELECT delivery_status, COUNT(*) as c FROM email_log GROUP BY delivery_status`
-  ).all();
+    `SELECT delivery_status, COUNT(*) as c FROM email_log WHERE user_id = ? GROUP BY delivery_status`
+  ).all(req.user.userId);
   const delivery = {};
   for (const r of deliveryRows) delivery[r.delivery_status || 'sent'] = parseInt(r.c);
 

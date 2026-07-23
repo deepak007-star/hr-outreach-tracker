@@ -38,23 +38,38 @@ export function AuthProvider({ children }) {
   useEffect(() => { syncRef.current = sync; }, [sync]);
 
   // ── "Continue with Google" redirect landing ──────────────────────────────
-  // /api/oauth/google/callback redirects here with ?google_login_token=... on
-  // success (a full 30-day session token, same as email/password login) or
-  // ?google_login_error=... on failure. Runs before the session-restore
-  // effect below so the fresh token is in localStorage in time to be picked up.
+  // /api/oauth/google/callback redirects here with ?google_login_code=... on
+  // success — a short-lived (60s) one-time code that is exchanged here for a
+  // real 30-day JWT. The JWT never touches the URL / browser history / logs.
+  // On failure the server redirects with ?google_login_error=...
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const token  = params.get('google_login_token');
+    const code   = params.get('google_login_code');
     const error  = params.get('google_login_error');
-    if (token) {
-      localStorage.setItem('hr_token', token);
+
+    if (code) {
+      // Strip the code from the URL immediately before the async exchange
       window.history.replaceState({}, '', window.location.pathname);
-      toast.success('Signed in with Google!');
+      api.post('/oauth/exchange', { code })
+        .then(data => {
+          if (data?.token) {
+            localStorage.setItem('hr_token', data.token);
+            toast.success('Signed in with Google!');
+            // sync() will run in the session-restore effect below after token lands
+            syncRef.current?.();
+          } else {
+            toast.error('Google sign-in failed. Please try again.');
+          }
+        })
+        .catch(err => {
+          const msg = err?.response?.data?.error || 'Google sign-in failed. Please try again.';
+          toast.error(msg);
+        });
     } else if (error) {
       window.history.replaceState({}, '', window.location.pathname);
       toast.error('Google sign-in failed: ' + decodeURIComponent(error));
     }
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Initial session restore ──────────────────────────────────────────────
   useEffect(() => {

@@ -3,7 +3,7 @@
 const express = require('express');
 const bcrypt  = require('bcryptjs');
 const db      = require('../db/database');
-const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { requireAuth, requireAdmin, invalidatePermCache } = require('../middleware/auth');
 const { decrypt } = require('../services/vaultCrypto');
 
 const router = express.Router();
@@ -29,6 +29,8 @@ router.put('/users/:id/role', async (req, res) => {
   if (req.params.id === req.user.userId)
     return res.status(400).json({ error: "You can't change your own role" });
   await db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, req.params.id);
+  // Flush the old role's permission set so requirePermission() picks up new grants immediately
+  invalidatePermCache(role);
   res.json({ ok: true });
 });
 

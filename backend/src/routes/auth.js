@@ -4,6 +4,7 @@ const jwt      = require('jsonwebtoken');
 const crypto   = require('crypto');
 const db       = require('../db/database');
 const { requireAuth, SECRET } = require('../middleware/auth');
+const { authLimiter, authSlowDown } = require('../middleware/security');
 
 const router = express.Router();
 
@@ -46,10 +47,12 @@ function authRateLimit(req, res, next) {
 }
 
 // ── POST /api/auth/register ────────────────────────────────────────────────
-router.post('/register', authRateLimit, async (req, res) => {
+router.post('/register', authLimiter, authSlowDown, authRateLimit, async (req, res) => {
   const { name, email, password } = req.body;
   if (!name?.trim())     return res.status(400).json({ error: 'Name is required.' });
   if (!email?.trim())    return res.status(400).json({ error: 'Email is required.' });
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
+    return res.status(400).json({ error: 'Please enter a valid email address.' });
   if (!password || password.length < 6)
     return res.status(400).json({ error: 'Password must be at least 6 characters.' });
 
@@ -68,13 +71,13 @@ router.post('/register', authRateLimit, async (req, res) => {
 
   await db.prepare('INSERT INTO profiles (user_id, full_name) VALUES (?, ?)').run(id, name.trim());
 
-  const token = jwt.sign({ userId: id, plan: 'demo', role }, SECRET, { expiresIn: '30d' });
+  const token = jwt.sign({ userId: id, plan: 'demo', role, tokenVersion: 0 }, SECRET, { expiresIn: '30d' });
   res.cookie('hr_session', token, COOKIE_OPTS);
   res.status(201).json({ token, user: { id, name: name.trim(), email: email.toLowerCase().trim(), plan: 'demo', role } });
 });
 
 // ── POST /api/auth/login ───────────────────────────────────────────────────
-router.post('/login', authRateLimit, async (req, res) => {
+router.post('/login', authLimiter, authSlowDown, authRateLimit, async (req, res) => {
   const { email, password } = req.body;
   const identifier = email?.trim();
   if (!identifier || !password?.trim())
@@ -89,9 +92,10 @@ router.post('/login', authRateLimit, async (req, res) => {
   const ok = await bcrypt.compare(password, user.password_hash);
   if (!ok)  return res.status(401).json({ error: 'Incorrect password.' });
 
-  const role  = user.role  || 'user';
-  const plan  = user.plan  || 'demo';
-  const token = jwt.sign({ userId: user.id, plan, role }, SECRET, { expiresIn: '30d' });
+  const role         = user.role         || 'user';
+  const plan         = user.plan         || 'demo';
+  const tokenVersion = user.token_version ?? 0;
+  const token = jwt.sign({ userId: user.id, plan, role, tokenVersion }, SECRET, { expiresIn: '30d' });
   res.cookie('hr_session', token, COOKIE_OPTS);
   res.json({ token, user: { id: user.id, name: user.name, email: user.email, plan, role } });
 });
@@ -99,18 +103,20 @@ router.post('/login', authRateLimit, async (req, res) => {
 // ── GET /api/auth/me ───────────────────────────────────────────────────────
 // Always issues a fresh token so the session stays alive as long as the user is active
 router.get('/me', requireAuth, async (req, res) => {
-  const user = await db.prepare('SELECT id, name, email, plan, role, created_at FROM users WHERE id = ?').get(req.user.userId);
+  const user = await db.prepare('SELECT id, name, email, plan, role, token_version, created_at FROM users WHERE id = ?').get(req.user.userId);
   if (!user) return res.status(404).json({ error: 'User not found.' });
 
   // Roll a fresh token — extends the session on every successful /me call
   const freshToken = jwt.sign(
-    { userId: user.id, plan: user.plan, role: user.role },
+    { userId: user.id, plan: user.plan, role: user.role, tokenVersion: user.token_version ?? 0 },
     SECRET,
     { expiresIn: '30d' }
   );
   res.cookie('hr_session', freshToken, COOKIE_OPTS);
-  // Return the fresh token in the body so the frontend can update localStorage
-  res.json({ ...user, _token: freshToken });
+  // Return the fresh token in the body so the frontend can update localStorage.
+  // Strip token_version from the client-facing payload — it's an internal revocation field.
+  const { token_version: _tv, ...publicUser } = user;
+  res.json({ ...publicUser, _token: freshToken });
 });
 
 // ── POST /api/auth/logout ──────────────────────────────────────────────────
@@ -136,8 +142,18 @@ router.put('/change-password', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'New password must be different from current password' });
 
   const hash = await bcrypt.hash(newPassword, 10);
-  await db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, req.user.userId);
-  res.json({ ok: true });
+  await db.prepare('UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?')
+    .run(hash, req.user.userId);
+
+  // Issue a fresh token with the new version so this session stays alive
+  const updated = await db.prepare('SELECT plan, role, token_version FROM users WHERE id = ?').get(req.user.userId);
+  const freshToken = jwt.sign(
+    { userId: req.user.userId, plan: updated.plan, role: updated.role, tokenVersion: updated.token_version },
+    SECRET,
+    { expiresIn: '30d' }
+  );
+  res.cookie('hr_session', freshToken, COOKIE_OPTS);
+  res.json({ ok: true, token: freshToken });
 });
 
 // ── GET /api/auth/whoami  (admin only) ────────────────────────────────────

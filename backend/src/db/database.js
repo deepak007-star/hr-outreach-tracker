@@ -81,6 +81,7 @@ async function initialize() {
       name              TEXT NOT NULL,
       title             TEXT,
       company           TEXT,
+
       email             TEXT UNIQUE NOT NULL,
       email_source      TEXT NOT NULL DEFAULT 'manual',
       email_confidence  TEXT NOT NULL DEFAULT 'unknown',
@@ -337,6 +338,7 @@ async function initialize() {
   };
   await addCol('users',    'plan',             `TEXT NOT NULL DEFAULT 'demo'`);
   await addCol('users',    'role',             `TEXT NOT NULL DEFAULT 'user'`);
+  await addCol('users',    'token_version',    `INTEGER NOT NULL DEFAULT 0`);
   await addCol('contacts', 'email_verified',   `TEXT NOT NULL DEFAULT 'pending'`);
   await addCol('contacts', 'email_checked_at', `TEXT`);
   await addCol('profiles', 'job_title_1',      `TEXT`);

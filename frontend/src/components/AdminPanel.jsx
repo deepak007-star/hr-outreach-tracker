@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { toast } from 'react-hot-toast';
 import { api, API_ROOT } from '../api/client.js';
+import { confirm } from '../utils/confirm.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import RolesPermissions from './RolesPermissions.jsx';
 import PasswordVault from './PasswordVault.jsx';
@@ -376,7 +377,7 @@ function LeadsSection() {
   }
 
   async function deleteLead(id, name) {
-    if (!window.confirm(`Delete lead "${name}"?`)) return;
+    if (!await confirm(`Delete lead "${name}"?`)) return;
     try {
       await api.delete(`/leads/${id}`);
       setLeads(ls => ls.filter(l => l.id !== id));
@@ -627,7 +628,7 @@ function UsersSection() {
   }
 
   async function deleteUser(userId, name) {
-    if (!window.confirm(`Delete user "${name}"? This cannot be undone.`)) return;
+    if (!await confirm(`Delete user "${name}"? This cannot be undone.`)) return;
     try { await api.delete(`/admin/users/${userId}`); setUsers(us => us.filter(u => u.id !== userId)); toast.success('User deleted'); }
     catch (err) { toast.error(err.response?.data?.error || 'Failed'); }
   }
@@ -983,7 +984,7 @@ function ReferralsSection() {
   }
 
   async function resetPair(fromUserId, toUserId, fromName, toName) {
-    if (!window.confirm(`Reset referral request count from "${fromName}" to "${toName}"? They'll be able to request again.`)) return;
+    if (!await confirm(`Reset referral request count from "${fromName}" to "${toName}"? They'll be able to request again.`)) return;
     try {
       await api.delete(`/admin/referrals/${fromUserId}/${toUserId}`);
       setRows(rs => rs.filter(r => !(r.from_user_id === fromUserId && r.to_user_id === toUserId)));

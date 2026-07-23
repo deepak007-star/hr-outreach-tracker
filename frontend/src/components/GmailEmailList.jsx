@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'react-hot-toast';
 import { api } from '../api/client.js';
+import { confirm } from '../utils/confirm.js';
 import EmailStatusBadge from './EmailStatusBadge.jsx';
 import QuickReplyModal from './QuickReplyModal.jsx';
 
@@ -74,7 +75,7 @@ export default function GmailEmailList({ refreshKey, myName = '' }) {
   }
 
   async function addAllContacts() {
-    if (!window.confirm('Add every synced contact not already in your Contacts list?')) return;
+    if (!await confirm('Add every synced contact not already in your Contacts list?')) return;
     setAddingAll(true);
     try {
       const r = await api.post('/gmail/add-all-contacts');
