@@ -1,8 +1,42 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Playfair+Display:wght@600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
-  body { @apply text-gray-900 antialiased; }
+  /* Warm off-white base — "The Signal" identity background */
+  html { background-color: #fafaf9; }
+  body { @apply text-gray-900 antialiased bg-stone-50 font-sans; }
   select { @apply bg-white; }
+
+  /* Consistent focus ring using brand teal */
+  *:focus-visible {
+    outline: 2px solid #0d9488;
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* Skeleton loader utility — used for any data fetch >300ms */
+  .skeleton {
+    background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+    background-size: 200% 100%;
+    animation: skeleton-wave 1.6s linear infinite;
+    @apply rounded-md;
+  }
+
+  /* Signal motif: radiating ring wrapper — center any icon inside */
+  .signal-ring {
+    @apply relative inline-flex items-center justify-center;
+  }
+  .signal-ring::before {
+    content: '';
+    @apply absolute inset-0 rounded-full bg-brand-500 opacity-20 animate-signal-ping;
+  }
+
+  /* Page enter animation applied via JS to main content panels */
+  .page-enter {
+    @apply animate-fade-slide-in;
+  }
 }

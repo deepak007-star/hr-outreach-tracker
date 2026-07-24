@@ -1,24 +1,36 @@
 import { useAuth } from '../contexts/AuthContext.jsx';
 import NotificationPanel from './NotificationPanel.jsx';
 import Logo from './Logo.jsx';
+import { Radio } from 'lucide-react';
+
+function initials(name) {
+  return (name || 'U').split(' ').filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'U';
+}
 
 export default function Header({ onLoginClick }) {
   const { user, logout } = useAuth();
 
   return (
-    <header className="bg-slate-900 text-white shadow-lg">
-      <div className="max-w-screen-2xl mx-auto px-6 py-4 flex items-center justify-between">
+    <header className="bg-white border-b border-gray-200 sticky top-0 z-40 shadow-card">
+      <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
+
+        {/* Brand */}
         <div className="flex items-center gap-3">
-          <Logo size={36} />
+          <Logo size={32} />
           <div>
-            <h1 className="text-xl font-bold tracking-tight">HR Outreach Tracker</h1>
-            <p className="text-slate-400 text-xs mt-0.5">Excel file auto-syncs on every add / edit / delete</p>
+            <p className="text-sm font-semibold text-gray-900 leading-tight">HR Outreach Tracker</p>
+            <p className="text-xs text-gray-400 leading-tight hidden sm:block">Excel auto-syncs on every change</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3 text-xs text-slate-400">
-          <span className="inline-flex items-center gap-1.5 bg-emerald-900/60 text-emerald-300 px-2.5 py-1 rounded-full">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+        {/* Right side */}
+        <div className="flex items-center gap-3">
+          {/* Signal live indicator */}
+          <span className="hidden sm:inline-flex items-center gap-1.5 text-xs text-brand-700 bg-brand-50 border border-brand-100 px-2.5 py-1 rounded-sm">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-brand-400 opacity-75 animate-signal-ping" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-brand-600" />
+            </span>
             Live
           </span>
 
@@ -27,25 +39,24 @@ export default function Header({ onLoginClick }) {
           {user ? (
             <div className="flex items-center gap-2">
               {/* Avatar */}
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-xs font-bold">
-                {(user.name || 'U').split(' ').filter(w => w).map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'U'}
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                {initials(user.name)}
               </div>
               <div className="hidden sm:block text-right">
-                <p className="text-white text-xs font-medium leading-tight">{user.name}</p>
-                <p className="text-slate-400 text-xs leading-tight">{user.email}</p>
-                <p className="text-slate-500 text-xs leading-tight">
-                  <span className={`font-semibold ${user.role === 'admin' ? 'text-yellow-400' : 'text-slate-400'}`}>
+                <p className="text-xs font-medium text-gray-900 leading-tight">{user.name}</p>
+                <p className="text-[11px] text-gray-400 leading-tight">
+                  <span className={user.role === 'admin' ? 'text-amber-500 font-semibold' : 'text-gray-400'}>
                     {user.role}
                   </span>
                   {' · '}
-                  <span className={user.plan === 'advanced' ? 'text-emerald-400' : 'text-slate-400'}>
+                  <span className={user.plan === 'advanced' ? 'text-brand-600 font-semibold' : 'text-gray-400'}>
                     {user.plan}
                   </span>
                 </p>
               </div>
               <button
                 onClick={logout}
-                className="ml-1 px-3 py-1.5 border border-slate-600 rounded-lg text-xs text-slate-300 hover:bg-slate-700 transition"
+                className="ml-1 px-3 py-1.5 border border-gray-200 rounded-sm text-xs text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition"
               >
                 Sign Out
               </button>
@@ -53,7 +64,7 @@ export default function Header({ onLoginClick }) {
           ) : (
             <button
               onClick={onLoginClick}
-              className="px-4 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 transition"
+              className="px-4 py-1.5 bg-brand-600 text-white rounded-sm text-xs font-semibold hover:bg-brand-700 transition"
             >
               Sign In
             </button>

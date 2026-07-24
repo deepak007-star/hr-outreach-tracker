@@ -1,5 +1,10 @@
 import { useState, useEffect, useCallback, useRef, Component } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
+import {
+  LayoutDashboard, Users, FileText, Search, Zap,
+  Archive, UserPlus, User, ShieldCheck, Gem, Lock,
+  MailCheck, Briefcase,
+} from 'lucide-react';
 import { AuthProvider, useAuth } from './contexts/AuthContext.jsx';
 import Header            from './components/Header.jsx';
 import StatsBar          from './components/StatsBar.jsx';
@@ -43,7 +48,7 @@ class TabErrorBoundary extends Component {
           <p className="text-sm text-gray-400">{this.state.error.message}</p>
           <button
             onClick={() => this.setState({ error: null })}
-            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            className="px-4 py-2 text-sm bg-brand-600 text-white rounded-sm hover:bg-brand-700 transition"
           >
             Retry
           </button>
@@ -285,10 +290,10 @@ export default function App() {
   // Block rendering until we know the auth state (prevents "Sign In" flash for logged-in users)
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-stone-50 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3 text-gray-400">
-          <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm">Loading…</p>
+          <div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm text-gray-500">Scanning for signals…</p>
         </div>
       </div>
     );
@@ -311,49 +316,72 @@ export default function App() {
     );
   }
 
+  // ── Navigation definition ──────────────────────────────────────────────────
+  // Creative labels (Section 2.6) + always-visible subtitles.
+  // Sidebar label must match page <h1> exactly — enforced by using NAV_ITEMS as source of truth.
+  const NAV_ITEMS = [
+    { id: 'home',        icon: <LayoutDashboard size={16} />, label: 'Basecamp',    sub: 'Your outreach at a glance'          },
+    { id: 'contacts',    icon: <Users           size={16} />, label: 'Roster',      sub: 'Every HR contact you\'ve tracked'   },
+    { id: 'templates',   icon: <FileText        size={16} />, label: 'Arsenal',     sub: 'Email & resume templates'            },
+    { id: 'jobs',        icon: <Search          size={16} />, label: 'The Mirror',  sub: 'See your resume-to-job fit'          },
+    { id: 'bulk',        icon: <Zap             size={16} />, label: 'Volley',      sub: 'Apply to many jobs at once'          },
+    { id: 'resume-vault',icon: <Archive         size={16} />, label: 'The Vault',   sub: 'Your saved resume versions',  requiresAuth: true },
+    { id: 'referrals',   icon: <UserPlus        size={16} />, label: 'Warm Intros', sub: 'Ask the community for referrals', requiresAuth: true },
+    { id: 'profile',     icon: <User            size={16} />, label: 'Your Story',  sub: 'Your profile & skills',       requiresAuth: true },
+    ...(user?.role === 'admin' ? [{ id: 'admin', icon: <ShieldCheck size={16} />, label: 'Control Room', sub: 'Manage users, leads & permissions', requiresAuth: true }] : []),
+  ];
+
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-stone-50">
       <ConfirmDialog />
       <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
       <EarlyAccessBanner />
       <Header onLoginClick={() => setShowAuthModal(true)} />
 
       {/* ── Tab navigation ──────────────────────────────────────── */}
-      <div className="border-b bg-white sticky top-0 z-30 shadow-sm">
+      <div className="bg-white border-b border-gray-200 sticky top-[57px] z-30">
         <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 flex gap-0 overflow-x-auto">
-          {[
-            { id: 'home',      label: '🏠 Dashboard' },
-            { id: 'contacts',  label: '📋 Contacts' },
-            { id: 'templates', label: '📄 Templates' },
-            { id: 'jobs',         label: '🔍 Job Analyzer' },
-            { id: 'bulk',         label: '🚀 Bulk Apply' },
-            { id: 'resume-vault', label: '📂 Resume Vault', requiresAuth: true },
-            { id: 'referrals',    label: '🤝 Ask Referral', requiresAuth: true },
-            { id: 'profile',      label: '👤 Profile',      requiresAuth: true },
-            ...(user?.role === 'admin' ? [{ id: 'admin', label: '🛡️ Admin', requiresAuth: true }] : []),
-          ].map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => navigateTo(tab.id, tab.requiresAuth)}
-              className={`px-4 py-3.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                activeTab === tab.id
-                  ? 'border-blue-600 text-blue-700 bg-blue-50/50'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              } ${tab.requiresAuth && !user ? 'opacity-60' : ''}`}
-            >
-              {tab.label}{tab.requiresAuth && !user ? ' 🔒' : ''}
-            </button>
-          ))}
+          {NAV_ITEMS.map(tab => {
+            const locked = tab.requiresAuth && !user;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => navigateTo(tab.id, tab.requiresAuth)}
+                title={tab.sub}
+                className={`group flex flex-col items-start px-4 py-2.5 border-b-2 transition-all duration-150 whitespace-nowrap min-w-0 ${
+                  isActive
+                    ? 'border-brand-600 text-brand-700 bg-brand-50/50'
+                    : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300 hover:bg-gray-50/50'
+                } ${locked ? 'opacity-50' : ''}`}
+              >
+                <span className="flex items-center gap-1.5 text-sm font-medium leading-tight">
+                  <span className={isActive ? 'text-brand-600' : 'text-gray-400 group-hover:text-gray-600'}>
+                    {locked ? <Lock size={14} /> : tab.icon}
+                  </span>
+                  {tab.label}
+                </span>
+                <span className={`text-[10px] leading-tight mt-0.5 ${isActive ? 'text-brand-500' : 'text-gray-400'}`}>
+                  {tab.sub}
+                </span>
+              </button>
+            );
+          })}
+          {/* Plans — separate CTA style */}
           <button
             onClick={() => setShowPlans(true)}
-            className="px-4 py-3.5 text-sm font-medium border-b-2 border-transparent text-purple-600 hover:text-purple-800 hover:border-purple-400 transition-colors whitespace-nowrap"
+            className="flex flex-col items-start px-4 py-2.5 border-b-2 border-transparent text-violet-600 hover:text-violet-800 hover:border-violet-300 hover:bg-violet-50/40 transition-all duration-150 whitespace-nowrap"
           >
-            💎 Plans
+            <span className="flex items-center gap-1.5 text-sm font-medium leading-tight">
+              <Gem size={16} className="text-violet-400" />
+              Level Up
+            </span>
+            <span className="text-[10px] leading-tight mt-0.5 text-violet-400">Compare plans &amp; upgrade</span>
           </button>
         </div>
       </div>
 
-      <main className="max-w-screen-2xl mx-auto px-4 sm:px-6 py-6 space-y-4">
+      <main className="max-w-screen-2xl mx-auto px-4 sm:px-6 py-6 space-y-4 animate-fade-slide-in">
 
         {/* ── Dashboard tab ─────────────────────────────────────── */}
         {activeTab === 'home' && (
@@ -376,7 +404,7 @@ export default function App() {
         {activeTab === 'profile' && !user && (
           <div className="flex flex-col items-center justify-center h-48 gap-3">
             <p className="text-gray-500 text-sm">Sign in to view and edit your profile.</p>
-            <button onClick={() => setShowAuthModal(true)} className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700">Sign In</button>
+            <button onClick={() => setShowAuthModal(true)} className="px-5 py-2 bg-brand-600 text-white rounded-sm text-sm font-semibold hover:bg-brand-700 transition">Sign In</button>
           </div>
         )}
 
@@ -392,7 +420,7 @@ export default function App() {
         {activeTab === 'resume-vault' && !user && (
           <div className="flex flex-col items-center justify-center h-48 gap-3">
             <p className="text-gray-500 text-sm">Sign in to access your Resume Vault.</p>
-            <button onClick={() => setShowAuthModal(true)} className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700">Sign In</button>
+            <button onClick={() => setShowAuthModal(true)} className="px-5 py-2 bg-brand-600 text-white rounded-sm text-sm font-semibold hover:bg-brand-700 transition">Sign In</button>
           </div>
         )}
 
@@ -405,7 +433,7 @@ export default function App() {
         {activeTab === 'referrals' && !user && (
           <div className="flex flex-col items-center justify-center h-48 gap-3">
             <p className="text-gray-500 text-sm">Sign in to access the referral network.</p>
-            <button onClick={() => setShowAuthModal(true)} className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700">Sign In</button>
+            <button onClick={() => setShowAuthModal(true)} className="px-5 py-2 bg-brand-600 text-white rounded-sm text-sm font-semibold hover:bg-brand-700 transition">Sign In</button>
           </div>
         )}
 
@@ -419,22 +447,23 @@ export default function App() {
         {activeTab === 'contacts' && <>
 
         {/* Contact subtabs */}
-        <div className="flex gap-1 border-b bg-white rounded-t-xl px-2 pt-1 -mb-1 overflow-x-auto">
+        <div className="flex gap-0 border-b border-gray-200 bg-white overflow-x-auto">
           {[
-            { id: 'my',         label: '👥 My Contacts',         desc: 'Manually added & imported contacts' },
-            { id: 'cold-email', label: '📧 Cold Emailing',        desc: 'Gmail tracking + LinkedIn feed'   },
-            { id: 'job-links',  label: '💼 Job Links',            desc: 'Scrape LinkedIn, Naukri & more'   },
+            { id: 'my',         icon: <Users size={14} />,      label: 'My Contacts',  desc: 'Manually added & imported contacts' },
+            { id: 'cold-email', icon: <MailCheck size={14} />,  label: 'Cold Emailing',desc: 'Gmail tracking + LinkedIn feed'     },
+            { id: 'job-links',  icon: <Briefcase size={14} />,  label: 'Job Links',    desc: 'Scrape LinkedIn, Naukri & more'     },
           ].map(sub => (
             <button
               key={sub.id}
               onClick={() => setContactSubTab(sub.id)}
-              className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                contactSubTab === sub.id
-                  ? 'border-blue-600 text-blue-700'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
               title={sub.desc}
+              className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-all duration-150 whitespace-nowrap -mb-px ${
+                contactSubTab === sub.id
+                  ? 'border-brand-600 text-brand-700 bg-brand-50/50'
+                  : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300 hover:bg-gray-50/50'
+              }`}
             >
+              <span className={contactSubTab === sub.id ? 'text-brand-600' : 'text-gray-400'}>{sub.icon}</span>
               {sub.label}
             </button>
           ))}
@@ -442,7 +471,7 @@ export default function App() {
 
         {/* Cold Emailing sub-tab */}
         {contactSubTab === 'cold-email' && (
-          <div className="bg-gray-50 rounded-b-xl border border-t-0 p-4">
+          <div className="bg-stone-50 rounded-b-md border border-gray-200 border-t-0 p-4">
             <TabErrorBoundary>
               <ColdEmailSection />
             </TabErrorBoundary>
@@ -451,7 +480,7 @@ export default function App() {
 
         {/* Job Links sub-tab */}
         {contactSubTab === 'job-links' && (
-          <div className="bg-gray-50 rounded-b-xl border border-t-0 p-4">
+          <div className="bg-stone-50 rounded-b-md border border-gray-200 border-t-0 p-4">
             <TabErrorBoundary>
               <JobScraperSection />
             </TabErrorBoundary>
@@ -503,23 +532,23 @@ export default function App() {
               📊 {planName} Plan{user && planName !== 'Advanced' ? ' · ↑ Upgrade' : ''}
             </button>
             <button onClick={() => setShowReminder(true)}
-              className="px-4 py-2 text-sm bg-white border rounded-lg hover:bg-gray-50 font-medium transition">
+              className="px-4 py-2 text-sm bg-white border border-gray-200 rounded-sm hover:bg-gray-50 font-medium transition text-gray-600">
               🔔 Reminder
             </button>
             <button onClick={() => setShowSmtp(true)}
-              className="px-4 py-2 text-sm bg-white border rounded-lg hover:bg-gray-50 font-medium transition">
+              className="px-4 py-2 text-sm bg-white border border-gray-200 rounded-sm hover:bg-gray-50 font-medium transition text-gray-600">
               SMTP Settings
             </button>
             <button onClick={() => setShowImport(true)}
-              className="px-4 py-2 text-sm bg-white border rounded-lg hover:bg-gray-50 font-medium transition">
+              className="px-4 py-2 text-sm bg-white border border-gray-200 rounded-sm hover:bg-gray-50 font-medium transition text-gray-600">
               Import CSV / Excel
             </button>
             <button onClick={handleExport}
-              className="px-4 py-2 text-sm bg-white border rounded-lg hover:bg-gray-50 font-medium transition">
+              className="px-4 py-2 text-sm bg-white border border-gray-200 rounded-sm hover:bg-gray-50 font-medium transition text-gray-600">
               Download Excel
             </button>
             <button onClick={openAdd}
-              className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold transition">
+              className="px-4 py-2 text-sm bg-brand-600 text-white rounded-sm hover:bg-brand-700 font-semibold transition">
               + Add Contact
             </button>
           </div>
@@ -527,8 +556,8 @@ export default function App() {
 
         {/* ── Bulk action bar ──────────────────────────────────────────── */}
         {selected.length > 0 && (
-          <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5 flex flex-wrap items-center gap-3 text-sm">
-            <span className="font-semibold text-blue-700">{selected.length} selected</span>
+          <div className="bg-brand-50 border border-brand-200 rounded-md px-4 py-2.5 flex flex-wrap items-center gap-3 text-sm">
+            <span className="font-semibold text-brand-700">{selected.length} selected</span>
             <select
               defaultValue=""
               onChange={e => { if (e.target.value) { handleBulkStatus(e.target.value); e.target.value = ''; } }}
@@ -539,8 +568,8 @@ export default function App() {
             </select>
             <button
               onClick={handleBulkCompose}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
-                user ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
+              className={`px-3 py-1.5 rounded-sm text-sm font-medium transition ${
+                user ? 'bg-brand-600 text-white hover:bg-brand-700' : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
               }`}
             >
               {user ? '' : '🔒 '}✉ Compose for {selected.length}
