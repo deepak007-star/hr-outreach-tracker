@@ -1,3 +1,4 @@
+// Compact summary strip for the Contacts page — full StatTiles are on the Dashboard.
 export default function StatsBar({ contacts }) {
   const total      = contacts.length;
   const contacted  = contacts.filter(c => ['Sent','Opened','Replied','Interview'].includes(c.status)).length;
@@ -5,21 +6,26 @@ export default function StatsBar({ contacts }) {
   const interviews = contacts.filter(c => c.status === 'Interview').length;
   const pct = n => total ? `${Math.round((n / total) * 100)}%` : '—';
 
-  const cards = [
-    { label: 'Total Contacts',  value: total,                    color: 'text-slate-700' },
-    { label: 'Contacted',       value: `${contacted} (${pct(contacted)})`, color: 'text-blue-600' },
-    { label: 'Replied',         value: `${replied} (${pct(replied)})`,     color: 'text-green-600' },
-    { label: 'Interviews',      value: interviews,               color: 'text-emerald-600' },
-  ];
-
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-      {cards.map(({ label, value, color }) => (
-        <div key={label} className="bg-white rounded-xl border shadow-sm p-4">
-          <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">{label}</p>
-          <p className={`text-2xl font-bold mt-1 ${color}`}>{value}</p>
-        </div>
-      ))}
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-2.5 bg-white rounded-md shadow-card border border-gray-100 text-xs text-gray-500">
+      <span>
+        <span className="font-semibold text-gray-900">{total}</span> contacts
+      </span>
+      <span className="text-gray-200 hidden sm:inline">·</span>
+      <span>
+        <span className="font-semibold text-blue-600">{contacted}</span>
+        <span className="text-gray-400"> contacted ({pct(contacted)})</span>
+      </span>
+      <span className="text-gray-200 hidden sm:inline">·</span>
+      <span>
+        <span className="font-semibold text-emerald-600">{replied}</span>
+        <span className="text-gray-400"> replied ({pct(replied)})</span>
+      </span>
+      <span className="text-gray-200 hidden sm:inline">·</span>
+      <span>
+        <span className="font-semibold text-green-600">{interviews}</span>
+        <span className="text-gray-400"> interview{interviews !== 1 ? 's' : ''}</span>
+      </span>
     </div>
   );
 }

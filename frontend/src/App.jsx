@@ -3,7 +3,7 @@ import { Toaster, toast } from 'react-hot-toast';
 import {
   LayoutDashboard, Users, FileText, Search, Zap,
   Archive, UserPlus, User, ShieldCheck, Gem, Lock,
-  MailCheck, Briefcase,
+  MailCheck, Briefcase, Mail, BarChart3, Bell,
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './contexts/AuthContext.jsx';
 import Header            from './components/Header.jsx';
@@ -499,12 +499,12 @@ export default function App() {
             placeholder="Search name, company, email, title…"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="border rounded-lg px-3 py-2 w-72 text-sm focus:ring-2 focus:ring-blue-300 outline-none bg-white"
+            className="border border-gray-200 rounded-sm px-3 py-2 w-72 text-sm focus:ring-2 focus:ring-brand-300 focus:border-brand-400 outline-none bg-white"
           />
           <select
             value={statusFilter}
             onChange={e => setStatusFilter(e.target.value)}
-            className="border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none bg-white"
+            className="border border-gray-200 rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none bg-white"
           >
             <option value="">All Statuses</option>
             {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
@@ -521,19 +521,21 @@ export default function App() {
           <div className="ml-auto flex flex-wrap gap-2 items-center">
             <RateLimitBar />
             {emailStats && (
-              <span className="text-xs text-gray-500 border rounded-lg px-3 py-2 bg-white">
-                📧 {emailStats.sentToday}/{emailStats.dailyCap} today
+              <span className="text-xs text-gray-500 border border-gray-200 rounded-sm px-3 py-2 bg-white flex items-center gap-1.5">
+                <Mail size={13} className="text-gray-400" />
+                {emailStats.sentToday}/{emailStats.dailyCap} today
               </span>
             )}
             <button
               onClick={() => setShowPlans(true)}
-              className="text-xs border rounded-lg px-3 py-2 bg-white hover:bg-gray-50 font-medium transition"
+              className="text-xs border border-gray-200 rounded-sm px-3 py-2 bg-white hover:bg-gray-50 font-medium transition flex items-center gap-1.5 text-gray-600"
             >
-              📊 {planName} Plan{user && planName !== 'Advanced' ? ' · ↑ Upgrade' : ''}
+              <BarChart3 size={13} className="text-gray-400" />
+              {planName} Plan{user && planName !== 'Advanced' ? ' · ↑ Upgrade' : ''}
             </button>
             <button onClick={() => setShowReminder(true)}
-              className="px-4 py-2 text-sm bg-white border border-gray-200 rounded-sm hover:bg-gray-50 font-medium transition text-gray-600">
-              🔔 Reminder
+              className="px-4 py-2 text-sm bg-white border border-gray-200 rounded-sm hover:bg-gray-50 font-medium transition text-gray-600 flex items-center gap-1.5">
+              <Bell size={14} className="text-gray-400" /> Reminder
             </button>
             <button onClick={() => setShowSmtp(true)}
               className="px-4 py-2 text-sm bg-white border border-gray-200 rounded-sm hover:bg-gray-50 font-medium transition text-gray-600">
@@ -561,18 +563,19 @@ export default function App() {
             <select
               defaultValue=""
               onChange={e => { if (e.target.value) { handleBulkStatus(e.target.value); e.target.value = ''; } }}
-              className="border rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-blue-300 outline-none"
+              className="border border-gray-200 rounded-sm px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-brand-300 outline-none"
             >
               <option value="" disabled>Change status to…</option>
               {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
             <button
               onClick={handleBulkCompose}
-              className={`px-3 py-1.5 rounded-sm text-sm font-medium transition ${
+              className={`px-3 py-1.5 rounded-sm text-sm font-medium transition flex items-center gap-1.5 ${
                 user ? 'bg-brand-600 text-white hover:bg-brand-700' : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
               }`}
             >
-              {user ? '' : '🔒 '}✉ Compose for {selected.length}
+              {!user && <Lock size={12} />}
+              <MailCheck size={13} /> Compose for {selected.length}
             </button>
             <button onClick={handleBulkDelete}
               className="text-red-600 hover:text-red-800 font-medium">

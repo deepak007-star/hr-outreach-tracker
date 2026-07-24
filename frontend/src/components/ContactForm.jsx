@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { X } from 'lucide-react';
+import { Button } from './ui/index.js';
 
 const STATUSES    = ['New','Drafted','Sent','Opened','Replied','Interview','Rejected','Do Not Contact'];
 const SOURCES     = ['manual','csv_import','enrichment_api','job_board_scrape'];
@@ -17,22 +19,22 @@ function Field({ label, required, error, children }) {
 }
 
 const inp = (err) =>
-  `w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 outline-none transition ${
-    err ? 'border-red-400 focus:ring-red-200 bg-red-50' : 'border-gray-200 focus:ring-blue-300'
+  `w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 outline-none transition ${
+    err ? 'border-red-400 focus:ring-red-200 bg-red-50' : 'border-gray-200 focus:ring-brand-300 focus:border-brand-400'
   }`;
 
 export default function ContactForm({ contact, onSave, onClose }) {
   const [form, setForm] = useState({
-    name:              contact?.name             || '',
-    title:             contact?.title            || '',
-    company:           contact?.company          || '',
-    email:             contact?.email            || '',
-    email_source:      contact?.email_source     || 'manual',
-    email_confidence:  contact?.email_confidence || 'unknown',
-    source_url:        contact?.source_url       || '',
-    status:            contact?.status           || 'New',
-    notes:             contact?.notes            || '',
-    tags:              (Array.isArray(contact?.tags) ? contact.tags : []).join(', '),
+    name:             contact?.name             || '',
+    title:            contact?.title            || '',
+    company:          contact?.company          || '',
+    email:            contact?.email            || '',
+    email_source:     contact?.email_source     || 'manual',
+    email_confidence: contact?.email_confidence || 'unknown',
+    source_url:       contact?.source_url       || '',
+    status:           contact?.status           || 'New',
+    notes:            contact?.notes            || '',
+    tags:             (Array.isArray(contact?.tags) ? contact.tags : []).join(', '),
   });
   const [errors, setErrors] = useState({});
 
@@ -43,16 +45,10 @@ export default function ContactForm({ contact, onSave, onClose }) {
 
   function validate() {
     const errs = {};
-    if (!form.name.trim()) {
-      errs.name = 'Name is required';
-    } else if (form.name.trim().length < 2) {
-      errs.name = 'Name must be at least 2 characters';
-    }
-    if (!form.email.trim()) {
-      errs.email = 'Email is required';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
-      errs.email = 'Enter a valid email address';
-    }
+    if (!form.name.trim())  errs.name = 'Name is required';
+    else if (form.name.trim().length < 2) errs.name = 'Name must be at least 2 characters';
+    if (!form.email.trim()) errs.email = 'Email is required';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) errs.email = 'Enter a valid email address';
     if (form.source_url.trim()) {
       try { new URL(form.source_url.trim()); }
       catch { errs.source_url = 'Enter a valid URL (starting with https://)'; }
@@ -76,10 +72,12 @@ export default function ContactForm({ contact, onSave, onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto">
-        <div className="sticky top-0 bg-white flex items-center justify-between px-6 py-4 border-b z-10">
-          <h2 className="text-base font-bold">{contact ? 'Edit Contact' : 'Add New Contact'}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
+      <div className="bg-white rounded-md shadow-modal w-full max-w-lg max-h-[92vh] overflow-y-auto">
+        <div className="sticky top-0 bg-white flex items-center justify-between px-6 py-4 border-b border-gray-100 z-10">
+          <h2 className="text-base font-semibold text-gray-900">{contact ? 'Edit Contact' : 'Add New Contact'}</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
+            <X size={18} />
+          </button>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4" noValidate>
@@ -127,14 +125,12 @@ export default function ContactForm({ contact, onSave, onClose }) {
           </Field>
 
           <div className="flex gap-3 pt-1">
-            <button type="submit"
-              className="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-blue-700 transition">
+            <Button type="submit" variant="primary" size="md" className="flex-1 justify-center">
               {contact ? 'Save Changes' : 'Add Contact'}
-            </button>
-            <button type="button" onClick={onClose}
-              className="flex-1 border rounded-lg py-2.5 text-sm font-medium hover:bg-gray-50 transition">
+            </Button>
+            <Button type="button" variant="secondary" size="md" onClick={onClose} className="flex-1 justify-center">
               Cancel
-            </button>
+            </Button>
           </div>
         </form>
       </div>
