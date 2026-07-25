@@ -320,14 +320,15 @@ export default function App() {
   // Creative labels (Section 2.6) + always-visible subtitles.
   // Sidebar label must match page <h1> exactly — enforced by using NAV_ITEMS as source of truth.
   const NAV_ITEMS = [
-    { id: 'home',        icon: <Home         size={16} />, label: 'Home',         sub: 'Your outreach at a glance'           },
-    { id: 'contacts',    icon: <Users        size={16} />, label: 'Contacts',     sub: 'HR contacts & email outreach'        },
-    { id: 'templates',   icon: <FileText     size={16} />, label: 'Templates',    sub: 'Email & resume templates'            },
-    { id: 'jobs',        icon: <Target       size={16} />, label: 'Job Match',    sub: 'ATS score & resume fit check'        },
-    { id: 'bulk',        icon: <ListChecks   size={16} />, label: 'Bulk Apply',   sub: 'Apply to multiple jobs at once'      },
-    { id: 'resume-vault',icon: <FolderOpen   size={16} />, label: 'Resume Vault', sub: 'Your saved resume versions', requiresAuth: true },
-    { id: 'referrals',   icon: <UserPlus     size={16} />, label: 'Sifarish',     sub: 'Get referred at top companies', requiresAuth: true },
-    { id: 'profile',     icon: <User         size={16} />, label: 'Profile',      sub: 'Your skills & resume data',  requiresAuth: true },
+    { id: 'home',        icon: <Home         size={16} />, label: 'Dashboard',               sub: 'Your outreach at a glance'           },
+    { id: 'contacts',    icon: <Users        size={16} />, label: 'Cold Emailing & Contacts', sub: 'HR contacts & email outreach'        },
+    { id: 'job-scraper', icon: <Briefcase    size={16} />, label: 'Jobs',                    sub: 'Scrape LinkedIn, Naukri & more'      },
+    { id: 'templates',   icon: <FileText     size={16} />, label: 'Templates & Resumes',     sub: 'Email & resume templates'            },
+    { id: 'jobs',        icon: <Target       size={16} />, label: 'Resume Analyzer & Maker', sub: 'ATS score & resume fit check'        },
+    { id: 'bulk',        icon: <ListChecks   size={16} />, label: 'Generalize Resume',       sub: 'Tailor resume to any job description' },
+    { id: 'resume-vault',icon: <FolderOpen   size={16} />, label: 'Resume Vault',            sub: 'Your saved resume versions', requiresAuth: true },
+    { id: 'referrals',   icon: <UserPlus     size={16} />, label: 'Sifarish',                sub: 'Get referred at top companies', requiresAuth: true },
+    { id: 'profile',     icon: <User         size={16} />, label: 'Profile',                 sub: 'Your skills & resume data',  requiresAuth: true },
     ...(user?.role === 'admin' ? [{ id: 'admin', icon: <ShieldCheck size={16} />, label: 'Admin', sub: 'User & system management', requiresAuth: true }] : []),
   ];
 
@@ -430,6 +431,14 @@ export default function App() {
         )}
 
         {/* ── Job Analyzer tab ──────────────────────────────────── */}
+        {/* ── Jobs (scraper) tab ────────────────────────────────── */}
+        {activeTab === 'job-scraper' && (
+          <TabErrorBoundary>
+            <JobScraperSection />
+          </TabErrorBoundary>
+        )}
+
+        {/* ── Resume Analyzer & Maker tab ───────────────────────── */}
         {activeTab === 'jobs' && <JobAnalyzer />}
 
         {/* ── Bulk Apply tab ────────────────────────────────────── */}
@@ -443,8 +452,7 @@ export default function App() {
           <div className="flex border-b border-gray-200 overflow-x-auto">
             {[
               { id: 'my',         icon: <Users size={14} />,      label: 'My HR List',      desc: 'Manually added & imported contacts'  },
-              { id: 'cold-email', icon: <MailCheck size={14} />,  label: 'Email Outreach', desc: 'Gmail tracking + LinkedIn feed'      },
-              { id: 'job-links',  icon: <Briefcase size={14} />,  label: 'Job Scraper',    desc: 'Scrape LinkedIn, Naukri & more'      },
+              { id: 'cold-email', icon: <MailCheck size={14} />,  label: 'Email Outreach', desc: 'Gmail tracking + LinkedIn feed' },
             ].map(sub => (
               <button
                 key={sub.id}
@@ -467,15 +475,6 @@ export default function App() {
             <div className="p-5 bg-stone-50">
               <TabErrorBoundary>
                 <ColdEmailSection />
-              </TabErrorBoundary>
-            </div>
-          )}
-
-          {/* Job Scraper sub-tab */}
-          {contactSubTab === 'job-links' && (
-            <div className="p-5 bg-stone-50">
-              <TabErrorBoundary>
-                <JobScraperSection />
               </TabErrorBoundary>
             </div>
           )}
