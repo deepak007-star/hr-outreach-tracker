@@ -252,7 +252,7 @@ export default function JobAnalyzer() {
 
       {/* ── Resume Vault suggestion banner ─────────────────────────────────── */}
       {vaultSuggest && !suggestDismiss && (
-        <div className="bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-md px-5 py-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="bg-gradient-to-r from-purple-50 to-brand-50 border border-purple-200 rounded-md px-5 py-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-start gap-3 min-w-0">
             <span className="text-2xl shrink-0">📂</span>
             <div className="min-w-0">
@@ -532,7 +532,7 @@ export default function JobAnalyzer() {
                 </p>
                 <div className="flex gap-2 flex-wrap">
                   <button onClick={handleDownloadPdf}  className="text-xs text-red-600   hover:text-red-800   font-medium border border-red-200   rounded px-2 py-1 hover:bg-red-50   transition">⬇ PDF</button>
-                  <button onClick={handleDownloadWord} className="text-xs text-blue-700  hover:text-blue-900  font-medium border border-blue-200  rounded px-2 py-1 hover:bg-blue-50  transition">⬇ Word</button>
+                  <button onClick={handleDownloadWord} className="text-xs text-brand-700 hover:text-brand-900 font-medium border border-brand-200 rounded px-2 py-1 hover:bg-brand-50 transition">⬇ Word</button>
                   {user && (
                     <button onClick={() => { setSaveVaultLabel(jobTitle || ''); setSaveVaultRole(jobTitle || ''); setShowSaveVault(true); }} className="text-xs text-purple-700 hover:text-purple-900 font-medium border border-purple-200 rounded-sm px-2 py-1 hover:bg-purple-50 transition">Save to Vault</button>
                   )}

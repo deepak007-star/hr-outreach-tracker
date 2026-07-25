@@ -13,7 +13,7 @@ export default function StatsBar({ contacts }) {
       </span>
       <span className="text-gray-200 hidden sm:inline">·</span>
       <span>
-        <span className="font-semibold text-blue-600">{contacted}</span>
+        <span className="font-semibold text-brand-600">{contacted}</span>
         <span className="text-gray-400"> contacted ({pct(contacted)})</span>
       </span>
       <span className="text-gray-200 hidden sm:inline">·</span>

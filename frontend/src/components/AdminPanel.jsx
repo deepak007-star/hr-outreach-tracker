@@ -717,7 +717,7 @@ function UsersSection() {
                     </td>
                     <td className="px-4 py-3.5">
                       <select value={u.plan || 'demo'} onChange={e => changePlan(u.id, e.target.value)}
-                        className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-blue-300 cursor-pointer">
+                        className="text-xs border border-gray-200 rounded-sm px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-brand-300 cursor-pointer">
                         {PLANS.map(p => <option key={p} value={p}>{p}</option>)}
                       </select>
                     </td>

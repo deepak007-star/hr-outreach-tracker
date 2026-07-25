@@ -87,10 +87,10 @@ export default function EarlyAccessBanner() {
       {/* Modal */}
       {open && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm" onClick={closeModal}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-md shadow-modal w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
 
             {/* Header */}
-            <div className="sticky top-0 bg-white border-b px-6 pt-5 pb-4 z-10 rounded-t-2xl">
+            <div className="sticky top-0 bg-white border-b px-6 pt-5 pb-4 z-10 rounded-t-md">
               <div className="flex items-start justify-between">
                 <div>
                   <h3 className="font-extrabold text-gray-900 text-lg">Register Early Interest 🚀</h3>
@@ -122,14 +122,14 @@ export default function EarlyAccessBanner() {
                 </div>
 
                 {/* Contact summary */}
-                <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 text-left space-y-2.5 text-sm">
+                <div className="bg-gray-50 border border-gray-200 rounded-md p-4 text-left space-y-2.5 text-sm">
                   <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Your Submission</p>
                   <div className="flex items-center gap-2"><span className="w-5 text-center">👤</span><span className="font-semibold text-gray-800">{form.name}</span></div>
                   <div className="flex items-center gap-2"><span className="w-5 text-center">✉️</span><span className="text-gray-600">{form.email}</span></div>
                   {form.mobile        && <div className="flex items-center gap-2"><span className="w-5 text-center">📞</span><span className="text-gray-600">{form.mobile}</span></div>}
-                  {form.linkedin_url  && <div className="flex items-center gap-2"><span className="w-5 text-center">💼</span><a href={form.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline truncate">{form.linkedin_url}</a></div>}
+                  {form.linkedin_url  && <div className="flex items-center gap-2"><span className="w-5 text-center">💼</span><a href={form.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-brand-600 hover:underline truncate">{form.linkedin_url}</a></div>}
                   {form.twitter_handle && <div className="flex items-center gap-2"><span className="w-5 text-center">🐦</span><span className="text-gray-600">@{form.twitter_handle}</span></div>}
-                  {form.github_url    && <div className="flex items-center gap-2"><span className="w-5 text-center">🐙</span><a href={`https://github.com/${form.github_url}`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">github.com/{form.github_url}</a></div>}
+                  {form.github_url    && <div className="flex items-center gap-2"><span className="w-5 text-center">🐙</span><a href={`https://github.com/${form.github_url}`} target="_blank" rel="noopener noreferrer" className="text-brand-600 hover:underline">github.com/{form.github_url}</a></div>}
                   {form.preferred_contact && (
                     <div className="flex items-center gap-2">
                       <span className="w-5 text-center">📌</span>

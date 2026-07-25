@@ -411,7 +411,7 @@ export default function BulkJobAnalyzer() {
                 <p className="text-xs font-bold text-gray-700 uppercase tracking-wide">Generalized Resume Preview</p>
                 <div className="flex gap-2 flex-wrap">
                   <button onClick={() => downloadAsPdf(modifiedText,  'bulk_resume')} className="text-xs text-red-600  hover:text-red-800  font-medium border border-red-200  rounded px-2 py-1 hover:bg-red-50  transition">⬇ PDF</button>
-                  <button onClick={() => downloadAsWord(modifiedText, 'bulk_resume')} className="text-xs text-blue-700 hover:text-blue-900 font-medium border border-blue-200 rounded px-2 py-1 hover:bg-blue-50 transition">⬇ Word</button>
+                  <button onClick={() => downloadAsWord(modifiedText, 'bulk_resume')} className="text-xs text-brand-700 hover:text-brand-900 font-medium border border-brand-200 rounded px-2 py-1 hover:bg-brand-50 transition">⬇ Word</button>
                 </div>
               </div>
               <p className="text-xs text-gray-400">✨ Green highlights show exactly where each skill was inserted in your resume</p>

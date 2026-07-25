@@ -186,14 +186,14 @@ export default function JobScraperSection() {
   return (
     <div className="space-y-4">
       {/* Category dropdown */}
-      <div className="bg-white border rounded-2xl p-4 flex flex-wrap items-center gap-4">
+      <div className="bg-white border rounded-md p-4 flex flex-wrap items-center gap-4">
         <div className="flex-1 min-w-48">
           <label className="text-xs font-semibold text-gray-500 block mb-1">Job Category</label>
           <div className="relative">
             <select
               value={activeCat}
               onChange={e => setActiveCat(e.target.value)}
-              className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm font-semibold bg-white focus:ring-2 focus:ring-blue-300 outline-none appearance-none cursor-pointer"
+              className="w-full border border-gray-300 rounded-sm px-4 py-2.5 text-sm font-semibold bg-white focus:ring-2 focus:ring-brand-300 outline-none appearance-none cursor-pointer"
             >
               {CATEGORIES.map(c => (
                 <option key={c.id} value={c.id} disabled={c.comingSoon}>
@@ -211,7 +211,7 @@ export default function JobScraperSection() {
           <select
             value={since}
             onChange={e => setSince(e.target.value)}
-            className="border border-gray-300 rounded-xl px-3 py-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-300 outline-none"
+            className="border border-gray-300 rounded-sm px-3 py-2.5 text-sm bg-white focus:ring-2 focus:ring-brand-300 outline-none"
           >
             {SINCE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
@@ -222,7 +222,7 @@ export default function JobScraperSection() {
           <select
             value={limit}
             onChange={e => setLimit(parseInt(e.target.value))}
-            className="border border-gray-300 rounded-xl px-3 py-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-300 outline-none"
+            className="border border-gray-300 rounded-sm px-3 py-2.5 text-sm bg-white focus:ring-2 focus:ring-brand-300 outline-none"
           >
             {LIMIT_OPTIONS.map(l => <option key={l} value={l}>{l} jobs</option>)}
           </select>
@@ -235,20 +235,20 @@ export default function JobScraperSection() {
             placeholder={profile ? `Defaults: ${buildTitlesFromProfile(profile, '').join(', ')}` : 'e.g. React Developer'}
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+            className="w-full border border-gray-300 rounded-sm px-3 py-2.5 text-sm focus:ring-2 focus:ring-brand-300 outline-none"
           />
         </div>
 
         <div className="flex flex-col gap-1.5 pt-5">
           {cat.comingSoon ? (
-            <span className="px-5 py-2.5 bg-gray-200 text-gray-500 rounded-xl text-sm font-semibold cursor-not-allowed">
+            <span className="px-5 py-2.5 bg-gray-200 text-gray-500 rounded-sm text-sm font-semibold cursor-not-allowed">
               Coming Soon
             </span>
           ) : user?.role === 'admin' ? (
             <button
               onClick={runAllScrapers}
               disabled={scraping}
-              className="px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+              className="px-5 py-2.5 bg-brand-600 text-white rounded-sm text-sm font-semibold hover:bg-brand-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
             >
               {scraping ? '⏳ Scraping…' : '🔍 Scrape Now (admin)'}
             </button>
@@ -256,7 +256,7 @@ export default function JobScraperSection() {
           <button
             onClick={fetchJobs}
             disabled={loading}
-            className="px-4 py-1.5 border border-gray-300 text-gray-600 rounded-xl text-xs font-medium hover:bg-gray-50 transition-colors"
+            className="px-4 py-1.5 border border-gray-300 text-gray-600 rounded-sm text-xs font-medium hover:bg-gray-50 transition-colors"
           >
             🔄 Refresh
           </button>
@@ -265,7 +265,7 @@ export default function JobScraperSection() {
 
       {/* Profile preferences hint */}
       {profile && !search && (
-        <div className="flex items-center gap-2 text-xs text-gray-500 bg-blue-50 border border-blue-100 rounded-xl px-3 py-2">
+        <div className="flex items-center gap-2 text-xs text-gray-500 bg-brand-50 border border-brand-100 rounded-sm px-3 py-2">
           <span>💡</span>
           <span>
             Showing jobs matching your profile preferences:{' '}
@@ -277,7 +277,7 @@ export default function JobScraperSection() {
 
       {/* Scraper logs */}
       {showLogs && (
-        <details open className="bg-gray-900 rounded-xl overflow-hidden">
+        <details open className="bg-gray-900 rounded-md overflow-hidden">
           <summary className="px-4 py-2.5 text-sm text-gray-300 font-mono cursor-pointer hover:bg-gray-800 flex items-center justify-between">
             <span>🖥️ Scraper Output</span>
             <button onClick={() => setShowLogs(false)} className="text-gray-500 hover:text-gray-300 text-xs ml-2">✕</button>
@@ -306,7 +306,7 @@ export default function JobScraperSection() {
               <button
                 onClick={() => setPage(p => Math.max(1, p - 1))}
                 disabled={page === 1}
-                className="px-3 py-1.5 text-xs border rounded-lg hover:bg-gray-50 disabled:opacity-40"
+                className="px-3 py-1.5 text-xs border rounded-sm hover:bg-gray-50 disabled:opacity-40"
               >
                 ← Prev
               </button>
@@ -314,7 +314,7 @@ export default function JobScraperSection() {
               <button
                 onClick={() => setPage(p => Math.min(pages, p + 1))}
                 disabled={page === pages}
-                className="px-3 py-1.5 text-xs border rounded-lg hover:bg-gray-50 disabled:opacity-40"
+                className="px-3 py-1.5 text-xs border rounded-sm hover:bg-gray-50 disabled:opacity-40"
               >
                 Next →
               </button>
@@ -333,7 +333,7 @@ export default function JobScraperSection() {
       ) : loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
           {[1,2,3,4,5,6].map(i => (
-            <div key={i} className="h-48 bg-gray-100 animate-pulse rounded-xl" />
+            <div key={i} className="h-48 bg-gray-100 animate-pulse rounded-md" />
           ))}
         </div>
       ) : jobs.length === 0 ? (

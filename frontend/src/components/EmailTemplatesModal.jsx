@@ -264,7 +264,7 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
       />
     )}
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl flex flex-col w-full max-w-5xl h-[90vh] overflow-hidden">
+      <div className="bg-white rounded-md shadow-modal flex flex-col w-full max-w-5xl h-[90vh] overflow-hidden">
 
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b bg-gray-50 shrink-0">
@@ -297,12 +297,12 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Search templates…"
-                className="w-full border rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-300 outline-none bg-white"
+                className="w-full border rounded-sm px-3 py-1.5 text-sm focus:ring-2 focus:ring-brand-300 outline-none bg-white"
               />
               {mode === 'manage' && (
                 <button
                   onClick={newTemplate}
-                  className="w-full px-3 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition"
+                  className="w-full px-3 py-2 bg-brand-600 text-white text-sm font-semibold rounded-sm hover:bg-brand-700 transition"
                 >
                   + New Template
                 </button>
@@ -317,7 +317,7 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
                   onClick={() => setCategory(c.id)}
                   className={`text-xs px-2.5 py-1 rounded-full whitespace-nowrap font-medium transition ${
                     category === c.id
-                      ? 'bg-blue-600 text-white'
+                      ? 'bg-brand-600 text-white'
                       : 'bg-white border text-gray-600 hover:bg-gray-100'
                   }`}
                 >
@@ -339,7 +339,7 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
                     onClick={() => openTemplate(t)}
                     className={`px-4 py-3 border-b cursor-pointer transition-colors ${
                       selected?.id === t.id
-                        ? 'bg-blue-50 border-l-2 border-l-blue-500'
+                        ? 'bg-brand-50 border-l-2 border-l-brand-500'
                         : 'hover:bg-white'
                     }`}
                   >
@@ -355,11 +355,11 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
                           <p className="text-[11px] text-gray-400 truncate mt-0.5">{t.subject}</p>
                         )}
                         {t.category && t.category !== 'general' && (
-                          <span className="text-[10px] text-blue-500">{t.category}</span>
+                          <span className="text-[10px] text-brand-500">{t.category}</span>
                         )}
                       </div>
                       {t.is_default === 1 && (
-                        <span className="text-[9px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full font-bold shrink-0">SYS</span>
+                        <span className="text-[9px] bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full font-bold shrink-0">SYS</span>
                       )}
                     </div>
                     {mode === 'manage' && (
@@ -396,7 +396,7 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
                       onChange={e => handleFormChange('name', e.target.value)}
                       disabled={mode === 'select'}
                       placeholder="e.g. Cold Outreach — Backend Developer"
-                      className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none disabled:bg-gray-50 disabled:text-gray-500"
+                      className="w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none disabled:bg-gray-50 disabled:text-gray-500"
                     />
                   </div>
 
@@ -408,7 +408,7 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
                       onChange={e => handleFormChange('subject', e.target.value)}
                       disabled={mode === 'select' || previewMode}
                       placeholder="Hi {{name}}, exploring roles at {{company}}"
-                      className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none disabled:bg-gray-50 disabled:text-gray-500"
+                      className="w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none disabled:bg-gray-50 disabled:text-gray-500"
                     />
                   </div>
 
@@ -449,7 +449,7 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
                           <button
                             key={v.key}
                             onMouseDown={e => { e.preventDefault(); insertVar(v.key); }}
-                            className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-full hover:bg-indigo-100 font-mono"
+                            className="text-xs bg-brand-50 text-brand-700 border border-brand-200 px-2 py-0.5 rounded-full hover:bg-brand-100 font-mono"
                             title={v.label}
                           >
                             {v.key}
@@ -459,7 +459,7 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
 
                       {/* Profile summary line */}
                       {profile && (
-                        <div className="mt-2 text-xs text-gray-500 bg-gray-100 rounded-lg px-3 py-2 flex flex-wrap gap-x-3 gap-y-1">
+                        <div className="mt-2 text-xs text-gray-500 bg-gray-100 rounded-sm px-3 py-2 flex flex-wrap gap-x-3 gap-y-1">
                           {profile.current_title && <span><strong>{profile.current_title}</strong></span>}
                           {profile.total_experience && <span>{profile.total_experience}</span>}
                           {profile.notice_period && <span>Notice: {profile.notice_period}</span>}
@@ -512,7 +512,7 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
                     </span>
                     {selectAttachment ? (
                       <div className="flex items-center gap-2 flex-1 min-w-0">
-                        <span className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded px-2 py-0.5 truncate flex-1">
+                        <span className="text-xs text-brand-700 bg-brand-50 border border-brand-200 rounded px-2 py-0.5 truncate flex-1">
                           {selectAttachment.label}
                           {selectAttachment.type === 'local' && ' (not saved)'}
                         </span>
@@ -521,7 +521,7 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
                     ) : (
                       <button
                         onClick={() => setShowAttachPicker(true)}
-                        className="text-xs px-2.5 py-1 border border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-blue-400 hover:text-blue-600 transition"
+                        className="text-xs px-2.5 py-1 border border-dashed border-gray-300 rounded-sm text-gray-500 hover:border-brand-400 hover:text-brand-600 transition"
                       >
                         + Pick resume
                       </button>
@@ -535,7 +535,7 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
                       </span>
                       <button
                         onClick={() => handleSelect({ subject: form.subject, body: form.body })}
-                        className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition"
+                        className="px-5 py-2 bg-brand-600 text-white text-sm font-semibold rounded-sm hover:bg-brand-700 transition"
                       >
                         Use this Template →
                       </button>
@@ -548,7 +548,7 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
                       <button
                         onClick={handleSave}
                         disabled={saving || !dirty}
-                        className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 transition"
+                        className="px-5 py-2 bg-brand-600 text-white text-sm font-semibold rounded-sm hover:bg-brand-700 disabled:opacity-50 transition"
                       >
                         {saving ? 'Saving…' : 'Save Template'}
                       </button>

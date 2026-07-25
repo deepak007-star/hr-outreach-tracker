@@ -9,7 +9,7 @@ const AVATAR_COLORS = [
   'bg-orange-500', 'bg-pink-500', 'bg-indigo-500', 'bg-teal-500',
 ];
 const TAG_COLORS = [
-  'bg-blue-50 text-blue-700 border border-blue-100',
+  'bg-brand-50 text-brand-700 border border-brand-100',
   'bg-purple-50 text-purple-700 border border-purple-100',
   'bg-green-50 text-green-700 border border-green-100',
   'bg-orange-50 text-orange-700 border border-orange-100',
@@ -91,7 +91,7 @@ function ComposeModal({ target, myUser, myProfile, limit, remaining, onClose, on
             <p className="text-sm text-gray-500 truncate">
               To: <span className="font-medium text-gray-700">{target.name}</span>
               {' '}·{' '}
-              <span className="text-blue-600">{target.email}</span>
+              <span className="text-brand-600">{target.email}</span>
             </p>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors p-1"><X size={18} /></button>
@@ -213,7 +213,7 @@ function UserCard({ user, onAsk, sent, limit }) {
           href={user.linkedin_url}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-xs text-center text-blue-500 hover:underline"
+          className="text-xs text-center text-brand-500 hover:underline"
         >
           View LinkedIn →
         </a>
@@ -429,7 +429,7 @@ export default function AskReferral() {
                       {r.from_company && <span className="text-xs text-gray-400">@ {r.from_company}</span>}
                       <span className="text-xs text-gray-400 ml-auto">{r.created_at?.slice(0, 10)}</span>
                     </div>
-                    <p className="text-xs text-blue-600 mb-2">From: {r.from_email}</p>
+                    <p className="text-xs text-brand-600 mb-2">From: {r.from_email}</p>
                     {r.subject && <p className="text-sm font-medium text-gray-700 mb-1">{r.subject}</p>}
                     <p className="text-sm text-gray-600 whitespace-pre-wrap line-clamp-4">{r.message}</p>
                   </div>

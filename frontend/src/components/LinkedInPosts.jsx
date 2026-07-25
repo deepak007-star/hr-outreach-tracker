@@ -59,7 +59,7 @@ function BulkEmailModal({ contacts, onClose, onSent }) {
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
          onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+      <div className="bg-white rounded-md shadow-modal w-full max-w-2xl max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <div>
             <h2 className="font-semibold text-gray-900">✉ Compose Emails</h2>
@@ -70,28 +70,28 @@ function BulkEmailModal({ contacts, onClose, onSent }) {
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
           <div>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">To</p>
-            <div className="flex flex-wrap gap-1.5 bg-gray-50 rounded-lg border p-2 max-h-20 overflow-y-auto">
+            <div className="flex flex-wrap gap-1.5 bg-gray-50 rounded-sm border p-2 max-h-20 overflow-y-auto">
               {contacts.map(c => (
-                <span key={c.id} className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">{c.contact_email}</span>
+                <span key={c.id} className="text-xs bg-brand-100 text-brand-800 px-2 py-0.5 rounded-full">{c.contact_email}</span>
               ))}
             </div>
           </div>
           <div>
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Subject</label>
             <input value={subject} onChange={e => setSubject(e.target.value)}
-                   className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none" />
+                   className="w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none" />
           </div>
           <div>
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Message</label>
             <textarea value={body} onChange={e => setBody(e.target.value)} rows={10}
-                      className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none resize-none font-mono leading-relaxed" />
+                      className="w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none resize-none font-mono leading-relaxed" />
           </div>
           <p className="text-xs text-gray-400">Each recipient gets their own individual email — not CC/BCC.</p>
         </div>
-        <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50 rounded-b-2xl">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 border rounded-lg hover:bg-gray-100">Cancel</button>
+        <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50 rounded-b-md">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 border rounded-sm hover:bg-gray-100">Cancel</button>
           <button onClick={handleSend} disabled={sending || !subject.trim() || !body.trim()}
-                  className="px-5 py-2 text-sm font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                  className="px-5 py-2 text-sm font-semibold bg-brand-600 text-white rounded-sm hover:bg-brand-700 disabled:opacity-50">
             {sending ? 'Sending…' : `✉ Send ${contacts.length} Email${contacts.length !== 1 ? 's' : ''}`}
           </button>
         </div>
@@ -125,16 +125,16 @@ function PostCard({ post, selected, onSelect, onWorkflow, onSingleEmail, onStatu
   const isScraper = post.source === 'scraper' || post.source === 'both';
 
   return (
-    <div className={`bg-white border rounded-xl p-4 space-y-3 transition-all hover:shadow-md ${
-      selected ? 'border-blue-400 bg-blue-50/30 ring-1 ring-blue-300' :
-      post.emailed_now ? 'border-green-300' : 'hover:border-blue-200'
+    <div className={`bg-white border rounded-md p-4 space-y-3 transition-all hover:shadow-md ${
+      selected ? 'border-brand-400 bg-brand-50/30 ring-1 ring-brand-300' :
+      post.emailed_now ? 'border-green-300' : 'hover:border-brand-200'
     }`}>
 
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="flex items-start gap-2">
         {post.contact_email && (
           <input type="checkbox" checked={selected} onChange={() => onSelect(post)}
-                 className="mt-1 rounded accent-blue-600 cursor-pointer shrink-0" />
+                 className="mt-1 rounded accent-brand-600 cursor-pointer shrink-0" />
         )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center flex-wrap gap-1.5">
@@ -164,7 +164,7 @@ function PostCard({ post, selected, onSelect, onWorkflow, onSingleEmail, onStatu
         </div>
         {post.link && (
           <a href={post.link} target="_blank" rel="noopener noreferrer"
-             className="text-xs text-blue-500 hover:text-blue-700 shrink-0 whitespace-nowrap">
+             className="text-xs text-brand-500 hover:text-brand-700 shrink-0 whitespace-nowrap">
             View →
           </a>
         )}
@@ -173,7 +173,7 @@ function PostCard({ post, selected, onSelect, onWorkflow, onSingleEmail, onStatu
       {/* ── Author (apify) ────────────────────────────────────────────────── */}
       {isApify && post.author_name && (
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center text-xs font-bold text-indigo-700 shrink-0">
+          <div className="w-7 h-7 rounded-full bg-brand-100 flex items-center justify-center text-xs font-bold text-brand-700 shrink-0">
             {post.author_name[0]?.toUpperCase() || '?'}
           </div>
           <div className="min-w-0">
@@ -211,13 +211,13 @@ function PostCard({ post, selected, onSelect, onWorkflow, onSingleEmail, onStatu
         <div className="space-y-1.5 border-t pt-2">
           {emails.map(email => (
             <div key={email} className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs text-blue-600 font-medium">✉ {email}</span>
+              <span className="text-xs text-brand-600 font-medium">✉ {email}</span>
               <button onClick={() => { navigator.clipboard.writeText(email); toast.success('Copied!'); }}
                       className="text-[11px] text-gray-400 hover:text-gray-600 border border-gray-200 rounded px-1.5 py-0.5 hover:bg-gray-50">
                 Copy
               </button>
               <button onClick={() => onSingleEmail({ ...post, contact_email: email })}
-                      className="text-[11px] bg-blue-600 text-white rounded px-2 py-0.5 hover:bg-blue-700 font-medium">
+                      className="text-[11px] bg-brand-600 text-white rounded px-2 py-0.5 hover:bg-brand-700 font-medium">
                 Email
               </button>
             </div>
@@ -254,7 +254,7 @@ function PostCard({ post, selected, onSelect, onWorkflow, onSingleEmail, onStatu
       <div className="flex items-center gap-2 flex-wrap border-t pt-2">
         {isApify && (
           <button onClick={() => onWorkflow(post)}
-                  className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition">
+                  className="px-3 py-1.5 bg-brand-600 text-white text-xs font-semibold rounded-sm hover:bg-brand-700 transition">
             Work →
           </button>
         )}
@@ -262,7 +262,7 @@ function PostCard({ post, selected, onSelect, onWorkflow, onSingleEmail, onStatu
           <select
             value={post.status}
             onChange={e => onStatusChange(post.id, e.target.value)}
-            className="text-xs border rounded-lg px-2 py-1.5 focus:ring-1 focus:ring-blue-300 outline-none bg-white cursor-pointer"
+            className="text-xs border rounded-sm px-2 py-1.5 focus:ring-1 focus:ring-brand-300 outline-none bg-white cursor-pointer"
           >
             {Object.keys(STATUS_COLORS).map(s => (
               <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
@@ -483,13 +483,13 @@ export default function LinkedInPosts() {
       <div className="flex flex-wrap gap-3 items-center">
         <input type="text" placeholder="Search title, company, email…"
                value={search} onChange={e => setSearch(e.target.value)}
-               className="border rounded-lg px-3 py-2 text-sm w-64 focus:ring-2 focus:ring-blue-300 outline-none bg-white" />
+               className="border rounded-sm px-3 py-2 text-sm w-64 focus:ring-2 focus:ring-brand-300 outline-none bg-white" />
         <select value={since} onChange={e => setSince(e.target.value)}
-                className="border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none bg-white">
+                className="border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none bg-white">
           {SINCE_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
         <select value={minMatch} onChange={e => setMinMatch(Number(e.target.value))}
-                className="border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none bg-white">
+                className="border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none bg-white">
           {MATCH_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
         <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer select-none">
@@ -502,18 +502,18 @@ export default function LinkedInPosts() {
             {posts.length} posts · {withEmail} email · {phoneOnly} phone
             {includeApify && apifyOnly > 0 ? ` · ${apifyOnly} Apify` : ''}
           </span>
-          <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none border rounded-lg px-2.5 py-1.5 hover:bg-gray-50 transition-colors">
-            <input type="checkbox" checked={includeApify} onChange={e => setIncludeApify(e.target.checked)} className="rounded accent-blue-600" />
+          <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none border rounded-sm px-2.5 py-1.5 hover:bg-gray-50 transition-colors">
+            <input type="checkbox" checked={includeApify} onChange={e => setIncludeApify(e.target.checked)} className="rounded accent-brand-600" />
             Include Apify posts
           </label>
           {isAdmin && (
             <input type="text" placeholder="Custom keywords (comma-separated)…"
                    value={customKeywords} onChange={e => setCustomKeywords(e.target.value)}
                    title="Overrides your profile's target roles for this scrape only"
-                   className="border rounded-lg px-2.5 py-1.5 text-xs w-52 focus:ring-2 focus:ring-blue-300 outline-none bg-white" />
+                   className="border rounded-sm px-2.5 py-1.5 text-xs w-52 focus:ring-2 focus:ring-brand-300 outline-none bg-white" />
           )}
           <button onClick={runScraper} disabled={scraping}
-                  className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 transition">
+                  className="px-4 py-2 bg-brand-600 text-white text-sm font-semibold rounded-sm hover:bg-brand-700 disabled:opacity-50 transition">
             {scraping ? '⏳ Scraping…' : isAdmin ? '🔍 Scrape Now (admin)' : '🔍 Find My Matches'}
           </button>
         </div>
@@ -528,7 +528,7 @@ export default function LinkedInPosts() {
       )}
       {!search && (
         matchedTerms.length > 0 ? (
-          <div className="flex items-center gap-2 flex-wrap text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+          <div className="flex items-center gap-2 flex-wrap text-xs text-brand-700 bg-brand-50 border border-brand-200 rounded-sm px-3 py-2">
             <span>Showing posts matching your target roles: <strong>{matchedTerms.join(', ')}</strong></span>
             <button onClick={() => setShowAllRoles(v => !v)} className="ml-auto underline hover:no-underline font-medium shrink-0">
               {showAllRoles ? 'Back to my matches' : 'Show all roles instead'}
@@ -543,7 +543,7 @@ export default function LinkedInPosts() {
 
       {/* ── Log panel ────────────────────────────────────────────────────── */}
       {showLogs && (
-        <div className="bg-gray-900 rounded-xl border border-gray-700 p-4 space-y-1 max-h-48 overflow-y-auto">
+        <div className="bg-gray-900 rounded-md border border-gray-700 p-4 space-y-1 max-h-48 overflow-y-auto">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-gray-400">Scraper Output</span>
             <button onClick={() => setShowLogs(false)} className="text-gray-500 hover:text-gray-300 text-xs">Hide</button>
@@ -557,7 +557,7 @@ export default function LinkedInPosts() {
 
       {/* ── Empty state ───────────────────────────────────────────────────── */}
       {!loading && posts.length === 0 && (
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 text-center space-y-3">
+        <div className="bg-brand-50 border border-brand-200 rounded-md p-6 text-center space-y-3">
           <p className="text-3xl">💼</p>
           <p className="font-semibold text-gray-800">No posts in this range yet</p>
           <p className="text-sm text-gray-500">
@@ -567,7 +567,7 @@ export default function LinkedInPosts() {
             Try a wider date range above, click below to search now, or check back after the next morning refresh.
           </p>
           <button onClick={runScraper} disabled={scraping}
-                  className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                  className="px-5 py-2 bg-brand-600 text-white text-sm font-semibold rounded-sm hover:bg-brand-700 disabled:opacity-50">
             {scraping ? '⏳ Scraping…' : isAdmin ? '🔍 Scrape Now (admin)' : '🔍 Find My Matches'}
           </button>
           {!isAdmin && (
@@ -579,14 +579,14 @@ export default function LinkedInPosts() {
       {/* ── Filter + bulk select bar ──────────────────────────────────────── */}
       {!loading && posts.length > 0 && (
         <div className="flex flex-wrap items-center gap-3">
-          <div className="flex rounded-lg border overflow-hidden text-xs font-medium">
+          <div className="flex rounded-sm border overflow-hidden text-xs font-medium">
             {[
               { id: 'all',   label: `All (${posts.length})`  },
               { id: 'email', label: `✉ Email (${withEmail})` },
               { id: 'phone', label: `📱 Phone (${phoneOnly})` },
             ].map(f => (
               <button key={f.id} onClick={() => setFilter(f.id)}
-                      className={`px-3 py-2 transition-colors ${filter === f.id ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+                      className={`px-3 py-2 transition-colors ${filter === f.id ? 'bg-brand-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
                 {f.label}
               </button>
             ))}
@@ -595,14 +595,14 @@ export default function LinkedInPosts() {
           {emailPosts.length > 0 && (
             <>
               <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
-                <input type="checkbox" className="rounded accent-blue-600"
+                <input type="checkbox" className="rounded accent-brand-600"
                        checked={emailPosts.every(p => selected.has(p.id))}
                        onChange={toggleAll} />
                 Select all with email
               </label>
               {selected.size > 0 && (
                 <button onClick={() => setComposeTo('bulk')}
-                        className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700">
+                        className="px-4 py-2 bg-brand-600 text-white text-sm font-semibold rounded-sm hover:bg-brand-700">
                   ✉ Email {selected.size} selected
                 </button>
               )}
@@ -614,7 +614,7 @@ export default function LinkedInPosts() {
       {/* ── Cards grid ────────────────────────────────────────────────────── */}
       {loading ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {[1, 2, 3, 4].map(i => <div key={i} className="h-44 bg-gray-100 animate-pulse rounded-xl" />)}
+          {[1, 2, 3, 4].map(i => <div key={i} className="h-44 bg-gray-100 animate-pulse rounded-md" />)}
         </div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-10 text-gray-400 text-sm">No posts match this filter.</div>

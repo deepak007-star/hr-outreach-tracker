@@ -100,7 +100,7 @@ export default function ResumeTemplateModal({ onClose, onSaved }) {
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl flex flex-col w-full max-w-5xl h-[90vh] overflow-hidden">
+      <div className="bg-white rounded-md shadow-modal flex flex-col w-full max-w-5xl h-[90vh] overflow-hidden">
 
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b bg-gray-50 shrink-0">
@@ -125,10 +125,10 @@ export default function ResumeTemplateModal({ onClose, onSaved }) {
                   <button
                     key={t.id}
                     onClick={() => openBuiltin(t)}
-                    className={`text-left rounded-xl border p-3 transition-all hover:shadow-md ${
+                    className={`text-left rounded-sm border p-3 transition-all hover:shadow-md ${
                       selected?._builtin && selected?.id === t.id
-                        ? 'bg-blue-600 text-white border-blue-600 shadow-md'
-                        : 'bg-white border-gray-200 hover:border-blue-300'
+                        ? 'bg-brand-600 text-white border-brand-600 shadow-md'
+                        : 'bg-white border-gray-200 hover:border-brand-300'
                     }`}
                   >
                     <div className="text-xl mb-1">{t.icon}</div>
@@ -156,7 +156,7 @@ export default function ResumeTemplateModal({ onClose, onSaved }) {
                   <button
                     onClick={() => uploadRef.current?.click()}
                     disabled={uploading}
-                    className="text-[10px] px-2 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition font-semibold"
+                    className="text-[10px] px-2 py-1 bg-brand-600 text-white rounded-sm hover:bg-brand-700 disabled:opacity-50 transition font-semibold"
                   >
                     {uploading ? 'Uploading…' : '+ Upload'}
                   </button>
@@ -172,7 +172,7 @@ export default function ResumeTemplateModal({ onClose, onSaved }) {
                   {userTemplates.map(v => (
                     <div
                       key={v.id}
-                      className={`flex items-center gap-2 rounded-xl border px-3 py-2 transition cursor-pointer ${
+                      className={`flex items-center gap-2 rounded-sm border px-3 py-2 transition cursor-pointer ${
                         selected?._user && selected?.id === v.id
                           ? 'bg-green-600 text-white border-green-600'
                           : 'bg-white border-gray-200 hover:border-green-400 hover:bg-green-50'
@@ -239,7 +239,7 @@ export default function ResumeTemplateModal({ onClose, onSaved }) {
                   {isBuiltin && (
                     <button
                       onClick={() => setEditText(selected.template)}
-                      className="px-3 py-2 text-xs border rounded-lg hover:bg-gray-50 text-gray-600 transition"
+                      className="px-3 py-2 text-xs border rounded-sm hover:bg-gray-50 text-gray-600 transition"
                     >
                       Reset
                     </button>
@@ -247,7 +247,7 @@ export default function ResumeTemplateModal({ onClose, onSaved }) {
                   <button
                     onClick={handleUse}
                     disabled={saving || !user || !editText.trim()}
-                    className="px-5 py-2 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700 disabled:opacity-50 transition"
+                    className="px-5 py-2 bg-green-600 text-white text-sm font-semibold rounded-sm hover:bg-green-700 disabled:opacity-50 transition"
                   >
                     {saving ? 'Saving…' : user ? 'Save to Profile' : 'Login to Save'}
                   </button>

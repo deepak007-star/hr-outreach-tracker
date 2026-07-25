@@ -50,7 +50,7 @@ function ComposeModal({ contacts, onClose, onSent }) {
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
          onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+      <div className="bg-white rounded-md shadow-modal w-full max-w-2xl max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <div>
             <h2 className="font-semibold text-gray-900">✉ Compose Emails</h2>
@@ -64,9 +64,9 @@ function ComposeModal({ contacts, onClose, onSent }) {
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
           <div>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">To</p>
-            <div className="flex flex-wrap gap-1.5 bg-gray-50 rounded-lg border p-2 max-h-20 overflow-y-auto">
+            <div className="flex flex-wrap gap-1.5 bg-gray-50 rounded-sm border p-2 max-h-20 overflow-y-auto">
               {contacts.map(c => (
-                <span key={c.contact_email} className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                <span key={c.contact_email} className="text-xs bg-brand-100 text-brand-800 px-2 py-0.5 rounded-full">
                   {c.contact_email}
                 </span>
               ))}
@@ -75,20 +75,20 @@ function ComposeModal({ contacts, onClose, onSent }) {
           <div>
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Subject</label>
             <input value={subject} onChange={e => setSubject(e.target.value)}
-                   className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none" />
+                   className="w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none" />
           </div>
           <div>
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Message</label>
             <textarea value={body} onChange={e => setBody(e.target.value)} rows={10}
-                      className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none resize-none font-mono leading-relaxed" />
+                      className="w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none resize-none font-mono leading-relaxed" />
           </div>
           <p className="text-xs text-gray-400">Each recipient gets their own individual email — not CC/BCC.</p>
         </div>
 
-        <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50 rounded-b-2xl">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 border rounded-lg hover:bg-gray-100 transition-colors">Cancel</button>
+        <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50 rounded-b-md">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 border rounded-sm hover:bg-gray-100 transition-colors">Cancel</button>
           <button onClick={handleSend} disabled={sending || !subject.trim() || !body.trim()}
-                  className="px-5 py-2 text-sm font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
+                  className="px-5 py-2 text-sm font-semibold bg-brand-600 text-white rounded-sm hover:bg-brand-700 disabled:opacity-50 transition-colors">
             {sending ? 'Sending…' : `✉ Send ${contacts.length} Email${contacts.length !== 1 ? 's' : ''}`}
           </button>
         </div>
@@ -209,7 +209,7 @@ export default function FeedContactsPanel() {
                 onClick={() => setFilterTab(t.id)}
                 className={`px-3 py-1.5 text-xs font-medium transition ${
                   filterTab === t.id
-                    ? 'bg-blue-600 text-white'
+                    ? 'bg-brand-600 text-white'
                     : 'bg-white text-gray-600 hover:bg-gray-50'
                 }`}>
                 {t.label}
@@ -221,12 +221,12 @@ export default function FeedContactsPanel() {
 
         <div className="flex items-center gap-2">
           <select value={since} onChange={e => setSince(e.target.value)}
-                  className="border rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-blue-300 outline-none bg-white">
+                  className="border rounded-sm px-2 py-1.5 text-xs focus:ring-2 focus:ring-brand-300 outline-none bg-white">
             {SINCE_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
           <input type="text" placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)}
-                 className="border rounded-lg px-3 py-1.5 text-xs w-40 focus:ring-2 focus:ring-blue-300 outline-none" />
-          <button onClick={() => fetchContacts()} className="text-xs text-gray-500 border rounded-lg px-2 py-1.5 hover:bg-gray-50">
+                 className="border rounded-sm px-3 py-1.5 text-xs w-40 focus:ring-2 focus:ring-brand-300 outline-none" />
+          <button onClick={() => fetchContacts()} className="text-xs text-gray-500 border rounded-sm px-2 py-1.5 hover:bg-gray-50">
             ↻ Refresh
           </button>
         </div>
@@ -240,14 +240,14 @@ export default function FeedContactsPanel() {
               type="checkbox"
               checked={pendingContacts.every(c => selected.has(c.contact_email))}
               onChange={toggleAll}
-              className="rounded accent-blue-600"
+              className="rounded accent-brand-600"
             />
             Select all ({pendingContacts.length} not emailed)
           </label>
           {selected.size > 0 && (
             <button
               onClick={() => setComposeTo(selectedContacts)}
-              className="px-4 py-1.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition"
+              className="px-4 py-1.5 bg-brand-600 text-white text-sm font-semibold rounded-sm hover:bg-brand-700 transition"
             >
               ✉ Email {selected.size} selected
             </button>
@@ -259,7 +259,7 @@ export default function FeedContactsPanel() {
       <div className="space-y-2">
         {filteredContacts.map(c => (
           <div key={c.id}
-               className={`bg-white border rounded-xl px-4 py-3 flex items-center gap-3 hover:shadow-sm transition-shadow ${
+               className={`bg-white border rounded-md px-4 py-3 flex items-center gap-3 hover:shadow-sm transition-shadow ${
                  c.just_sent || c.already_emailed ? 'opacity-75' : ''
                }`}>
             {!c.already_emailed && (
@@ -275,7 +275,7 @@ export default function FeedContactsPanel() {
             )}
 
             {/* Avatar */}
-            <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-sm font-bold text-blue-700 shrink-0">
+            <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-sm font-bold text-brand-700 shrink-0">
               {(c.company?.[0] || c.contact_email?.[0] || '?').toUpperCase()}
             </div>
 
@@ -301,14 +301,14 @@ export default function FeedContactsPanel() {
               ) : (
                 <button
                   onClick={() => setComposeTo([c])}
-                  className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition"
+                  className="px-3 py-1.5 bg-brand-600 text-white text-xs font-semibold rounded-sm hover:bg-brand-700 transition"
                 >
                   Email
                 </button>
               )}
               {c.link && (
                 <a href={c.link} target="_blank" rel="noopener noreferrer"
-                   className="text-xs text-blue-500 hover:text-blue-700">
+                   className="text-xs text-brand-500 hover:text-brand-700">
                   Post →
                 </a>
               )}

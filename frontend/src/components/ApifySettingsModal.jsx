@@ -67,7 +67,7 @@ export default function ApifySettingsModal({ onClose, onSaved }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-md shadow-modal w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
 
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b sticky top-0 bg-white z-10">
@@ -89,10 +89,10 @@ export default function ApifySettingsModal({ onClose, onSaved }) {
               value={form.apiKey}
               onChange={e => set('apiKey', e.target.value)}
               placeholder={hasKey ? 'Leave blank to keep existing key' : 'apify_api_XXXXXXXX'}
-              className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none font-mono"
+              className="w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none font-mono"
             />
             <p className="text-xs text-gray-400 mt-1">
-              Find your token at <span className="text-blue-500 font-mono">console.apify.com → Settings → Integrations</span>
+              Find your token at <span className="text-brand-500 font-mono">console.apify.com → Settings → Integrations</span>
             </p>
           </div>
 
@@ -103,10 +103,10 @@ export default function ApifySettingsModal({ onClose, onSaved }) {
               value={form.actorId}
               onChange={e => set('actorId', e.target.value)}
               placeholder="e.g. apify/linkedin-post-search-scraper"
-              className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none font-mono"
+              className="w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none font-mono"
             />
             <p className="text-xs text-gray-400 mt-1">
-              Copy Actor ID from <span className="text-blue-500 font-mono">console.apify.com/actors</span> → your actor → API tab
+              Copy Actor ID from <span className="text-brand-500 font-mono">console.apify.com/actors</span> → your actor → API tab
             </p>
           </div>
 
@@ -117,7 +117,7 @@ export default function ApifySettingsModal({ onClose, onSaved }) {
               value={queriesText}
               onChange={e => setQueriesText(e.target.value)}
               rows={6}
-              className="w-full border rounded-lg px-3 py-2 text-xs font-mono resize-none focus:ring-2 focus:ring-blue-300 outline-none"
+              className="w-full border rounded-sm px-3 py-2 text-xs font-mono resize-none focus:ring-2 focus:ring-brand-300 outline-none"
             />
           </div>
 
@@ -129,29 +129,29 @@ export default function ApifySettingsModal({ onClose, onSaved }) {
                 type="number" min="5" max="500"
                 value={form.maxPosts}
                 onChange={e => set('maxPosts', e.target.value === '' ? '' : parseInt(e.target.value, 10))}
-                className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+                className="w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none"
               />
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">Posted Within</label>
               <select value={form.postedLimit} onChange={e => set('postedLimit', e.target.value)}
-                className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none bg-white">
+                className="w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none bg-white">
                 {POSTED_LIMITS.map(l => <option key={l} value={l}>{l}</option>)}
               </select>
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">Sort By</label>
               <select value={form.sortBy} onChange={e => set('sortBy', e.target.value)}
-                className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none bg-white">
+                className="w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none bg-white">
                 {SORT_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
           </div>
 
           {/* Help note */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-700 space-y-1">
+          <div className="bg-brand-50 border border-brand-200 rounded-sm p-3 text-xs text-brand-700 space-y-1">
             <p className="font-semibold">How to set up:</p>
-            <ol className="list-decimal list-inside space-y-0.5 text-blue-600">
+            <ol className="list-decimal list-inside space-y-0.5 text-brand-600">
               <li>Sign up at <span className="font-mono">apify.com</span></li>
               <li>Go to <span className="font-mono">console.apify.com/actors</span> → find your LinkedIn scraper actor</li>
               <li>Copy the Actor ID from the API tab</li>
@@ -162,7 +162,7 @@ export default function ApifySettingsModal({ onClose, onSaved }) {
           <button
             onClick={handleSave}
             disabled={saving}
-            className="w-full py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 disabled:opacity-60 transition"
+            className="w-full py-2.5 bg-brand-600 text-white rounded-sm text-sm font-bold hover:bg-brand-700 disabled:opacity-60 transition"
           >
             {saving ? 'Saving…' : '💾 Save Settings'}
           </button>

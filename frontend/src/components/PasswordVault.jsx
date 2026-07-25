@@ -31,7 +31,7 @@ function passwordStrength(pw) {
   if (score <= 1) return { score, label: 'Very weak', color: 'bg-red-500' };
   if (score === 2) return { score, label: 'Weak', color: 'bg-orange-500' };
   if (score === 3) return { score, label: 'Fair', color: 'bg-yellow-500' };
-  if (score === 4) return { score, label: 'Strong', color: 'bg-blue-500' };
+  if (score === 4) return { score, label: 'Strong', color: 'bg-brand-500' };
   return { score, label: 'Very strong', color: 'bg-green-500' };
 }
 
@@ -63,13 +63,13 @@ function VaultForm({ initial, onSave, onCancel, saving }) {
       <div className="grid grid-cols-2 gap-3">
         <div className="col-span-2">
           <label className="block text-xs font-medium text-gray-600 mb-1">Title *</label>
-          <input className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+          <input className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
             placeholder="e.g. LinkedIn, Naukri, Gmail" value={form.title}
             onChange={e => set('title', e.target.value)} />
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Username / Email</label>
-          <input className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+          <input className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none"
             placeholder="username or email" value={form.username}
             onChange={e => set('username', e.target.value)} />
         </div>
@@ -81,7 +81,7 @@ function VaultForm({ initial, onSave, onCancel, saving }) {
           <div className="relative">
             <input
               type={showPw ? 'text' : 'password'}
-              className="w-full px-3 py-2 pr-20 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none font-mono"
+              className="w-full px-3 py-2 pr-20 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none font-mono"
               placeholder={isEdit ? '(unchanged)' : 'password'}
               value={form.password}
               onChange={e => set('password', e.target.value)}
@@ -94,7 +94,7 @@ function VaultForm({ initial, onSave, onCancel, saving }) {
               <button type="button"
                 onClick={() => { const p = generatePassword(); set('password', p); setShowPw(true); }}
                 title="Generate strong password"
-                className="p-1 text-xs text-blue-600 hover:text-blue-800 font-medium rounded">Gen</button>
+                className="p-1 text-xs text-brand-600 hover:text-brand-800 font-medium rounded">Gen</button>
             </div>
           </div>
           {form.password && (
@@ -110,20 +110,20 @@ function VaultForm({ initial, onSave, onCancel, saving }) {
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Website URL</label>
-          <input className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+          <input className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none"
             placeholder="https://..." value={form.url}
             onChange={e => set('url', e.target.value)} />
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Category</label>
-          <select className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+          <select className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none bg-white"
             value={form.category} onChange={e => set('category', e.target.value)}>
             {CATEGORIES.map(c => <option key={c} value={c}>{c.replace('-', ' ')}</option>)}
           </select>
         </div>
         <div className="col-span-2">
           <label className="block text-xs font-medium text-gray-600 mb-1">Notes</label>
-          <textarea className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none"
+          <textarea className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none resize-none"
             rows={2} placeholder="Optional notes..." value={form.notes}
             onChange={e => set('notes', e.target.value)} />
         </div>
@@ -134,7 +134,7 @@ function VaultForm({ initial, onSave, onCancel, saving }) {
           Cancel
         </button>
         <button type="button" onClick={() => onSave(form)} disabled={saving}
-          className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-60 transition-colors">
+          className="px-4 py-2 text-sm text-white bg-brand-600 rounded-sm hover:bg-brand-700 disabled:opacity-60 transition-colors">
           {saving ? 'Saving…' : isEdit ? 'Update Entry' : 'Save Entry'}
         </button>
       </div>
@@ -192,7 +192,7 @@ function VaultCard({ entry, onEdit, onDelete, revealEndpoint }) {
   const catColor = categoryColors[entry.category] || categoryColors.general;
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+    <div className="bg-white border border-gray-200 rounded-md p-4 shadow-card hover:shadow-md transition-shadow">
       <div className="flex items-start justify-between gap-2 mb-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
@@ -212,7 +212,7 @@ function VaultCard({ entry, onEdit, onDelete, revealEndpoint }) {
         </div>
         <div className="flex gap-1 shrink-0">
           <button onClick={onEdit} title="Edit"
-            className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
+            className="p-1.5 text-gray-400 hover:text-brand-600 hover:bg-brand-50 rounded-sm transition-colors">
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
           </button>
           <button onClick={onDelete} title="Delete"
@@ -244,7 +244,7 @@ function VaultCard({ entry, onEdit, onDelete, revealEndpoint }) {
             </>
           )}
           <button onClick={handleReveal} disabled={revealing}
-            className={`p-1 rounded text-xs font-medium transition-colors ${revealed ? 'text-orange-500 hover:text-orange-700' : 'text-blue-600 hover:text-blue-800'}`}>
+            className={`p-1 rounded text-xs font-medium transition-colors ${revealed ? 'text-orange-500 hover:text-orange-700' : 'text-brand-600 hover:text-brand-800'}`}>
             {revealing ? '…' : revealed ? 'Hide' : 'Reveal'}
           </button>
         </div>
@@ -343,19 +343,19 @@ export default function PasswordVault({ isAdmin = false }) {
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <div className="flex-1 min-w-48">
           <input
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none"
             placeholder="Search by title, username or URL…"
             value={search} onChange={e => setSearch(e.target.value)}
           />
         </div>
-        <select className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+        <select className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-brand-500 outline-none"
           value={catFilter} onChange={e => setCatFilter(e.target.value)}>
           <option value="all">All categories</option>
           {CATEGORIES.map(c => <option key={c} value={c}>{c.replace('-', ' ')}</option>)}
         </select>
         {!isAdmin && (
           <button onClick={() => { setEditing(null); setShowForm(true); }}
-            className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2">
+            className="px-4 py-2 text-sm text-white bg-brand-600 rounded-sm hover:bg-brand-700 transition-colors flex items-center gap-2">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
             Add Entry
           </button>
@@ -364,8 +364,8 @@ export default function PasswordVault({ isAdmin = false }) {
 
       {/* Add / Edit form */}
       {showForm && !isAdmin && (
-        <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-xl">
-          <h4 className="text-sm font-semibold text-blue-800 mb-3">
+        <div className="mb-4 p-4 bg-brand-50 border border-brand-200 rounded-md">
+          <h4 className="text-sm font-semibold text-brand-800 mb-3">
             {editing ? 'Edit Entry' : 'New Credential'}
           </h4>
           <VaultForm
@@ -418,7 +418,7 @@ export default function PasswordVault({ isAdmin = false }) {
           {Object.values(adminGroups).map(group => (
             <div key={group.user_email}>
               <div className="flex items-center gap-2 mb-2">
-                <div className="w-7 h-7 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-700 text-xs font-bold shrink-0">
+                <div className="w-7 h-7 bg-brand-100 rounded-full flex items-center justify-center text-brand-700 text-xs font-bold shrink-0">
                   {(group.user_name || group.user_email)?.[0]?.toUpperCase()}
                 </div>
                 <div>

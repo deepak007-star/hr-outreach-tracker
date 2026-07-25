@@ -186,7 +186,7 @@ function ResourceCard({ resource, onDelete }) {
   return (
     <a href={resource.url} target="_blank" rel="noopener noreferrer"
       onClick={e => e.stopPropagation()}
-      className={`group relative flex items-start gap-2.5 p-3 rounded-xl border text-left transition-all ${meta.cls}`}
+      className={`group relative flex items-start gap-2.5 p-3 rounded-md border text-left transition-all ${meta.cls}`}
     >
       <span className="text-lg shrink-0 mt-0.5">{meta.icon}</span>
       <div className="flex-1 min-w-0">
@@ -228,20 +228,20 @@ function AddResourceForm({ onAdd }) {
   if (!open) {
     return (
       <button onClick={() => setOpen(true)}
-        className="flex items-center gap-2 text-xs font-semibold text-gray-400 hover:text-blue-600 border-2 border-dashed border-gray-200 hover:border-blue-300 rounded-xl px-3 py-2.5 transition-all w-full justify-center">
+        className="flex items-center gap-2 text-xs font-semibold text-gray-400 hover:text-brand-600 border-2 border-dashed border-gray-200 hover:border-brand-300 rounded-sm px-3 py-2.5 transition-all w-full justify-center">
         + Add your own resource
       </button>
     );
   }
 
   return (
-    <form onSubmit={submit} className="bg-blue-50 border-2 border-blue-200 rounded-xl p-3 space-y-2">
-      <p className="text-xs font-bold text-blue-700">Add Resource — YouTube, GitHub, Article, Course…</p>
+    <form onSubmit={submit} className="bg-brand-50 border-2 border-brand-200 rounded-sm p-3 space-y-2">
+      <p className="text-xs font-bold text-brand-700">Add Resource — YouTube, GitHub, Article, Course…</p>
       <div className="flex gap-2 items-start">
         <div className="relative flex-1">
           <input value={url} onChange={e => setUrl(e.target.value)}
             placeholder="Paste URL (YouTube, GitHub, article, course…)"
-            className="w-full border border-blue-200 rounded-lg px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-blue-400 bg-white" />
+            className="w-full border border-brand-200 rounded-sm px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-brand-400 bg-white" />
           {meta && (
             <span className={`absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${meta.cls}`}>
               {meta.icon} {meta.label}
@@ -251,14 +251,14 @@ function AddResourceForm({ onAdd }) {
       </div>
       <input value={title} onChange={e => setTitle(e.target.value)}
         placeholder="Resource title (e.g. 'NeetCode - Binary Search')"
-        className="w-full border border-blue-200 rounded-lg px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-blue-400 bg-white" />
+        className="w-full border border-brand-200 rounded-sm px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-brand-400 bg-white" />
       <div className="flex gap-2">
         <button type="submit"
-          className="px-4 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition">
+          className="px-4 py-1.5 bg-brand-600 text-white text-xs font-bold rounded-sm hover:bg-brand-700 transition">
           Add
         </button>
         <button type="button" onClick={() => setOpen(false)}
-          className="px-4 py-1.5 border border-gray-200 text-xs text-gray-500 rounded-lg hover:bg-white transition">
+          className="px-4 py-1.5 border border-gray-200 text-xs text-gray-500 rounded-sm hover:bg-white transition">
           Cancel
         </button>
       </div>
@@ -278,7 +278,7 @@ function CategoryPanel({ cat, userResources, onAddResource, onDeleteResource }) 
   return (
     <div className="space-y-4">
       {/* Tips — collapsible */}
-      <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+      <div className="bg-white border border-gray-200 rounded-md overflow-hidden">
         <button onClick={() => setShowTips(o => !o)}
           className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 transition">
           <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">💡 Key Interview Tips</span>
@@ -288,7 +288,7 @@ function CategoryPanel({ cat, userResources, onAddResource, onDeleteResource }) 
           <div className="px-4 pb-4 space-y-2 border-t border-gray-100 pt-3">
             {cat.tips.map((tip, i) => (
               <div key={i} className="flex items-start gap-2.5 text-sm text-gray-600">
-                <span className="text-blue-400 font-bold shrink-0 mt-0.5">{i + 1}.</span>
+                <span className="text-brand-400 font-bold shrink-0 mt-0.5">{i + 1}.</span>
                 <span className="leading-relaxed">{tip}</span>
               </div>
             ))}
@@ -391,7 +391,7 @@ export default function PrepHub() {
         <div className="relative">
           <input value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Search all resources…"
-            className="text-xs border border-gray-200 rounded-xl pl-8 pr-3 py-2 outline-none focus:ring-2 focus:ring-blue-300 w-52" />
+            className="text-xs border border-gray-200 rounded-sm pl-8 pr-3 py-2 outline-none focus:ring-2 focus:ring-brand-300 w-52" />
           <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🔍</span>
           {search && (
             <button onClick={() => setSearch('')}
@@ -402,7 +402,7 @@ export default function PrepHub() {
 
       {/* Search results */}
       {search.trim() && (
-        <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
+        <div className="bg-white border border-gray-200 rounded-md p-4 shadow-card">
           <p className="text-xs font-semibold text-gray-500 mb-3">
             {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} for "{search}"
           </p>
@@ -430,7 +430,7 @@ export default function PrepHub() {
               const isActive  = activeId === cat.id;
               return (
                 <button key={cat.id} onClick={() => setActiveId(cat.id)}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold whitespace-nowrap border transition-all shrink-0 ${
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-sm text-sm font-semibold whitespace-nowrap border transition-all shrink-0 ${
                     isActive
                       ? `bg-gradient-to-r ${cat.color} text-white border-transparent shadow-md`
                       : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:shadow-sm'
@@ -439,7 +439,7 @@ export default function PrepHub() {
                   <span className="text-base">{cat.icon}</span>
                   <span>{cat.label}</span>
                   {userCount > 0 && (
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${isActive ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-700'}`}>
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${isActive ? 'bg-white/20 text-white' : 'bg-brand-100 text-brand-700'}`}>
                       +{userCount}
                     </span>
                   )}
@@ -449,7 +449,7 @@ export default function PrepHub() {
           </div>
 
           {/* Active category header */}
-          <div className={`rounded-2xl bg-gradient-to-br ${activeCat.color} p-5 text-white`}>
+          <div className={`rounded-md bg-gradient-to-br ${activeCat.color} p-5 text-white`}>
             <div className="flex items-center gap-3">
               <span className="text-3xl">{activeCat.icon}</span>
               <div>

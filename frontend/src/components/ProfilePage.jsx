@@ -49,7 +49,7 @@ function SkillChip({ label, onRemove }) {
   return (
     <span className="inline-flex items-center gap-1 bg-brand-50 border border-brand-200 text-brand-700 text-xs px-2.5 py-1 rounded-full">
       {label}
-      {onRemove && <button onClick={onRemove} className="text-blue-400 hover:text-red-500 leading-none text-xs font-bold ml-0.5">&times;</button>}
+      {onRemove && <button onClick={onRemove} className="text-brand-400 hover:text-red-500 leading-none text-xs font-bold ml-0.5">&times;</button>}
     </span>
   );
 }
@@ -409,7 +409,7 @@ function ResumeSkillsTab({ profile, onSave }) {
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-brand-800 truncate">{profile.resume_filename}</p>
               {profile.resume_uploaded_at && (
-                <p className="text-xs text-blue-500 mt-0.5">
+                <p className="text-xs text-brand-500 mt-0.5">
                   Uploaded {new Date(profile.resume_uploaded_at).toLocaleDateString('en-IN')} · Skills & info auto-extracted ✓
                 </p>
               )}
@@ -556,7 +556,7 @@ function LinksTab({ profile, user, onSave, onDirtyChange }) {
   }
 
   const LINKS = [
-    { key: 'linkedin_url',  label: 'LinkedIn',  icon: '🔗', placeholder: 'https://linkedin.com/in/your-handle', color: 'text-blue-600' },
+    { key: 'linkedin_url',  label: 'LinkedIn',  icon: '🔗', placeholder: 'https://linkedin.com/in/your-handle', color: 'text-brand-600' },
     { key: 'github_url',    label: 'GitHub',    icon: '🐙', placeholder: 'https://github.com/your-handle',      color: 'text-gray-700' },
     { key: 'portfolio_url', label: 'Portfolio', icon: '🌐', placeholder: 'https://yoursite.com',                color: 'text-green-600' },
   ];
@@ -761,9 +761,9 @@ export default function ProfilePage({ onDirtyChange }) {
             {editHero ? (
               <>
                 <button onClick={cancelHero}
-                  className="px-3 py-1.5 border border-white/20 rounded-lg text-xs text-white hover:bg-white/10">Cancel</button>
+                  className="px-3 py-1.5 border border-white/20 rounded-sm text-xs text-white hover:bg-white/10">Cancel</button>
                 <button onClick={saveHero} disabled={savingHero}
-                  className="px-4 py-1.5 bg-blue-500 rounded-lg text-xs font-semibold text-white hover:bg-blue-600 disabled:opacity-50">
+                  className="px-4 py-1.5 bg-brand-500 rounded-sm text-xs font-semibold text-white hover:bg-brand-600 disabled:opacity-50">
                   {savingHero ? 'Saving…' : 'Save'}
                 </button>
               </>
@@ -778,7 +778,7 @@ export default function ProfilePage({ onDirtyChange }) {
       </div>
 
       {/* ── Tabbed sections ───────────────────────────────────────────── */}
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-md border border-gray-200 shadow-card overflow-hidden">
         <div className="flex border-b border-gray-100 bg-gray-50">
           {TABS.map(t => (
             <button
@@ -786,7 +786,7 @@ export default function ProfilePage({ onDirtyChange }) {
               onClick={() => setActiveTab(t.id)}
               className={`flex-1 py-3 px-2 text-xs sm:text-sm font-medium text-center transition-all whitespace-nowrap ${
                 activeTab === t.id
-                  ? 'bg-white border-b-2 border-blue-600 text-blue-700 -mb-px'
+                  ? 'bg-white border-b-2 border-brand-600 text-brand-700 -mb-px'
                   : 'text-gray-500 hover:text-gray-700 hover:bg-white/60'
               }`}
             >

@@ -2,7 +2,7 @@
 // as the landing page's How It Works section, scoped to one specific tool.
 export default function StepGuide({ steps }) {
   return (
-    <div className="font-landing bg-white rounded-2xl border border-stone-200 p-5">
+    <div className="font-landing bg-white rounded-md border border-stone-200 p-5">
       <p className="text-[11px] font-bold tracking-widest text-emerald-700 uppercase mb-4">How it works</p>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
         {steps.map((s, i) => (

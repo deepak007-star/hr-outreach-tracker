@@ -80,7 +80,7 @@ export default function QuickReplyModal({ email, onClose, onSent, myName = '' })
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+      <div className="bg-white rounded-md shadow-modal w-full max-w-2xl max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b">
           <div>
@@ -104,8 +104,8 @@ export default function QuickReplyModal({ email, onClose, onSent, myName = '' })
                   onClick={() => applyTemplate(idx)}
                   className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
                     selectedTemplate === idx && !customized
-                      ? 'bg-blue-600 text-white border-blue-600'
-                      : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'
+                      ? 'bg-brand-600 text-white border-brand-600'
+                      : 'bg-white text-gray-600 border-gray-300 hover:border-brand-400'
                   }`}
                 >
                   {tpl.label}
@@ -116,7 +116,7 @@ export default function QuickReplyModal({ email, onClose, onSent, myName = '' })
 
           {/* Original email context */}
           {email.body_snippet && (
-            <div className="bg-gray-50 border border-gray-200 rounded-xl p-3">
+            <div className="bg-gray-50 border border-gray-200 rounded-md p-3">
               <p className="text-xs font-semibold text-gray-500 mb-1">Original Message</p>
               <p className="text-xs text-gray-600 line-clamp-3">{email.body_snippet}</p>
             </div>
@@ -129,7 +129,7 @@ export default function QuickReplyModal({ email, onClose, onSent, myName = '' })
               type="text"
               value={subject}
               onChange={e => { setSubject(e.target.value); setCustomized(true); }}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+              className="w-full border border-gray-300 rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none"
             />
           </div>
 
@@ -140,7 +140,7 @@ export default function QuickReplyModal({ email, onClose, onSent, myName = '' })
               rows={10}
               value={body}
               onChange={e => { setBody(e.target.value); setCustomized(true); }}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none resize-y font-mono"
+              className="w-full border border-gray-300 rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none resize-y font-mono"
             />
           </div>
 
@@ -148,14 +148,14 @@ export default function QuickReplyModal({ email, onClose, onSent, myName = '' })
           <details className="text-xs text-gray-500">
             <summary className="cursor-pointer font-medium hover:text-gray-700">Preview HTML</summary>
             <div
-              className="mt-2 p-3 border rounded-lg bg-gray-50 text-sm text-gray-700 whitespace-pre-line"
+              className="mt-2 p-3 border rounded-sm bg-gray-50 text-sm text-gray-700 whitespace-pre-line"
               dangerouslySetInnerHTML={{ __html: body.replace(/\n/g, '<br>') }}
             />
           </details>
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-5 py-4 border-t bg-gray-50 rounded-b-2xl">
+        <div className="flex items-center justify-between px-5 py-4 border-t bg-gray-50 rounded-b-md">
           <button
             onClick={onClose}
             className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 font-medium"
@@ -165,7 +165,7 @@ export default function QuickReplyModal({ email, onClose, onSent, myName = '' })
           <button
             onClick={handleSend}
             disabled={sending || !body.trim()}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="px-6 py-2 bg-brand-600 text-white rounded-sm text-sm font-semibold hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {sending ? 'Sending…' : '✉️ Send Reply via Gmail'}
           </button>

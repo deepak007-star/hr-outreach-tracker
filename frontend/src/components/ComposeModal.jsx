@@ -368,7 +368,7 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
             <>
               <button onClick={() => setStep('compose')} className="border rounded-sm px-5 py-2.5 text-sm font-medium hover:bg-gray-50 transition">← Back</button>
               <button onClick={handleSend} disabled={sending || eligible === 0}
-                className="flex-1 bg-green-600 text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-green-700 disabled:opacity-50 transition">
+                className="flex-1 bg-green-600 text-white rounded-sm py-2.5 text-sm font-semibold hover:bg-green-700 disabled:opacity-50 transition">
                 {sending ? 'Sending…' : eligible === 0 ? 'No eligible recipients' : `Confirm & Send ${eligible} Email${eligible !== 1 ? 's' : ''}`}
               </button>
             </>

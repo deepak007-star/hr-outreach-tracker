@@ -48,7 +48,7 @@ function Toggle({ on, onChange }) {
   return (
     <button
       onClick={() => onChange(!on)}
-      className={`relative w-12 h-6 rounded-full transition-colors focus:outline-none shrink-0 ${on ? 'bg-blue-600' : 'bg-gray-300'}`}
+      className={`relative w-12 h-6 rounded-full transition-colors focus:outline-none shrink-0 ${on ? 'bg-brand-600' : 'bg-gray-300'}`}
     >
       <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${on ? 'translate-x-6' : 'translate-x-0.5'}`} />
     </button>
@@ -154,7 +154,7 @@ export default function ReminderModal({ onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg my-auto">
+      <div className="bg-white rounded-md shadow-modal w-full max-w-lg my-auto">
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b">
           <h2 className="text-lg font-bold text-gray-800">🔔 Reminder Settings</h2>
@@ -174,7 +174,7 @@ export default function ReminderModal({ onClose }) {
           {enabled && (
             <>
               {/* Time + Days */}
-              <div className="space-y-4 p-4 bg-gray-50 rounded-xl border">
+              <div className="space-y-4 p-4 bg-gray-50 rounded-md border">
                 {/* Time */}
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-1.5">Reminder time</label>
@@ -182,7 +182,7 @@ export default function ReminderModal({ onClose }) {
                     type="time"
                     value={time}
                     onChange={e => setTime(e.target.value)}
-                    className="border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none w-36 bg-white"
+                    className="border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none w-36 bg-white"
                   />
                 </div>
 
@@ -197,17 +197,17 @@ export default function ReminderModal({ onClose }) {
                     ].map(preset => (
                       <button key={preset.label}
                         onClick={() => setDays(preset.val)}
-                        className="text-xs px-2 py-1 bg-white border rounded-lg hover:bg-blue-50 text-gray-600 transition"
+                        className="text-xs px-2 py-1 bg-white border rounded-sm hover:bg-brand-50 text-gray-600 transition"
                       >{preset.label}</button>
                     ))}
                   </div>
                   <div className="flex gap-1.5 flex-wrap">
                     {DAYS_LIST.map(d => (
                       <button key={d} onClick={() => toggleDay(d)}
-                        className={`text-xs px-2.5 py-1.5 rounded-lg font-medium border transition ${
+                        className={`text-xs px-2.5 py-1.5 rounded-sm font-medium border transition ${
                           days.includes(d)
-                            ? 'bg-blue-600 text-white border-blue-600'
-                            : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'
+                            ? 'bg-brand-600 text-white border-brand-600'
+                            : 'bg-white text-gray-600 border-gray-300 hover:border-brand-400'
                         }`}>{d}</button>
                     ))}
                   </div>
@@ -224,7 +224,7 @@ export default function ReminderModal({ onClose }) {
                   rows={2}
                   maxLength={200}
                   placeholder="Custom reminder message…"
-                  className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none resize-none"
+                  className="w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none resize-none"
                 />
                 <p className="text-[10px] text-gray-400 text-right mt-0.5">{message.length}/200</p>
               </div>
@@ -235,7 +235,7 @@ export default function ReminderModal({ onClose }) {
                 <div className="space-y-2">
 
                   {/* In-app toast */}
-                  <div className="flex items-start gap-3 p-3 rounded-xl border hover:bg-gray-50 cursor-pointer" onClick={() => setDeliveryToast(v => !v)}>
+                  <div className="flex items-start gap-3 p-3 rounded-md border hover:bg-gray-50 cursor-pointer" onClick={() => setDeliveryToast(v => !v)}>
                     <input type="checkbox" checked={deliveryToast} readOnly className="mt-0.5 pointer-events-none" />
                     <div>
                       <p className="text-sm font-medium text-gray-700">In-app popup (toast)</p>
@@ -259,7 +259,7 @@ export default function ReminderModal({ onClose }) {
                         )}
                         {HAS_NOTIF && permission === 'default' && (
                           <button onClick={requestPermission}
-                            className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 transition">
+                            className="text-xs bg-brand-600 text-white px-3 py-1.5 rounded-sm hover:bg-brand-700 transition">
                             Allow notifications →
                           </button>
                         )}
@@ -275,7 +275,7 @@ export default function ReminderModal({ onClose }) {
 
                   {/* Email */}
                   <div
-                    className={`flex items-start gap-3 p-3 rounded-xl border hover:bg-gray-50 ${!user ? 'opacity-60' : 'cursor-pointer'}`}
+                    className={`flex items-start gap-3 p-3 rounded-md border hover:bg-gray-50 ${!user ? 'opacity-60' : 'cursor-pointer'}`}
                     onClick={() => user && setDeliveryEmail(v => !v)}
                   >
                     <input type="checkbox" checked={deliveryEmail} readOnly disabled={!user} className="mt-0.5 pointer-events-none" />
@@ -291,26 +291,26 @@ export default function ReminderModal({ onClose }) {
               </div>
 
               {/* Calendar section */}
-              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-3">
+              <div className="bg-brand-50 border border-brand-200 rounded-md p-4 space-y-3">
                 <div>
-                  <p className="text-xs font-semibold text-blue-800 mb-0.5">Add to calendar — works without login</p>
-                  <p className="text-[11px] text-blue-600">Gets an OS-level reminder even when the app is closed</p>
+                  <p className="text-xs font-semibold text-brand-800 mb-0.5">Add to calendar — works without login</p>
+                  <p className="text-[11px] text-brand-600">Gets an OS-level reminder even when the app is closed</p>
                 </div>
                 <div className="flex gap-2 flex-wrap">
                   <button onClick={downloadIcs}
-                    className="text-xs flex items-center gap-1.5 px-3 py-2 bg-white border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 font-medium transition">
+                    className="text-xs flex items-center gap-1.5 px-3 py-2 bg-white border border-brand-300 text-brand-700 rounded-sm hover:bg-brand-50 font-medium transition">
                     📅 Download .ics
                   </button>
                   <a
                     href={googleCalUrl(time, message)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-xs flex items-center gap-1.5 px-3 py-2 bg-white border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 font-medium transition"
+                    className="text-xs flex items-center gap-1.5 px-3 py-2 bg-white border border-brand-300 text-brand-700 rounded-sm hover:bg-brand-50 font-medium transition"
                   >
                     📆 Add to Google Calendar
                   </a>
                 </div>
-                <p className="text-[10px] text-blue-500 leading-relaxed">
+                <p className="text-[10px] text-brand-500 leading-relaxed">
                   Import the .ics into Google Calendar, Outlook, or Apple Calendar. Set the event to repeat on your selected days.
                 </p>
               </div>
@@ -322,15 +322,15 @@ export default function ReminderModal({ onClose }) {
         <div className="flex items-center gap-3 p-5 border-t">
           {enabled && (
             <button onClick={testNow}
-              className="px-4 py-2 border rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 transition">
+              className="px-4 py-2 border rounded-sm text-sm font-medium text-gray-600 hover:bg-gray-50 transition">
               ▶ Test now
             </button>
           )}
           <div className="flex-1 flex justify-end gap-2">
             <button onClick={onClose}
-              className="px-4 py-2 border rounded-lg text-sm font-medium hover:bg-gray-50 transition">Cancel</button>
+              className="px-4 py-2 border rounded-sm text-sm font-medium hover:bg-gray-50 transition">Cancel</button>
             <button onClick={save} disabled={saving || (enabled && days.length === 0)}
-              className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition">
+              className="px-5 py-2 bg-brand-600 text-white rounded-sm text-sm font-semibold hover:bg-brand-700 disabled:opacity-50 transition">
               {saving ? 'Saving…' : 'Save'}
             </button>
           </div>

@@ -58,7 +58,7 @@ const PRIORITY_STYLE = {
 function SuggestionCard({ s, onApplySkills, onTabSwitch }) {
   const st = PRIORITY_STYLE[s.priority] || PRIORITY_STYLE.low;
   return (
-    <div className={`border rounded-lg p-3 ${st.card}`}>
+    <div className={`border rounded-sm p-3 ${st.card}`}>
       <div className="flex items-start justify-between gap-2 mb-1">
         <p className="text-xs font-bold text-gray-800 leading-snug flex-1">{s.title}</p>
         <div className="flex items-center gap-1 shrink-0">
@@ -79,7 +79,7 @@ function SuggestionCard({ s, onApplySkills, onTabSwitch }) {
       {s.action === 'add_skills' && (
         <button
           onClick={() => { onApplySkills(s.items); onTabSwitch('resume'); }}
-          className="mt-2 text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 font-semibold transition"
+          className="mt-2 text-xs bg-brand-600 text-white px-3 py-1.5 rounded-sm hover:bg-brand-700 font-semibold transition"
         >
           ✚ Add to Resume →
         </button>
@@ -294,7 +294,7 @@ Best regards`
   return (
     <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={onClose}>
       <div
-        className="bg-white w-full sm:rounded-2xl shadow-2xl sm:max-w-4xl max-h-[95vh] overflow-hidden flex flex-col"
+        className="bg-white w-full sm:rounded-md shadow-modal sm:max-w-4xl max-h-[95vh] overflow-hidden flex flex-col"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -323,7 +323,7 @@ Best regards`
               onClick={() => setTab(id)}
               className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap flex items-center gap-1 ${
                 tab === id
-                  ? 'border-blue-600 text-blue-700'
+                  ? 'border-brand-600 text-brand-700'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
             >
@@ -352,7 +352,7 @@ Best regards`
                   {post.author_headline && <p className="text-xs text-gray-500">{post.author_headline}</p>}
                   {post.author_linkedin && (
                     <a href={post.author_linkedin} target="_blank" rel="noopener noreferrer"
-                      className="text-xs text-blue-600 hover:underline">LinkedIn Profile →</a>
+                      className="text-xs text-brand-600 hover:underline">LinkedIn Profile →</a>
                   )}
                 </div>
               )}
@@ -394,7 +394,7 @@ Best regards`
                       onStatusChange?.(post.id, 'viewed');
                     }
                   }}
-                  className="block w-full text-center py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition">
+                  className="block w-full text-center py-2 bg-brand-600 text-white text-xs font-bold rounded-sm hover:bg-brand-700 transition">
                   View LinkedIn Post →
                 </a>
               )}
@@ -426,7 +426,7 @@ Best regards`
                       value={contactEmail}
                       onChange={e => setContactEmail(e.target.value)}
                       placeholder="recruiter@company.com"
-                      className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+                      className="w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none"
                     />
                   </div>
 
@@ -453,13 +453,13 @@ Best regards`
                     <button
                       onClick={() => { setEmailTo(contactEmail); setTab('email'); }}
                       disabled={!contactEmail}
-                      className="flex-1 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 transition"
+                      className="flex-1 py-2 bg-brand-600 text-white text-sm font-semibold rounded-sm hover:bg-brand-700 disabled:opacity-50 transition"
                     >
                       ✉️ Compose Email →
                     </button>
                     <button
                       onClick={() => setTab('resume')}
-                      className="flex-1 py-2 border text-sm font-semibold rounded-lg hover:bg-gray-50 transition text-gray-700"
+                      className="flex-1 py-2 border text-sm font-semibold rounded-sm hover:bg-gray-50 transition text-gray-700"
                     >
                       📄 Update Resume →
                     </button>
@@ -475,7 +475,7 @@ Best regards`
                           onClick={() => onStatusChange?.(post.id, s)}
                           className={`text-xs px-3 py-1 rounded-full border font-medium capitalize transition ${
                             post.status === s
-                              ? 'bg-blue-600 text-white border-blue-600'
+                              ? 'bg-brand-600 text-white border-brand-600'
                               : 'border-gray-300 text-gray-600 hover:bg-gray-50'
                           }`}
                         >
@@ -496,7 +496,7 @@ Best regards`
                   <button
                     onClick={() => fileRef.current?.click()}
                     disabled={parsingResume}
-                    className="w-full border-2 border-dashed border-gray-300 rounded-lg py-3 text-sm text-gray-500 hover:border-blue-400 hover:bg-blue-50 transition disabled:opacity-50"
+                    className="w-full border-2 border-dashed border-gray-300 rounded-sm py-3 text-sm text-gray-500 hover:border-brand-400 hover:bg-brand-50 transition disabled:opacity-50"
                   >
                     {parsingResume ? '⏳ Parsing…' : '⬆ Upload Resume (PDF, DOCX, TXT)'}
                   </button>
@@ -510,7 +510,7 @@ Best regards`
                     onChange={e => setResumeText(e.target.value)}
                     rows={5}
                     placeholder="Paste your resume text here…"
-                    className="w-full border rounded-lg px-3 py-2 text-xs font-mono resize-none focus:ring-2 focus:ring-blue-300 outline-none"
+                    className="w-full border rounded-sm px-3 py-2 text-xs font-mono resize-none focus:ring-2 focus:ring-brand-300 outline-none"
                   />
 
                   {/* Skill analysis */}
@@ -535,7 +535,7 @@ Best regards`
                                 onClick={() => toggleMissing(s)}
                                 className={`text-xs px-2 py-0.5 rounded-full border font-medium cursor-pointer transition ${
                                   selectedMissing.has(s)
-                                    ? 'bg-blue-600 text-white border-blue-600'
+                                    ? 'bg-brand-600 text-white border-brand-600'
                                     : 'bg-red-50 border-red-300 text-red-700'
                                 }`}
                               >{s}</span>
@@ -547,12 +547,12 @@ Best regards`
                               ✚ Add All
                             </button>
                             <button onClick={addSelectedSkills} disabled={!selectedMissing.size}
-                              className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-40 transition">
+                              className="px-3 py-1.5 bg-brand-600 text-white text-xs font-semibold rounded-sm hover:bg-brand-700 disabled:opacity-40 transition">
                               ✚ Add Selected ({selectedMissing.size})
                             </button>
                             {addedSkills.length > 0 && (
                               <button onClick={() => { setAddedSkills([]); setSelectedMissing(new Set()); }}
-                                className="px-3 py-1.5 border text-xs rounded-lg hover:bg-gray-50 text-gray-600 transition">
+                                className="px-3 py-1.5 border text-xs rounded-sm hover:bg-gray-50 text-gray-600 transition">
                                 Reset
                               </button>
                             )}
@@ -568,7 +568,7 @@ Best regards`
                       <p className="text-xs font-semibold text-gray-500">Download resume</p>
                       <div className="flex gap-2">
                         <button onClick={() => downloadAsPdf(resumeText, 'resume')} className="text-xs text-red-600 border border-red-200 rounded px-2 py-1 hover:bg-red-50 transition">⬇ PDF</button>
-                        <button onClick={() => downloadAsWord(resumeText, 'resume')} className="text-xs text-blue-700 border border-blue-200 rounded px-2 py-1 hover:bg-blue-50 transition">⬇ Word</button>
+                        <button onClick={() => downloadAsWord(resumeText, 'resume')} className="text-xs text-brand-700 border border-brand-200 rounded px-2 py-1 hover:bg-brand-50 transition">⬇ Word</button>
                       </div>
                     </div>
                   )}
@@ -580,7 +580,7 @@ Best regards`
                         <p className="text-xs font-bold text-gray-700 uppercase">Updated Resume</p>
                         <div className="flex gap-2">
                           <button onClick={() => downloadAsPdf(modifiedText,  'updated_resume')} className="text-xs text-red-600  border border-red-200  rounded px-2 py-0.5 hover:bg-red-50  transition">⬇ PDF</button>
-                          <button onClick={() => downloadAsWord(modifiedText, 'updated_resume')} className="text-xs text-blue-700 border border-blue-200 rounded px-2 py-0.5 hover:bg-blue-50 transition">⬇ Word</button>
+                          <button onClick={() => downloadAsWord(modifiedText, 'updated_resume')} className="text-xs text-brand-700 border border-brand-200 rounded px-2 py-0.5 hover:bg-brand-50 transition">⬇ Word</button>
                         </div>
                       </div>
                       <ResumePreview text={modifiedText} maxH="48" />
@@ -593,7 +593,7 @@ Best regards`
                       <button
                         onClick={handleSaveResume}
                         disabled={savingResume}
-                        className="w-full py-2.5 bg-green-600 text-white text-sm font-bold rounded-xl hover:bg-green-700 disabled:opacity-50 transition flex items-center justify-center gap-2"
+                        className="w-full py-2.5 bg-green-600 text-white text-sm font-bold rounded-sm hover:bg-green-700 disabled:opacity-50 transition flex items-center justify-center gap-2"
                       >
                         {savingResume ? '⏳ Saving…' : (
                           <>
@@ -620,7 +620,7 @@ Best regards`
                       value={emailTo}
                       onChange={e => setEmailTo(e.target.value)}
                       placeholder="recruiter@company.com"
-                      className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+                      className="w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none"
                     />
                     {!emailTo && (
                       <p className="text-xs text-amber-600 mt-1">
@@ -634,7 +634,7 @@ Best regards`
                     <input
                       value={emailSubject}
                       onChange={e => setEmailSubject(e.target.value)}
-                      className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+                      className="w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none"
                     />
                   </div>
 
@@ -644,7 +644,7 @@ Best regards`
                       value={emailBody}
                       onChange={e => setEmailBody(e.target.value)}
                       rows={9}
-                      className="w-full border rounded-lg px-3 py-2 text-sm resize-none focus:ring-2 focus:ring-blue-300 outline-none"
+                      className="w-full border rounded-sm px-3 py-2 text-sm resize-none focus:ring-2 focus:ring-brand-300 outline-none"
                     />
                   </div>
 
@@ -657,7 +657,7 @@ Best regards`
                   <button
                     onClick={handleSendEmail}
                     disabled={sending || !emailTo}
-                    className="w-full py-2.5 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 disabled:opacity-50 transition"
+                    className="w-full py-2.5 bg-brand-600 text-white text-sm font-bold rounded-sm hover:bg-brand-700 disabled:opacity-50 transition"
                   >
                     {sending ? '⏳ Sending…' : '✉️ Send Email'}
                   </button>
@@ -679,7 +679,7 @@ Best regards`
                         <p className="text-sm text-gray-400 mt-1">Upload or paste your resume in the Resume tab first</p>
                       </div>
                       <button onClick={() => setTab('resume')}
-                        className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition">
+                        className="px-4 py-2 bg-brand-600 text-white text-sm font-semibold rounded-sm hover:bg-brand-700 transition">
                         Go to Resume Tab →
                       </button>
                     </div>
@@ -702,7 +702,7 @@ Best regards`
                         <p className="text-sm text-gray-400 mt-1">See how well your resume matches this job post</p>
                       </div>
                       <button onClick={runAts}
-                        className="px-5 py-2.5 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition shadow-sm">
+                        className="px-5 py-2.5 bg-brand-600 text-white font-semibold rounded-sm hover:bg-brand-700 transition shadow-sm">
                         📊 Check ATS Score
                       </button>
                     </div>
@@ -712,7 +712,7 @@ Best regards`
                   {resumeText && !atsRunning && atsResult && (
                     <>
                       {/* Score + breakdown */}
-                      <div className="flex gap-4 items-start bg-gray-50 rounded-xl p-4 border">
+                      <div className="flex gap-4 items-start bg-gray-50 rounded-md p-4 border">
                         <ScoreGauge score={atsResult.overall} />
                         <div className="flex-1 space-y-2.5 min-w-0">
                           {atsResult.breakdown.map(b => (
@@ -728,7 +728,7 @@ Best regards`
                             : '🎉 No issues found!'}
                         </p>
                         <button onClick={runAts}
-                          className="text-xs text-gray-400 hover:text-blue-600 underline transition">
+                          className="text-xs text-gray-400 hover:text-brand-600 underline transition">
                           ↺ Re-analyze
                         </button>
                       </div>
@@ -746,7 +746,7 @@ Best regards`
                           ))}
                         </div>
                       ) : (
-                        <div className="bg-green-50 border border-green-200 rounded-xl p-5 text-center">
+                        <div className="bg-green-50 border border-green-200 rounded-md p-5 text-center">
                           <p className="text-green-700 font-bold text-base">Great ATS score!</p>
                           <p className="text-green-600 text-sm mt-1">Your resume is well-optimized for this job posting.</p>
                         </div>

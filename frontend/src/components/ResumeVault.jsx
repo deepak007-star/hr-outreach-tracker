@@ -203,9 +203,9 @@ function AddModal({ profileResume, vaultCount, onClose, onSaved }) {
           {/* Profile tab */}
           {tab === 'profile' && (
             profileResume?.resume_text ? (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-sm text-blue-800">
+              <div className="bg-brand-50 border border-brand-200 rounded-sm px-4 py-3 text-sm text-brand-800">
                 Uses your Profile resume: <strong>{profileResume.resume_filename || 'current resume'}</strong>
-                <p className="text-xs text-blue-500 mt-1">Skills from your profile will be saved for auto-matching.</p>
+                <p className="text-xs text-brand-500 mt-1">Skills from your profile will be saved for auto-matching.</p>
               </div>
             ) : (
               <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-4">
@@ -507,7 +507,7 @@ export default function ResumeVault() {
         <div className="text-sm text-brand-800 space-y-1">
           <p><strong>How it works:</strong> Save different resume versions here — each tailored for a specific job type or company.</p>
           <p>In <strong>Job Analyzer</strong>, the vault auto-suggests whichever version covers the most required skills for that role.</p>
-          <p className="text-blue-600 text-xs">Add from your Profile resume, upload a file (PDF/DOCX), import from Google Drive, or paste text directly.</p>
+          <p className="text-brand-600 text-xs">Add from your Profile resume, upload a file (PDF/DOCX), import from Google Drive, or paste text directly.</p>
         </div>
       </div>
 

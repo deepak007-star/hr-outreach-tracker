@@ -104,13 +104,13 @@ export default function GmailEmailList({ refreshKey, myName = '' }) {
           placeholder="Search email, name, subject…"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          className="border rounded-lg px-3 py-2 text-sm w-60 focus:ring-2 focus:ring-blue-300 outline-none bg-white"
+          className="border rounded-sm px-3 py-2 text-sm w-60 focus:ring-2 focus:ring-brand-300 outline-none bg-white"
         />
 
         <select
           value={since}
           onChange={e => setSince(e.target.value)}
-          className="border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none bg-white"
+          className="border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none bg-white"
         >
           {SINCE_OPTIONS.map(o => (
             <option key={o.value} value={o.value}>{o.label}</option>
@@ -120,7 +120,7 @@ export default function GmailEmailList({ refreshKey, myName = '' }) {
         <select
           value={statusFilter}
           onChange={e => setStatusFilter(e.target.value)}
-          className="border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none bg-white"
+          className="border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none bg-white"
         >
           {STATUS_FILTERS.map(s => <option key={s} value={s}>{s === 'All' ? 'All statuses' : s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
         </select>
@@ -160,7 +160,7 @@ export default function GmailEmailList({ refreshKey, myName = '' }) {
       {loading ? (
         <div className="space-y-2">
           {[1,2,3].map(i => (
-            <div key={i} className="h-16 bg-gray-100 animate-pulse rounded-xl" />
+            <div key={i} className="h-16 bg-gray-100 animate-pulse rounded-md" />
           ))}
         </div>
       ) : emails.length === 0 ? (
@@ -174,12 +174,12 @@ export default function GmailEmailList({ refreshKey, myName = '' }) {
           {emails.map(email => (
             <div
               key={email.id}
-              className={`bg-white border rounded-xl px-4 py-3 flex items-start gap-3 hover:shadow-sm transition-shadow ${
+              className={`bg-white border rounded-md px-4 py-3 flex items-start gap-3 hover:shadow-sm transition-shadow ${
                 email.email_status === 'replied' ? 'border-l-4 border-l-purple-400' : ''
               }`}
             >
               {/* Avatar */}
-              <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-sm font-bold text-blue-700 flex-shrink-0 mt-0.5">
+              <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-sm font-bold text-brand-700 flex-shrink-0 mt-0.5">
                 {(email.contact_name?.[0] || email.contact_email?.[0] || '?').toUpperCase()}
               </div>
 
@@ -211,7 +211,7 @@ export default function GmailEmailList({ refreshKey, myName = '' }) {
                 {email.email_status === 'replied' && isWithinDays(email.replied_at, 30) && (
                   <button
                     onClick={() => setReplying(email)}
-                    className="px-2.5 py-1 bg-purple-600 text-white rounded-lg text-xs font-semibold hover:bg-purple-700 transition-colors"
+                    className="px-2.5 py-1 bg-purple-600 text-white rounded-sm text-xs font-semibold hover:bg-purple-700 transition-colors"
                   >
                     ↩ Quick Reply
                   </button>
@@ -222,7 +222,7 @@ export default function GmailEmailList({ refreshKey, myName = '' }) {
                   <button
                     onClick={() => addContact(email)}
                     disabled={addingIds.has(email.id)}
-                    className="px-2.5 py-1 border border-emerald-300 text-emerald-700 rounded-lg text-xs font-semibold hover:bg-emerald-50 disabled:opacity-50 transition-colors"
+                    className="px-2.5 py-1 border border-emerald-300 text-emerald-700 rounded-sm text-xs font-semibold hover:bg-emerald-50 disabled:opacity-50 transition-colors"
                   >
                     {addingIds.has(email.id) ? '…' : '+ Add to Contacts'}
                   </button>
@@ -239,7 +239,7 @@ export default function GmailEmailList({ refreshKey, myName = '' }) {
           <button
             onClick={() => setPage(p => Math.max(1, p - 1))}
             disabled={page === 1}
-            className="px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-50 disabled:opacity-40"
+            className="px-3 py-1.5 text-sm border rounded-sm hover:bg-gray-50 disabled:opacity-40"
           >
             ← Prev
           </button>
@@ -247,7 +247,7 @@ export default function GmailEmailList({ refreshKey, myName = '' }) {
           <button
             onClick={() => setPage(p => Math.min(pages, p + 1))}
             disabled={page === pages}
-            className="px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-50 disabled:opacity-40"
+            className="px-3 py-1.5 text-sm border rounded-sm hover:bg-gray-50 disabled:opacity-40"
           >
             Next →
           </button>

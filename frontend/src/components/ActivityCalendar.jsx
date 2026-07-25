@@ -112,7 +112,7 @@ export default function ActivityCalendar({ refreshKey = 0 }) {
   });
 
   return (
-    <div className="bg-white rounded-xl border shadow-sm p-5">
+    <div className="bg-white rounded-md border shadow-card p-5">
       {/* Header row */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <h2 className="text-sm font-semibold text-gray-700">Outreach Activity</h2>

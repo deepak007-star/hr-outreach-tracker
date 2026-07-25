@@ -138,7 +138,7 @@ export default function RolesPermissions() {
           <h3 className="text-sm font-bold text-gray-700">Roles</h3>
           <button
             onClick={() => setShowCreate(true)}
-            className="text-xs px-2 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold"
+            className="text-xs px-2 py-1 bg-brand-600 text-white rounded-sm hover:bg-brand-700 font-semibold"
           >+ New</button>
         </div>
 
@@ -146,9 +146,9 @@ export default function RolesPermissions() {
           <button
             key={role.id}
             onClick={() => selectRole(role, role.permissions)}
-            className={`w-full text-left px-3 py-2.5 rounded-xl border transition-all text-sm
+            className={`w-full text-left px-3 py-2.5 rounded-md border transition-all text-sm
               ${selectedRole?.id === role.id
-                ? 'ring-2 ring-blue-400 border-blue-300 bg-blue-50'
+                ? 'ring-2 ring-brand-400 border-brand-300 bg-brand-50'
                 : 'border-gray-200 bg-white hover:bg-gray-50'}`}
           >
             <div className="flex items-center justify-between gap-1">
@@ -172,29 +172,29 @@ export default function RolesPermissions() {
         ))}
 
         {showCreate && (
-          <div className="border border-blue-200 rounded-xl p-3 bg-blue-50 flex flex-col gap-2">
+          <div className="border border-brand-200 rounded-md p-3 bg-brand-50 flex flex-col gap-2">
             <input
               autoFocus
               value={newRoleName}
               onChange={e => setNewRoleName(e.target.value)}
               placeholder="role name"
-              className="w-full border rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-blue-300 outline-none"
+              className="w-full border rounded-sm px-2 py-1.5 text-xs focus:ring-2 focus:ring-brand-300 outline-none"
             />
             <input
               value={newRoleDesc}
               onChange={e => setNewRoleDesc(e.target.value)}
               placeholder="description (optional)"
-              className="w-full border rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-blue-300 outline-none"
+              className="w-full border rounded-sm px-2 py-1.5 text-xs focus:ring-2 focus:ring-brand-300 outline-none"
             />
             <div className="flex gap-1.5">
               <button
                 onClick={createRole}
                 disabled={creating || !newRoleName.trim()}
-                className="flex-1 text-xs py-1.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50"
+                className="flex-1 text-xs py-1.5 bg-brand-600 text-white rounded-sm font-semibold hover:bg-brand-700 disabled:opacity-50"
               >{creating ? '…' : 'Create'}</button>
               <button
                 onClick={() => { setShowCreate(false); setNewRoleName(''); setNewRoleDesc(''); }}
-                className="text-xs px-2 py-1.5 border rounded-lg hover:bg-gray-100"
+                className="text-xs px-2 py-1.5 border rounded-sm hover:bg-gray-100"
               >Cancel</button>
             </div>
           </div>
@@ -221,7 +221,7 @@ export default function RolesPermissions() {
               <button
                 onClick={savePermissions}
                 disabled={!dirty || saving}
-                className="px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                className="px-4 py-2 bg-green-600 text-white rounded-sm text-sm font-semibold hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 {saving ? 'Saving…' : dirty ? '💾 Save Changes' : '✓ Saved'}
               </button>
@@ -232,7 +232,7 @@ export default function RolesPermissions() {
               const allOn  = perms.every(p => draft.has(p.name));
               const someOn = perms.some(p => draft.has(p.name));
               return (
-                <div key={resource} className="bg-white border rounded-xl overflow-hidden">
+                <div key={resource} className="bg-white border rounded-md overflow-hidden">
                   <div
                     className="flex items-center justify-between px-4 py-2.5 bg-gray-50 border-b cursor-pointer hover:bg-gray-100"
                     onClick={() => toggleAll(resource, perms)}
@@ -249,7 +249,7 @@ export default function RolesPermissions() {
                         readOnly
                         checked={allOn}
                         ref={el => { if (el) el.indeterminate = someOn && !allOn; }}
-                        className="w-4 h-4 accent-blue-600 cursor-pointer"
+                        className="w-4 h-4 accent-brand-600 cursor-pointer"
                       />
                     </div>
                   </div>
@@ -260,7 +260,7 @@ export default function RolesPermissions() {
                         className="flex items-center justify-between px-4 py-2.5 cursor-pointer hover:bg-gray-50 group"
                       >
                         <div>
-                          <p className="text-sm font-medium text-gray-800 group-hover:text-blue-700">
+                          <p className="text-sm font-medium text-gray-800 group-hover:text-brand-700">
                             {perm.name}
                           </p>
                           <p className="text-xs text-gray-400">{perm.description}</p>
@@ -269,7 +269,7 @@ export default function RolesPermissions() {
                           type="checkbox"
                           checked={draft.has(perm.name)}
                           onChange={() => togglePerm(perm.name)}
-                          className="w-4 h-4 accent-blue-600 cursor-pointer"
+                          className="w-4 h-4 accent-brand-600 cursor-pointer"
                         />
                       </label>
                     ))}

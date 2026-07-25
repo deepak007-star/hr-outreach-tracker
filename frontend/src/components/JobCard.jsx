@@ -27,13 +27,13 @@ export default function JobCard({ job }) {
   }
 
   return (
-    <div className="bg-white border rounded-xl p-4 flex flex-col gap-3 hover:shadow-md hover:border-blue-300 transition-all group">
+    <div className="bg-white border rounded-md p-4 flex flex-col gap-3 hover:shadow-md hover:border-brand-300 transition-all group">
       {/* Header row */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
           <button
             onClick={() => openLink(job.link || job.apply_link)}
-            className="font-bold text-sm text-gray-900 hover:text-blue-600 text-left truncate block w-full transition-colors"
+            className="font-bold text-sm text-gray-900 hover:text-brand-600 text-left truncate block w-full transition-colors"
             title={job.title}
           >
             {job.title || 'Untitled Job'}
@@ -78,7 +78,7 @@ export default function JobCard({ job }) {
           {LONG_DESC && (
             <button
               onClick={() => setExpanded(e => !e)}
-              className="text-xs text-blue-500 hover:text-blue-700 mt-0.5"
+              className="text-xs text-brand-500 hover:text-brand-700 mt-0.5"
             >
               {expanded ? 'Show less' : 'Show more'}
             </button>
@@ -88,7 +88,7 @@ export default function JobCard({ job }) {
 
       {/* HR Contact info (LinkedIn Feed jobs) */}
       {(job.contact_email || job.contact_phone || job.google_form_link || job.whatsapp_link) && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-2.5 flex flex-wrap gap-2">
+        <div className="bg-green-50 border border-green-200 rounded-sm p-2.5 flex flex-wrap gap-2">
           {job.contact_email && (
             <a href={`mailto:${job.contact_email}`} className="text-xs text-green-700 font-medium hover:underline">
               ✉️ {job.contact_email}
@@ -119,14 +119,14 @@ export default function JobCard({ job }) {
           {job.link && job.link !== job.apply_link && (
             <button
               onClick={() => openLink(job.link)}
-              className="px-3 py-1 text-xs border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 font-medium transition-colors"
+              className="px-3 py-1 text-xs border border-gray-300 text-gray-600 rounded-sm hover:bg-gray-50 font-medium transition-colors"
             >
               View
             </button>
           )}
           <button
             onClick={() => openLink(job.apply_link || job.link)}
-            className="px-3 py-1 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold transition-colors"
+            className="px-3 py-1 text-xs bg-brand-600 text-white rounded-sm hover:bg-brand-700 font-semibold transition-colors"
           >
             {job.apply_link ? 'Apply →' : 'View →'}
           </button>

@@ -145,16 +145,16 @@ function SkillsEditor({ profile, onSave, onClose }) {
   }
 
   return (
-    <div className="mt-2 p-4 bg-white border border-blue-200 rounded-xl shadow-sm space-y-3">
+    <div className="mt-2 p-4 bg-white border border-brand-200 rounded-md shadow-card space-y-3">
       {/* Current skills */}
       <div>
         <p className="text-xs font-semibold text-gray-500 mb-1.5">Current skills</p>
         <div className="flex flex-wrap gap-1.5 min-h-[28px]">
           {skills.length === 0 && <span className="text-xs text-gray-300 italic">None added yet</span>}
           {skills.map(s => (
-            <span key={s} className="inline-flex items-center gap-1 bg-blue-50 border border-blue-200 text-blue-700 text-xs px-2.5 py-0.5 rounded-full">
+            <span key={s} className="inline-flex items-center gap-1 bg-brand-50 border border-brand-200 text-brand-700 text-xs px-2.5 py-0.5 rounded-full">
               {s}
-              <button onClick={() => remove(s)} className="text-blue-400 hover:text-red-500 text-xs leading-none">&times;</button>
+              <button onClick={() => remove(s)} className="text-brand-400 hover:text-red-500 text-xs leading-none">&times;</button>
             </span>
           ))}
         </div>
@@ -167,7 +167,7 @@ function SkillsEditor({ profile, onSave, onClose }) {
           <div className="flex flex-wrap gap-1.5">
             {newFromResume.slice(0, 30).map(s => (
               <button key={s} onClick={() => add(s)}
-                className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-2.5 py-0.5 rounded-full hover:bg-indigo-100 transition">
+                className="text-xs bg-brand-50 text-brand-700 border border-brand-200 px-2.5 py-0.5 rounded-full hover:bg-brand-100 transition">
                 + {s}
               </button>
             ))}
@@ -182,19 +182,19 @@ function SkillsEditor({ profile, onSave, onClose }) {
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), add(input))}
           placeholder="Type a skill and press Enter"
-          className="flex-1 border rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-300"
+          className="flex-1 border rounded-sm px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-brand-300"
         />
-        <button onClick={() => add(input)} className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700">
+        <button onClick={() => add(input)} className="px-3 py-1.5 bg-brand-600 text-white text-xs font-semibold rounded-sm hover:bg-brand-700">
           + Add
         </button>
       </div>
 
       <div className="flex gap-2 pt-1">
         <button onClick={save} disabled={saving}
-          className="px-4 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-lg hover:bg-green-700 disabled:opacity-50">
+          className="px-4 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-sm hover:bg-green-700 disabled:opacity-50">
           {saving ? 'Saving…' : `Save ${skills.length} skills`}
         </button>
-        <button onClick={onClose} className="px-4 py-1.5 border rounded-lg text-xs text-gray-500 hover:bg-gray-50">Cancel</button>
+        <button onClick={onClose} className="px-4 py-1.5 border rounded-sm text-xs text-gray-500 hover:bg-gray-50">Cancel</button>
       </div>
     </div>
   );
@@ -211,7 +211,7 @@ function FieldEditor({ fieldKey, label, profile, onSave, onClose }) {
   // Prompt for resume upload
   if (fieldKey === 'resume_text') {
     return (
-      <div className="mt-2 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800 space-y-2">
+      <div className="mt-2 p-4 bg-amber-50 border border-amber-200 rounded-md text-sm text-amber-800 space-y-2">
         <p className="font-semibold">Upload your resume in the Resume section</p>
         <p className="text-xs">Scroll down to the Resume card and click "Upload Resume" or "Update Resume". PDF, DOCX, and TXT are supported. Skills, title, and experience are extracted automatically.</p>
         <button onClick={onClose} className="text-xs text-amber-600 underline">Got it</button>
@@ -232,17 +232,17 @@ function FieldEditor({ fieldKey, label, profile, onSave, onClose }) {
   const showDetected = detected && detected !== current && detected !== value;
 
   return (
-    <div className="mt-2 p-4 bg-white border border-blue-200 rounded-xl shadow-sm space-y-3">
+    <div className="mt-2 p-4 bg-white border border-brand-200 rounded-md shadow-card space-y-3">
       {/* Auto-detected banner */}
       {showDetected && (
-        <div className="flex items-start gap-2 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2">
-          <span className="text-xs text-indigo-700 flex-1">
+        <div className="flex items-start gap-2 bg-brand-50 border border-brand-200 rounded-sm px-3 py-2">
+          <span className="text-xs text-brand-700 flex-1">
             <span className="font-semibold">Detected from resume:</span>{' '}
             <span className="font-mono">{detected.length > 80 ? detected.slice(0, 80) + '…' : detected}</span>
           </span>
           <button
             onClick={() => setValue(detected)}
-            className="text-xs bg-indigo-600 text-white px-2 py-0.5 rounded font-semibold hover:bg-indigo-700 whitespace-nowrap shrink-0"
+            className="text-xs bg-brand-600 text-white px-2 py-0.5 rounded font-semibold hover:bg-brand-700 whitespace-nowrap shrink-0"
           >
             Use this
           </button>
@@ -257,7 +257,7 @@ function FieldEditor({ fieldKey, label, profile, onSave, onClose }) {
           rows={5}
           autoFocus
           placeholder={`Enter your ${label.toLowerCase()}…`}
-          className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-300 resize-none"
+          className="w-full border rounded-sm px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-300 resize-none"
         />
       ) : (
         <input
@@ -266,7 +266,7 @@ function FieldEditor({ fieldKey, label, profile, onSave, onClose }) {
           onChange={e => setValue(e.target.value)}
           autoFocus
           placeholder={isUrl ? 'https://' : `Enter your ${label.toLowerCase()}…`}
-          className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-300"
+          className="w-full border rounded-sm px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-300"
         />
       )}
 
@@ -274,11 +274,11 @@ function FieldEditor({ fieldKey, label, profile, onSave, onClose }) {
         <button
           onClick={save}
           disabled={saving || !value.trim()}
-          className="px-4 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-lg hover:bg-green-700 disabled:opacity-50"
+          className="px-4 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-sm hover:bg-green-700 disabled:opacity-50"
         >
           {saving ? 'Saving…' : 'Save'}
         </button>
-        <button onClick={onClose} className="px-4 py-1.5 border rounded-lg text-xs text-gray-500 hover:bg-gray-50">
+        <button onClick={onClose} className="px-4 py-1.5 border rounded-sm text-xs text-gray-500 hover:bg-gray-50">
           Cancel
         </button>
       </div>
@@ -323,7 +323,7 @@ export default function ProfileAnalyzer({ profile, onSave }) {
   }
 
   return (
-    <div className="bg-white rounded-xl border shadow-sm p-5 space-y-5">
+    <div className="bg-white rounded-md border shadow-card p-5 space-y-5">
 
       {/* Score ring + label */}
       <div className="flex items-center gap-4">
@@ -350,9 +350,9 @@ export default function ProfileAnalyzer({ profile, onSave }) {
                   {/* Clickable row */}
                   <button
                     onClick={() => toggle(m.key)}
-                    className={`w-full text-left flex items-center gap-2.5 px-3 py-2.5 rounded-lg border transition-all ${
+                    className={`w-full text-left flex items-center gap-2.5 px-3 py-2.5 rounded-sm border transition-all ${
                       isOpen
-                        ? 'bg-blue-50 border-blue-200 shadow-sm'
+                        ? 'bg-brand-50 border-brand-200 shadow-sm'
                         : 'bg-gray-50 border-gray-100 hover:bg-white hover:border-gray-200 hover:shadow-sm'
                     }`}
                   >
