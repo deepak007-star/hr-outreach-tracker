@@ -339,8 +339,8 @@ export default function App() {
       <Header onLoginClick={() => setShowAuthModal(true)} />
 
       {/* ── Tab navigation ──────────────────────────────────────── */}
-      <div className="bg-white border-b border-gray-200 sticky top-[57px] z-30">
-        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 flex gap-0 overflow-x-auto">
+      <div className="bg-white border-b border-gray-200 sticky top-[57px] z-30 shadow-sm">
+        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 flex overflow-x-auto">
           {NAV_ITEMS.map(tab => {
             const locked = tab.requiresAuth && !user;
             const isActive = activeTab === tab.id;
@@ -349,39 +349,31 @@ export default function App() {
                 key={tab.id}
                 onClick={() => navigateTo(tab.id, tab.requiresAuth)}
                 title={tab.sub}
-                className={`group flex flex-col items-start px-4 py-2.5 border-b-2 transition-all duration-150 whitespace-nowrap min-w-0 ${
+                className={`group flex items-center gap-2 px-4 py-3.5 border-b-2 text-sm font-medium transition-all duration-150 whitespace-nowrap ${
                   isActive
-                    ? 'border-brand-600 text-brand-700 bg-brand-50/50'
-                    : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300 hover:bg-gray-50/50'
-                } ${locked ? 'opacity-50' : ''}`}
+                    ? 'border-brand-600 text-brand-700'
+                    : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'
+                } ${locked ? 'opacity-40' : ''}`}
               >
-                <span className="flex items-center gap-1.5 text-sm font-medium leading-tight">
-                  <span className={isActive ? 'text-brand-600' : 'text-gray-400 group-hover:text-gray-600'}>
-                    {locked ? <Lock size={14} /> : tab.icon}
-                  </span>
-                  {tab.label}
+                <span className={isActive ? 'text-brand-600' : 'text-gray-400 group-hover:text-gray-500'}>
+                  {locked ? <Lock size={14} /> : tab.icon}
                 </span>
-                <span className={`text-[10px] leading-tight mt-0.5 ${isActive ? 'text-brand-500' : 'text-gray-400'}`}>
-                  {tab.sub}
-                </span>
+                {tab.label}
               </button>
             );
           })}
-          {/* Plans — separate CTA style */}
+          {/* Plans — upgrade CTA */}
           <button
             onClick={() => setShowPlans(true)}
-            className="flex flex-col items-start px-4 py-2.5 border-b-2 border-transparent text-violet-600 hover:text-violet-800 hover:border-violet-300 hover:bg-violet-50/40 transition-all duration-150 whitespace-nowrap"
+            className="flex items-center gap-2 px-4 py-3.5 border-b-2 border-transparent text-sm font-medium text-violet-600 hover:text-violet-800 hover:border-violet-300 transition-all duration-150 whitespace-nowrap ml-auto"
           >
-            <span className="flex items-center gap-1.5 text-sm font-medium leading-tight">
-              <Crown size={16} className="text-violet-400" />
-              Level Up
-            </span>
-            <span className="text-[10px] leading-tight mt-0.5 text-violet-400">Compare plans &amp; upgrade</span>
+            <Crown size={14} className="text-violet-400" />
+            Level Up
           </button>
         </div>
       </div>
 
-      <main className="max-w-screen-2xl mx-auto px-4 sm:px-6 py-6 space-y-4 animate-fade-slide-in">
+      <main className="max-w-screen-2xl mx-auto px-4 sm:px-6 py-8 space-y-6 animate-fade-slide-in">
 
         {/* ── Dashboard tab ─────────────────────────────────────── */}
         {activeTab === 'home' && (
@@ -447,164 +439,170 @@ export default function App() {
         {activeTab === 'contacts' && <>
 
         {/* Contact subtabs */}
-        <div className="flex gap-0 border-b border-gray-200 bg-white overflow-x-auto">
-          {[
-            { id: 'my',         icon: <Users size={14} />,      label: 'My HR List',      desc: 'Manually added & imported contacts'  },
-            { id: 'cold-email', icon: <MailCheck size={14} />,  label: 'Email Outreach', desc: 'Gmail tracking + LinkedIn feed'      },
-            { id: 'job-links',  icon: <Briefcase size={14} />,  label: 'Job Scraper',    desc: 'Scrape LinkedIn, Naukri & more'      },
-          ].map(sub => (
-            <button
-              key={sub.id}
-              onClick={() => setContactSubTab(sub.id)}
-              title={sub.desc}
-              className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-all duration-150 whitespace-nowrap -mb-px ${
-                contactSubTab === sub.id
-                  ? 'border-brand-600 text-brand-700 bg-brand-50/50'
-                  : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300 hover:bg-gray-50/50'
-              }`}
-            >
-              <span className={contactSubTab === sub.id ? 'text-brand-600' : 'text-gray-400'}>{sub.icon}</span>
-              {sub.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Cold Emailing sub-tab */}
-        {contactSubTab === 'cold-email' && (
-          <div className="bg-stone-50 rounded-b-md border border-gray-200 border-t-0 p-4">
-            <TabErrorBoundary>
-              <ColdEmailSection />
-            </TabErrorBoundary>
+        <div className="bg-white border border-gray-200 rounded-md shadow-card overflow-hidden">
+          <div className="flex border-b border-gray-200 overflow-x-auto">
+            {[
+              { id: 'my',         icon: <Users size={14} />,      label: 'My HR List',      desc: 'Manually added & imported contacts'  },
+              { id: 'cold-email', icon: <MailCheck size={14} />,  label: 'Email Outreach', desc: 'Gmail tracking + LinkedIn feed'      },
+              { id: 'job-links',  icon: <Briefcase size={14} />,  label: 'Job Scraper',    desc: 'Scrape LinkedIn, Naukri & more'      },
+            ].map(sub => (
+              <button
+                key={sub.id}
+                onClick={() => setContactSubTab(sub.id)}
+                title={sub.desc}
+                className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-all duration-150 whitespace-nowrap -mb-px ${
+                  contactSubTab === sub.id
+                    ? 'border-brand-600 text-brand-700'
+                    : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'
+                }`}
+              >
+                <span className={contactSubTab === sub.id ? 'text-brand-600' : 'text-gray-400'}>{sub.icon}</span>
+                {sub.label}
+              </button>
+            ))}
           </div>
-        )}
 
-        {/* Job Scraper sub-tab */}
-        {contactSubTab === 'job-links' && (
-          <div className="bg-stone-50 rounded-b-md border border-gray-200 border-t-0 p-4">
-            <TabErrorBoundary>
-              <JobScraperSection />
-            </TabErrorBoundary>
-          </div>
-        )}
-
-        {/* My Contacts subtab */}
-        {contactSubTab === 'my' && <>
-        <StatsBar contacts={contacts} />
-        <ActivityCalendar refreshKey={activityKey} />
-
-        {/* ── Toolbar ─────────────────────────────────────────────────── */}
-        <div className="flex flex-wrap gap-3 items-center">
-          <input
-            type="text"
-            placeholder="Search name, company, email, title…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="border border-gray-200 rounded-sm px-3 py-2 w-72 text-sm focus:ring-2 focus:ring-brand-300 focus:border-brand-400 outline-none bg-white"
-          />
-          <select
-            value={statusFilter}
-            onChange={e => setStatusFilter(e.target.value)}
-            className="border border-gray-200 rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none bg-white"
-          >
-            <option value="">All Statuses</option>
-            {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-          {(search || statusFilter) && (
-            <button
-              onClick={() => { setSearch(''); setStatusFilter(''); }}
-              className="text-xs text-gray-400 hover:text-gray-600 underline"
-            >
-              Clear filters
-            </button>
+          {/* Cold Emailing sub-tab */}
+          {contactSubTab === 'cold-email' && (
+            <div className="p-5 bg-stone-50">
+              <TabErrorBoundary>
+                <ColdEmailSection />
+              </TabErrorBoundary>
+            </div>
           )}
 
-          <div className="ml-auto flex flex-wrap gap-2 items-center">
-            <RateLimitBar />
-            {emailStats && (
-              <span className="text-xs text-gray-500 border border-gray-200 rounded-sm px-3 py-2 bg-white flex items-center gap-1.5">
-                <Mail size={13} className="text-gray-400" />
-                {emailStats.sentToday}/{emailStats.dailyCap} today
-              </span>
-            )}
-            <button
-              onClick={() => setShowPlans(true)}
-              className="text-xs border border-gray-200 rounded-sm px-3 py-2 bg-white hover:bg-gray-50 font-medium transition flex items-center gap-1.5 text-gray-600"
-            >
-              <BarChart3 size={13} className="text-gray-400" />
-              {planName} Plan{user && planName !== 'Advanced' ? ' · ↑ Upgrade' : ''}
-            </button>
-            <button onClick={() => setShowReminder(true)}
-              className="px-4 py-2 text-sm bg-white border border-gray-200 rounded-sm hover:bg-gray-50 font-medium transition text-gray-600 flex items-center gap-1.5">
-              <Bell size={14} className="text-gray-400" /> Reminder
-            </button>
-            <button onClick={() => setShowSmtp(true)}
-              className="px-4 py-2 text-sm bg-white border border-gray-200 rounded-sm hover:bg-gray-50 font-medium transition text-gray-600">
-              SMTP Settings
-            </button>
-            <button onClick={() => setShowImport(true)}
-              className="px-4 py-2 text-sm bg-white border border-gray-200 rounded-sm hover:bg-gray-50 font-medium transition text-gray-600">
-              Import CSV / Excel
-            </button>
-            <button onClick={handleExport}
-              className="px-4 py-2 text-sm bg-white border border-gray-200 rounded-sm hover:bg-gray-50 font-medium transition text-gray-600">
-              Download Excel
-            </button>
-            <button onClick={openAdd}
-              className="px-4 py-2 text-sm bg-brand-600 text-white rounded-sm hover:bg-brand-700 font-semibold transition">
-              + Add Contact
-            </button>
-          </div>
-        </div>
+          {/* Job Scraper sub-tab */}
+          {contactSubTab === 'job-links' && (
+            <div className="p-5 bg-stone-50">
+              <TabErrorBoundary>
+                <JobScraperSection />
+              </TabErrorBoundary>
+            </div>
+          )}
 
-        {/* ── Bulk action bar ──────────────────────────────────────────── */}
-        {selected.length > 0 && (
-          <div className="bg-brand-50 border border-brand-200 rounded-md px-4 py-2.5 flex flex-wrap items-center gap-3 text-sm">
-            <span className="font-semibold text-brand-700">{selected.length} selected</span>
-            <select
-              defaultValue=""
-              onChange={e => { if (e.target.value) { handleBulkStatus(e.target.value); e.target.value = ''; } }}
-              className="border border-gray-200 rounded-sm px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-brand-300 outline-none"
-            >
-              <option value="" disabled>Change status to…</option>
-              {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-            <button
-              onClick={handleBulkCompose}
-              className={`px-3 py-1.5 rounded-sm text-sm font-medium transition flex items-center gap-1.5 ${
-                user ? 'bg-brand-600 text-white hover:bg-brand-700' : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
-              }`}
-            >
-              {!user && <Lock size={12} />}
-              <MailCheck size={13} /> Compose for {selected.length}
-            </button>
-            <button onClick={handleBulkDelete}
-              className="text-red-600 hover:text-red-800 font-medium">
-              Delete Selected
-            </button>
-            <button onClick={() => setSelected([])}
-              className="ml-auto text-gray-400 hover:text-gray-600 text-xs underline">
-              Clear selection
-            </button>
+          {/* My Contacts subtab */}
+          {contactSubTab === 'my' && (
+          <div className="p-5 space-y-5">
+
+          {/* Stats + Activity */}
+          <StatsBar contacts={contacts} />
+          <ActivityCalendar refreshKey={activityKey} />
+
+          {/* ── Toolbar ───────────────────────────────────────────────── */}
+          <div className="bg-white border border-gray-200 rounded-md shadow-card overflow-hidden">
+            {/* Primary row: search + filter + add */}
+            <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-gray-100">
+              <input
+                type="text"
+                placeholder="Search name, company, email, title…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="border border-gray-200 rounded-sm px-3 py-2 w-64 text-sm focus:ring-2 focus:ring-brand-300 focus:border-brand-400 outline-none bg-white"
+              />
+              <select
+                value={statusFilter}
+                onChange={e => setStatusFilter(e.target.value)}
+                className="border border-gray-200 rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none bg-white"
+              >
+                <option value="">All Statuses</option>
+                {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              {(search || statusFilter) && (
+                <button onClick={() => { setSearch(''); setStatusFilter(''); }}
+                  className="text-xs text-gray-400 hover:text-gray-600 underline">
+                  Clear
+                </button>
+              )}
+              <div className="ml-auto flex items-center gap-2">
+                <RateLimitBar />
+                {emailStats && (
+                  <span className="text-xs text-gray-500 border border-gray-200 rounded-sm px-3 py-2 bg-white flex items-center gap-1.5">
+                    <Mail size={13} className="text-gray-400" />
+                    {emailStats.sentToday}/{emailStats.dailyCap} today
+                  </span>
+                )}
+                <button onClick={openAdd}
+                  className="px-4 py-2 text-sm bg-brand-600 text-white rounded-sm hover:bg-brand-700 font-semibold transition flex items-center gap-1.5">
+                  + Add Contact
+                </button>
+              </div>
+            </div>
+            {/* Secondary row: settings + import/export */}
+            <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 bg-gray-50">
+              <button onClick={() => setShowPlans(true)}
+                className="text-xs border border-gray-200 rounded-sm px-3 py-1.5 bg-white hover:bg-gray-50 font-medium transition flex items-center gap-1.5 text-gray-500">
+                <BarChart3 size={12} className="text-gray-400" />
+                {planName} Plan{user && planName !== 'Advanced' ? ' · Upgrade' : ''}
+              </button>
+              <button onClick={() => setShowReminder(true)}
+                className="text-xs border border-gray-200 rounded-sm px-3 py-1.5 bg-white hover:bg-gray-50 font-medium transition text-gray-500 flex items-center gap-1.5">
+                <Bell size={12} className="text-gray-400" /> Reminders
+              </button>
+              <button onClick={() => setShowSmtp(true)}
+                className="text-xs border border-gray-200 rounded-sm px-3 py-1.5 bg-white hover:bg-gray-50 font-medium transition text-gray-500">
+                SMTP Settings
+              </button>
+              <span className="text-gray-200">|</span>
+              <button onClick={() => setShowImport(true)}
+                className="text-xs border border-gray-200 rounded-sm px-3 py-1.5 bg-white hover:bg-gray-50 font-medium transition text-gray-500">
+                Import CSV / Excel
+              </button>
+              <button onClick={handleExport}
+                className="text-xs border border-gray-200 rounded-sm px-3 py-1.5 bg-white hover:bg-gray-50 font-medium transition text-gray-500">
+                Download Excel
+              </button>
+            </div>
+          </div>
+
+          {/* ── Bulk action bar ─────────────────────────────────────── */}
+          {selected.length > 0 && (
+            <div className="bg-brand-50 border border-brand-200 rounded-md px-4 py-2.5 flex flex-wrap items-center gap-3 text-sm">
+              <span className="font-semibold text-brand-700">{selected.length} selected</span>
+              <select
+                defaultValue=""
+                onChange={e => { if (e.target.value) { handleBulkStatus(e.target.value); e.target.value = ''; } }}
+                className="border border-gray-200 rounded-sm px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-brand-300 outline-none"
+              >
+                <option value="" disabled>Change status to…</option>
+                {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <button
+                onClick={handleBulkCompose}
+                className={`px-3 py-1.5 rounded-sm text-sm font-medium transition flex items-center gap-1.5 ${
+                  user ? 'bg-brand-600 text-white hover:bg-brand-700' : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
+                }`}
+              >
+                {!user && <Lock size={12} />}
+                <MailCheck size={13} /> Compose for {selected.length}
+              </button>
+              <button onClick={handleBulkDelete} className="text-red-600 hover:text-red-800 font-medium">
+                Delete Selected
+              </button>
+              <button onClick={() => setSelected([])} className="ml-auto text-gray-400 hover:text-gray-600 text-xs underline">
+                Clear selection
+              </button>
+            </div>
+          )}
+
+          <ContactTable
+            contacts={contacts}
+            loading={loading}
+            selected={selected}
+            onSelect={setSelected}
+            onEdit={openEdit}
+            onDelete={handleDelete}
+            onStatusChange={handleStatusChange}
+            onSendEmail={handleSendEmail}
+            isAuthenticated={!!user}
+            onLoginRequest={() => setShowAuthModal(true)}
+            visibleLimit={visibleLimit}
+            planName={planName}
+            onUpgradeClick={() => setShowPlans(true)}
+          />
           </div>
         )}
 
-        <ContactTable
-          contacts={contacts}
-          loading={loading}
-          selected={selected}
-          onSelect={setSelected}
-          onEdit={openEdit}
-          onDelete={handleDelete}
-          onStatusChange={handleStatusChange}
-          onSendEmail={handleSendEmail}
-          isAuthenticated={!!user}
-          onLoginRequest={() => setShowAuthModal(true)}
-          visibleLimit={visibleLimit}
-          planName={planName}
-          onUpgradeClick={() => setShowPlans(true)}
-        />
-        </>}
-
+        </div>
         </>}
 
       </main>
