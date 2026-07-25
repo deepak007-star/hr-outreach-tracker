@@ -43,23 +43,23 @@ export default function ImportModal({ onClose, onImported }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+      <div className="bg-white rounded-md shadow-modal w-full max-w-md">
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <h2 className="text-base font-bold">Import Contacts</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
         </div>
 
         <div className="p-6 space-y-4">
-          <div className="bg-blue-50 rounded-lg p-3 text-xs text-blue-700 space-y-1">
+          <div className="bg-brand-50 rounded-sm p-3 text-xs text-brand-700 space-y-1">
             <p className="font-semibold">Required columns:</p>
             <p><span className="font-medium">name</span>, <span className="font-medium">email</span></p>
-            <p className="text-blue-600">Optional: title, company, status, notes, tags, source_url (or url)</p>
-            <p className="text-blue-500 mt-1">Duplicate emails are silently skipped.</p>
+            <p className="text-brand-600">Optional: title, company, status, notes, tags, source_url (or url)</p>
+            <p className="text-brand-500 mt-1">Duplicate emails are silently skipped.</p>
           </div>
 
           <div
-            className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors
-              ${dragging ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}
+            className={`border-2 border-dashed rounded-sm p-10 text-center cursor-pointer transition-colors
+              ${dragging ? 'border-brand-400 bg-brand-50' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}
             onDragOver  ={e => { e.preventDefault(); setDragging(true); }}
             onDragLeave ={() => setDragging(false)}
             onDrop      ={e => { e.preventDefault(); setDragging(false); upload(e.dataTransfer.files[0]); }}
@@ -79,7 +79,7 @@ export default function ImportModal({ onClose, onImported }) {
           </div>
 
           {result && (
-            <div className="rounded-lg border divide-y text-sm overflow-hidden">
+            <div className="rounded-sm border divide-y text-sm overflow-hidden">
               <div className="px-4 py-2.5 bg-green-50 text-green-700 font-medium">Import complete</div>
               <div className="px-4 py-2 flex justify-between">
                 <span className="text-gray-600">Imported</span>
@@ -101,12 +101,12 @@ export default function ImportModal({ onClose, onImported }) {
           <div className="flex gap-3">
             {result ? (
               <button onClick={onImported}
-                className="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-blue-700 transition">
+                className="flex-1 bg-brand-600 text-white rounded-sm py-2.5 text-sm font-semibold hover:bg-brand-700 transition">
                 View Contacts
               </button>
             ) : (
               <button onClick={onClose}
-                className="flex-1 border rounded-lg py-2.5 text-sm font-medium hover:bg-gray-50 transition">
+                className="flex-1 border rounded-sm py-2.5 text-sm font-medium hover:bg-gray-50 transition">
                 Cancel
               </button>
             )}

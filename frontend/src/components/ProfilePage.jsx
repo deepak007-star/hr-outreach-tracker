@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { toast } from 'react-hot-toast';
 import { api, API_ROOT } from '../api/client.js';
+import { Pencil, Eye, Upload, X, Check } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { extractSkills } from '../data/techSkills.js';
 import ProfileAnalyzer from './ProfileAnalyzer.jsx';
@@ -38,7 +39,7 @@ function Avatar({ name, size = 'lg' }) {
   const initials = (name || 'U').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
   const cls = size === 'lg' ? 'w-20 h-20 text-2xl' : 'w-10 h-10 text-sm';
   return (
-    <div className={`${cls} rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold flex-shrink-0 shadow-md`}>
+    <div className={`${cls} rounded-full bg-gradient-to-br from-brand-500 to-brand-800 flex items-center justify-center text-white font-bold flex-shrink-0 shadow-md`}>
       {initials}
     </div>
   );
@@ -46,7 +47,7 @@ function Avatar({ name, size = 'lg' }) {
 
 function SkillChip({ label, onRemove }) {
   return (
-    <span className="inline-flex items-center gap-1 bg-blue-50 border border-blue-200 text-blue-700 text-xs px-2.5 py-1 rounded-full">
+    <span className="inline-flex items-center gap-1 bg-brand-50 border border-brand-200 text-brand-700 text-xs px-2.5 py-1 rounded-full">
       {label}
       {onRemove && <button onClick={onRemove} className="text-blue-400 hover:text-red-500 leading-none text-xs font-bold ml-0.5">&times;</button>}
     </span>
@@ -59,7 +60,7 @@ function InfoField({ label, value, editing, onChange, placeholder, type = 'text'
       <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">{label}</p>
       {editing ? (
         <input type={type} value={value || ''} onChange={e => onChange(e.target.value)} placeholder={placeholder}
-          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-300" />
+          className="w-full border border-gray-200 rounded-sm px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-300" />
       ) : (
         <p className="text-sm text-gray-800">{value || <span className="text-gray-300 italic">Not set</span>}</p>
       )}
@@ -102,11 +103,10 @@ function profileToOverviewForm(p) {
 // ── Draft restore banner ──────────────────────────────────────────────────────
 function DraftBanner({ onRestore, onDiscard }) {
   return (
-    <div className="flex items-center gap-3 bg-amber-50 border border-amber-300 rounded-xl px-4 py-3 text-sm mb-2">
-      <span className="text-lg">📝</span>
+    <div className="flex items-center gap-3 bg-amber-50 border border-amber-300 rounded-sm px-4 py-3 text-sm mb-2">
       <span className="flex-1 text-amber-800 font-medium">You have an unsaved draft from your last session.</span>
-      <button onClick={onRestore} className="px-3 py-1 bg-amber-500 text-white text-xs font-semibold rounded-lg hover:bg-amber-600">Restore</button>
-      <button onClick={onDiscard} className="px-3 py-1 border border-amber-300 text-amber-700 text-xs font-semibold rounded-lg hover:bg-amber-100">Discard</button>
+      <button onClick={onRestore} className="px-3 py-1 bg-amber-500 text-white text-xs font-semibold rounded-sm hover:bg-amber-600">Restore</button>
+      <button onClick={onDiscard} className="px-3 py-1 border border-amber-300 text-amber-700 text-xs font-semibold rounded-sm hover:bg-amber-100">Discard</button>
     </div>
   );
 }
@@ -184,16 +184,16 @@ function OverviewTab({ profile, onSave, onDirtyChange }) {
         {editing ? (
           <>
             <button onClick={cancel}
-              className="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
+              className="px-4 py-2 border border-gray-200 rounded-sm text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
             <button onClick={save} disabled={saving}
-              className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50">
+              className="px-5 py-2 bg-brand-600 text-white text-sm font-semibold rounded-sm hover:bg-brand-700 disabled:opacity-50">
               {saving ? 'Saving…' : 'Save Changes'}
             </button>
           </>
         ) : (
           <button onClick={() => setEditing(true)}
-            className="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 flex items-center gap-1.5">
-            ✏️ Edit Overview
+            className="px-4 py-2 border border-gray-200 rounded-sm text-sm text-gray-600 hover:bg-gray-50 flex items-center gap-1.5">
+            <Pencil size={13} /> Edit Overview
           </button>
         )}
       </div>
@@ -226,7 +226,7 @@ function OverviewTab({ profile, onSave, onDirtyChange }) {
                 <div className="relative">
                   <input list={`${key}-opts`} value={form[key] || ''} onChange={e => set(key, e.target.value)}
                     placeholder="e.g. Java Backend Engineer"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-300" />
+                    className="w-full border border-gray-200 rounded-sm px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-300" />
                   <datalist id={`${key}-opts`}>
                     {JOB_TITLE_OPTIONS.map(t => <option key={t} value={t} />)}
                   </datalist>
@@ -240,7 +240,7 @@ function OverviewTab({ profile, onSave, onDirtyChange }) {
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Preferred City</p>
             {editing ? (
               <select value={form.preferred_city || ''} onChange={e => set('preferred_city', e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-300 bg-white">
+                className="w-full border border-gray-200 rounded-sm px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-300 bg-white">
                 <option value="">Select city…</option>
                 {INDIA_CITIES.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
@@ -252,10 +252,10 @@ function OverviewTab({ profile, onSave, onDirtyChange }) {
         {(!editing && (form.job_title_1 || form.preferred_city)) && (
           <div className="mt-3 flex flex-wrap gap-2">
             {[form.job_title_1, form.job_title_2, form.job_title_3].filter(Boolean).map((t, i) => (
-              <span key={i} className="text-xs bg-blue-50 border border-blue-200 text-blue-700 px-3 py-1 rounded-full font-semibold">🎯 {t}</span>
+              <span key={i} className="text-xs bg-brand-50 border border-brand-200 text-brand-700 px-3 py-1 rounded-full font-semibold">{t}</span>
             ))}
             {form.preferred_city && (
-              <span className="text-xs bg-green-50 border border-green-200 text-green-700 px-3 py-1 rounded-full font-semibold">📍 {form.preferred_city}</span>
+              <span className="text-xs bg-green-50 border border-green-200 text-green-700 px-3 py-1 rounded-full font-semibold">{form.preferred_city}</span>
             )}
           </div>
         )}
@@ -266,9 +266,9 @@ function OverviewTab({ profile, onSave, onDirtyChange }) {
         {editing ? (
           <textarea value={form.summary} onChange={e => set('summary', e.target.value)} rows={6}
             placeholder="Write a 3-5 sentence summary highlighting your experience, key skills, and what you're looking for…"
-            className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm resize-none outline-none focus:ring-2 focus:ring-blue-300 leading-relaxed" />
+            className="w-full border border-gray-200 rounded-sm px-4 py-3 text-sm resize-none outline-none focus:ring-2 focus:ring-brand-300 leading-relaxed" />
         ) : (
-          <div className="bg-gray-50 rounded-xl px-4 py-4 min-h-[80px]">
+          <div className="bg-gray-50 rounded-sm px-4 py-4 min-h-[80px]">
             {form.summary
               ? <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{form.summary}</p>
               : <p className="text-sm text-gray-300 italic">No summary yet. Click "Edit Overview" to add one — it has the highest ATS impact.</p>
@@ -311,15 +311,15 @@ function ResumeFilePreviewModal({ filename, onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[92vh] flex flex-col">
+      <div className="bg-white rounded-md shadow-modal w-full max-w-4xl h-[92vh] flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b shrink-0">
           <div>
             <h3 className="font-bold text-gray-900">{filename || 'Resume Preview'}</h3>
             <p className="text-xs text-gray-400 mt-0.5">Your uploaded resume</p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-xl leading-none">✕</button>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 transition-colors"><X size={18} /></button>
         </div>
-        <div className="flex-1 min-h-0 overflow-hidden rounded-b-2xl">
+        <div className="flex-1 min-h-0 overflow-hidden rounded-b-md">
           {loading ? (
             <div className="flex items-center justify-center h-full text-gray-400 text-sm">Loading preview…</div>
           ) : blobUrl ? (
@@ -404,10 +404,10 @@ function ResumeSkillsTab({ profile, onSave }) {
           onChange={e => handleUpload(e.target.files?.[0])} />
 
         {profile?.resume_filename ? (
-          <div className="flex items-center gap-4 bg-blue-50 border border-blue-200 rounded-xl p-4">
-            <div className="text-3xl">📎</div>
+          <div className="flex items-center gap-4 bg-brand-50 border border-brand-200 rounded-md p-4">
+            <Upload size={24} className="text-brand-500 shrink-0" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-blue-800 truncate">{profile.resume_filename}</p>
+              <p className="text-sm font-semibold text-brand-800 truncate">{profile.resume_filename}</p>
               {profile.resume_uploaded_at && (
                 <p className="text-xs text-blue-500 mt-0.5">
                   Uploaded {new Date(profile.resume_uploaded_at).toLocaleDateString('en-IN')} · Skills & info auto-extracted ✓
@@ -417,20 +417,20 @@ function ResumeSkillsTab({ profile, onSave }) {
             <div className="flex gap-2 shrink-0">
               {profile.has_resume_file && (
                 <button onClick={() => setShowPreview(true)}
-                  className="px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition">
-                  👁 Preview
+                  className="flex items-center gap-1.5 px-4 py-2 bg-brand-600 text-white text-xs font-semibold rounded-sm hover:bg-brand-700 transition">
+                  <Eye size={12} /> Preview
                 </button>
               )}
               <button onClick={() => fileRef.current?.click()} disabled={uploading}
-                className="px-4 py-2 border border-blue-300 text-blue-700 text-xs font-semibold rounded-lg hover:bg-blue-100 disabled:opacity-50">
-                {uploading ? '⏳ Parsing…' : '↺ Update'}
+                className="px-4 py-2 border border-brand-300 text-brand-700 text-xs font-semibold rounded-sm hover:bg-brand-100 disabled:opacity-50">
+                {uploading ? 'Parsing…' : '↺ Update'}
               </button>
             </div>
           </div>
         ) : (
           <button onClick={() => fileRef.current?.click()} disabled={uploading}
-            className="w-full border-2 border-dashed border-gray-300 rounded-xl py-10 flex flex-col items-center gap-2 text-gray-400 hover:border-blue-400 hover:text-blue-500 hover:bg-blue-50 transition disabled:opacity-50">
-            <span className="text-4xl">{uploading ? '⏳' : '⬆️'}</span>
+            className="w-full border-2 border-dashed border-gray-300 rounded-sm py-10 flex flex-col items-center gap-2 text-gray-400 hover:border-brand-400 hover:text-brand-500 hover:bg-brand-50 transition disabled:opacity-50">
+            <Upload size={32} className="opacity-50" />
             <p className="text-sm font-semibold">{uploading ? 'Parsing resume…' : 'Upload Resume'}</p>
             <p className="text-xs">PDF, DOCX, or TXT — skills, title & experience are auto-extracted</p>
           </button>
@@ -451,19 +451,19 @@ function ResumeSkillsTab({ profile, onSave }) {
           <input value={newSkill} onChange={e => setNewSkill(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addSkill(newSkill))}
             placeholder="Type a skill and press Enter"
-            className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-300" />
+            className="flex-1 border border-gray-200 rounded-sm px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-300" />
           <button onClick={() => addSkill(newSkill)}
-            className="px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-xl hover:bg-blue-700">+ Add</button>
+            className="px-4 py-2 bg-brand-600 text-white text-xs font-semibold rounded-sm hover:bg-brand-700">+ Add</button>
         </div>
         {suggestions.length > 0 && (
           <div className="mt-4">
             <p className="text-xs text-gray-400 mb-2 font-medium">
-              💡 Suggested for <span className="text-indigo-600 font-semibold">{suggestions[0]?.domain}</span> — click to add
+              Suggested for <span className="text-brand-600 font-semibold">{suggestions[0]?.domain}</span> — click to add
             </p>
             <div className="flex flex-wrap gap-1.5">
               {suggestions.map(({ skill }) => (
                 <button key={skill} onClick={() => addSkill(skill)}
-                  className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-2.5 py-1 rounded-full hover:bg-indigo-100 transition">
+                  className="text-xs bg-brand-50 text-brand-700 border border-brand-200 px-2.5 py-1 rounded-full hover:bg-brand-100 transition">
                   + {skill}
                 </button>
               ))}
@@ -569,16 +569,16 @@ function LinksTab({ profile, user, onSave, onDirtyChange }) {
         {editing ? (
           <>
             <button onClick={cancel}
-              className="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
+              className="px-4 py-2 border border-gray-200 rounded-sm text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
             <button onClick={save} disabled={saving}
-              className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50">
+              className="px-5 py-2 bg-brand-600 text-white text-sm font-semibold rounded-sm hover:bg-brand-700 disabled:opacity-50">
               {saving ? 'Saving…' : 'Save Links'}
             </button>
           </>
         ) : (
           <button onClick={() => setEditing(true)}
-            className="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50">
-            ✏️ Edit Links
+            className="px-4 py-2 border border-gray-200 rounded-sm text-sm text-gray-600 hover:bg-gray-50 flex items-center gap-1.5">
+            <Pencil size={13} /> Edit Links
           </button>
         )}
       </div>
@@ -586,13 +586,13 @@ function LinksTab({ profile, user, onSave, onDirtyChange }) {
       <div className="space-y-4">
         <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest">Online Presence</h3>
         {LINKS.map(({ key, label, icon, placeholder, color }) => (
-          <div key={key} className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl border border-gray-100">
-            <span className="text-2xl shrink-0">{icon}</span>
+          <div key={key} className="flex items-center gap-4 p-4 bg-gray-50 rounded-sm border border-gray-100">
+            <span className="text-xl shrink-0">{icon}</span>
             <div className="flex-1 min-w-0">
               <p className="text-xs font-semibold text-gray-500 mb-1">{label}</p>
               {editing ? (
                 <input type="url" value={form[key] || ''} onChange={e => set(key, e.target.value)} placeholder={placeholder}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-300" />
+                  className="w-full border border-gray-200 rounded-sm px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-300" />
               ) : form[key] ? (
                 <a href={form[key]} target="_blank" rel="noopener" className={`text-sm truncate block hover:underline ${color}`}>{form[key]}</a>
               ) : (
@@ -605,7 +605,7 @@ function LinksTab({ profile, user, onSave, onDirtyChange }) {
 
       <div>
         <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Account</h3>
-        <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 space-y-1">
+        <div className="p-4 bg-gray-50 rounded-sm border border-gray-100 space-y-1">
           <p className="text-sm font-semibold text-gray-800">{user?.name}</p>
           <p className="text-xs text-gray-400">{user?.email}</p>
           <p className="text-xs text-gray-300 mt-1">Role: <span className="capitalize text-gray-500">{user?.role || 'user'}</span></p>
@@ -617,11 +617,11 @@ function LinksTab({ profile, user, onSave, onDirtyChange }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 const TABS = [
-  { id: 'overview',   label: '👤 Overview' },
-  { id: 'resume',     label: '📄 Resume & Skills' },
-  { id: 'links',      label: '🔗 Links' },
-  { id: 'score',      label: '📊 Profile Score' },
-  { id: 'passwords',  label: '🔐 Passwords' },
+  { id: 'overview',   label: 'Overview' },
+  { id: 'resume',     label: 'Resume & Skills' },
+  { id: 'links',      label: 'Links' },
+  { id: 'score',      label: 'Profile Score' },
+  { id: 'passwords',  label: 'Passwords' },
 ];
 
 export default function ProfilePage({ onDirtyChange }) {
@@ -714,15 +714,14 @@ export default function ProfilePage({ onDirtyChange }) {
     <div className="max-w-3xl mx-auto space-y-4">
 
       {/* ── Hero card ─────────────────────────────────────────────────── */}
-      <div className="bg-gradient-to-r from-slate-800 to-slate-900 rounded-2xl shadow-sm p-6 text-white">
+      <div className="bg-gradient-to-r from-slate-800 to-slate-900 rounded-md shadow-card p-6 text-white">
         {heroDraftBanner && (
-          <div className="flex items-center gap-3 bg-amber-500/20 border border-amber-400/40 rounded-xl px-3 py-2 text-sm mb-4">
-            <span>📝</span>
+          <div className="flex items-center gap-3 bg-amber-500/20 border border-amber-400/40 rounded-sm px-3 py-2 text-sm mb-4">
             <span className="flex-1 text-amber-200 text-xs font-medium">Unsaved draft for name.</span>
             <button onClick={() => { const d = readDraft('profile:hero'); if (d) { setHeroForm(d); setEditHero(true); } setHeroDraftBanner(false); }}
-              className="px-2 py-0.5 bg-amber-500 text-white text-xs font-semibold rounded hover:bg-amber-600">Restore</button>
+              className="px-2 py-0.5 bg-amber-500 text-white text-xs font-semibold rounded-sm hover:bg-amber-600">Restore</button>
             <button onClick={() => { clearDraft('profile:hero'); setHeroForm(heroBaseRef.current); setHeroDraftBanner(false); }}
-              className="px-2 py-0.5 border border-amber-400/50 text-amber-200 text-xs font-semibold rounded hover:bg-amber-500/20">Discard</button>
+              className="px-2 py-0.5 border border-amber-400/50 text-amber-200 text-xs font-semibold rounded-sm hover:bg-amber-500/20">Discard</button>
           </div>
         )}
         <div className="flex items-start gap-5">
@@ -734,7 +733,7 @@ export default function ProfilePage({ onDirtyChange }) {
                 onChange={e => setHeroForm(f => ({ ...f, full_name: e.target.value }))}
                 placeholder="Your full name"
                 autoFocus
-                className="bg-white/10 border border-white/30 rounded-lg px-3 py-1.5 text-base font-bold text-white placeholder-white/30 outline-none focus:border-white/60 w-full max-w-xs"
+                className="bg-white/10 border border-white/30 rounded-sm px-3 py-1.5 text-base font-bold text-white placeholder-white/30 outline-none focus:border-white/60 w-full max-w-xs"
               />
             ) : (
               <h2 className="text-xl font-bold text-white">{displayName || <span className="text-white/40 italic font-normal">Name not set</span>}</h2>

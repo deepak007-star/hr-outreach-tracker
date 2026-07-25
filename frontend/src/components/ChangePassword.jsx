@@ -13,7 +13,7 @@ function PasswordInput({ label, value, onChange, placeholder }) {
       <div className="relative">
         <input
           type={show ? 'text' : 'password'}
-          className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none font-mono"
+          className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-sm text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none font-mono"
           placeholder={placeholder}
           value={value}
           onChange={e => onChange(e.target.value)}
@@ -38,7 +38,7 @@ function strengthOf(pw) {
   if (s <= 1) return { score: s, label: 'Very weak', color: 'bg-red-500' };
   if (s === 2) return { score: s, label: 'Weak', color: 'bg-orange-500' };
   if (s === 3) return { score: s, label: 'Fair', color: 'bg-yellow-500' };
-  if (s === 4) return { score: s, label: 'Strong', color: 'bg-blue-500' };
+  if (s === 4) return { score: s, label: 'Strong', color: 'bg-brand-500' };
   return { score: s, label: 'Very strong', color: 'bg-green-500' };
 }
 
@@ -109,11 +109,11 @@ export default function ChangePassword() {
           <p className="text-xs text-green-600">Passwords match</p>
         )}
 
-        {error   && <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">{error}</div>}
-        {success && <div className="p-3 bg-green-50 border border-green-200 text-green-700 text-sm rounded-lg">{success}</div>}
+        {error   && <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-sm">{error}</div>}
+        {success && <div className="p-3 bg-green-50 border border-green-200 text-green-700 text-sm rounded-sm">{success}</div>}
 
         <button type="submit" disabled={saving}
-          className="w-full px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-60 transition-colors">
+          className="w-full px-4 py-2 text-sm font-medium text-white bg-brand-600 rounded-sm hover:bg-brand-700 disabled:opacity-60 transition-colors">
           {saving ? 'Updating…' : 'Update Password'}
         </button>
       </form>

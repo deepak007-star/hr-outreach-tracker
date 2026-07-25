@@ -6,6 +6,7 @@ import { RESUME_TEMPLATES } from '../data/resumeTemplates.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import RichEditor, { toHtml } from './RichEditor.jsx';
 import AttachmentPicker from './AttachmentPicker.jsx';
+import { Mail, FileText, PenLine, Columns2, Eye, Copy, Check, Save, Lock, X } from 'lucide-react';
 
 const TEMPLATE_VARS = ['{{name}}', '{{company}}', '{{role}}', '{{your_name}}', '{{title}}'];
 
@@ -32,7 +33,7 @@ function HighlightedText({ text, className = '' }) {
     <span className={className}>
       {parts.map((p, i) => {
         if (/^\[.+\]$/.test(p))   return <mark key={i} className="bg-yellow-200 text-yellow-900 rounded px-0.5 not-italic font-semibold">{p}</mark>;
-        if (/^\{\{.+\}\}$/.test(p)) return <mark key={i} className="bg-indigo-100 text-indigo-700 rounded px-0.5 not-italic">{p}</mark>;
+        if (/^\{\{.+\}\}$/.test(p)) return <mark key={i} className="bg-brand-50 text-brand-600 rounded px-0.5 not-italic">{p}</mark>;
         return p;
       })}
     </span>
@@ -47,7 +48,7 @@ function EmailPreview({ subject, body }) {
   if (!body && !subject) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-gray-400 gap-3 bg-gray-50">
-        <span className="text-5xl">✉️</span>
+        <Mail size={48} strokeWidth={1} className="text-gray-300" />
         <p className="text-sm">Your email preview will appear here</p>
         <p className="text-xs">Start writing in the editor on the left</p>
       </div>
@@ -57,7 +58,7 @@ function EmailPreview({ subject, body }) {
   return (
     <div className="flex-1 overflow-y-auto bg-gray-100 p-5 space-y-4">
       {/* Email chrome */}
-      <div className="bg-white rounded-2xl shadow-md overflow-hidden max-w-2xl mx-auto">
+      <div className="bg-white rounded-md shadow-card overflow-hidden max-w-2xl mx-auto">
         {/* Window bar */}
         <div className="flex items-center gap-1.5 px-4 py-2.5 bg-gray-200 border-b border-gray-300">
           <span className="w-3 h-3 rounded-full bg-red-400" />
@@ -98,7 +99,7 @@ function EmailPreview({ subject, body }) {
         <div className="flex flex-wrap gap-1.5">
           {Object.entries(SAMPLE).map(([k, v]) => (
             <span key={k} className="text-[11px] bg-white border border-gray-200 rounded-full px-2.5 py-1 text-gray-500 shadow-sm">
-              <span className="font-mono text-indigo-500">{k}</span> → <span className="text-gray-700">{v}</span>
+              <span className="font-mono text-brand-600">{k}</span> → <span className="text-gray-700">{v}</span>
             </span>
           ))}
         </div>
@@ -211,7 +212,7 @@ function ResumeDocPreview({ text }) {
   if (!text) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-gray-500 gap-3 bg-gray-100">
-        <span className="text-5xl">📄</span>
+        <FileText size={48} strokeWidth={1} className="text-gray-300" />
         <p className="text-sm">Select a domain template to see the document preview</p>
       </div>
     );
@@ -231,9 +232,9 @@ function ResumeDocPreview({ text }) {
   return (
     <div className="flex-1 overflow-y-auto bg-gray-200 p-6">
       {/* A4-ish paper */}
-      <div className="bg-white mx-auto shadow-xl rounded-lg overflow-hidden" style={{ maxWidth: '640px', minHeight: '900px' }}>
+      <div className="bg-white mx-auto shadow-xl rounded-md overflow-hidden" style={{ maxWidth: '640px', minHeight: '900px' }}>
         {/* Paper top accent */}
-        <div className="h-1.5 bg-gradient-to-r from-blue-500 to-indigo-600" />
+        <div className="h-1.5 bg-brand-600" />
         <div className="px-8 py-7 space-y-0">
           {lines.map((line, i) => (
             <DocLine
@@ -249,7 +250,7 @@ function ResumeDocPreview({ text }) {
       {/* Legend */}
       <div className="mt-4 max-w-[640px] mx-auto flex flex-wrap gap-3 text-xs text-gray-500">
         <span className="flex items-center gap-1.5"><mark className="bg-yellow-200 text-yellow-800 rounded px-1 text-[10px]">[PLACEHOLDER]</mark> Replace with your data</span>
-        <span className="flex items-center gap-1.5"><mark className="bg-indigo-100 text-indigo-600 rounded px-1 text-[10px]">{'{{var}}'}</mark> Auto-filled template var</span>
+        <span className="flex items-center gap-1.5"><mark className="bg-brand-50 text-brand-600 rounded px-1 text-[10px]">{'{{var}}'}</mark> Auto-filled template var</span>
       </div>
     </div>
   );
@@ -307,22 +308,23 @@ function CodeEditor({ value, onChange, language = 'text' }) {
 
 // ── Panel toggle buttons ──────────────────────────────────────────────────────
 function PanelToggle({ view, setView }) {
+  const VIEWS = [
+    { id: 'editor',  Icon: PenLine,  title: 'Editor only' },
+    { id: 'split',   Icon: Columns2, title: 'Split view'  },
+    { id: 'preview', Icon: Eye,      title: 'Preview only' },
+  ];
   return (
-    <div className="flex items-center bg-gray-100 rounded-lg p-0.5 gap-0.5">
-      {[
-        { id: 'editor',  icon: '✏️', title: 'Editor only' },
-        { id: 'split',   icon: '⬛', title: 'Split view'  },
-        { id: 'preview', icon: '👁', title: 'Preview only' },
-      ].map(({ id, icon, title }) => (
+    <div className="flex items-center bg-gray-100 rounded-sm p-0.5 gap-0.5">
+      {VIEWS.map(({ id, Icon, title }) => (
         <button
           key={id}
           onClick={() => setView(id)}
           title={title}
-          className={`px-2.5 py-1 rounded text-sm transition-all ${
+          className={`px-2.5 py-1 rounded-sm transition-all ${
             view === id ? 'bg-white shadow-sm text-gray-800 font-medium' : 'text-gray-500 hover:text-gray-700'
           }`}
         >
-          {icon}
+          <Icon size={14} />
         </button>
       ))}
     </div>
@@ -438,13 +440,13 @@ function EmailTemplatesSection() {
           onClose={() => setShowAttachPicker(false)}
         />
       )}
-    <div className="flex h-[720px] rounded-2xl border border-gray-200 shadow-sm overflow-hidden bg-white">
+    <div className="flex h-[720px] rounded-md border border-gray-200 shadow-card overflow-hidden bg-white">
 
       {/* ── Sidebar ── */}
       <div className="w-56 border-r bg-gray-50 flex flex-col shrink-0">
         <div className="p-3 border-b">
           <button onClick={newTpl}
-            className="w-full py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 transition">
+            className="w-full py-2.5 bg-brand-600 text-white text-sm font-semibold rounded-sm hover:bg-brand-700 transition">
             + New Template
           </button>
         </div>
@@ -455,7 +457,7 @@ function EmailTemplatesSection() {
           {templates.map(t => (
             <div key={t.id} onClick={() => open(t)}
               className={`group px-3.5 py-3 cursor-pointer transition-colors ${
-                selected?.id === t.id ? 'bg-blue-50 border-l-2 border-l-blue-500' : 'hover:bg-gray-100'
+                selected?.id === t.id ? 'bg-brand-50 border-l-2 border-l-brand-500' : 'hover:bg-gray-100'
               }`}
             >
               <div className="flex items-start justify-between gap-1">
@@ -463,7 +465,7 @@ function EmailTemplatesSection() {
                   <p className="text-sm font-semibold text-gray-800 truncate">{t.name}</p>
                   {t.subject && <p className="text-[11px] text-gray-400 truncate mt-0.5">{t.subject}</p>}
                 </div>
-                {t.is_default === 1 && <span className="text-[9px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full font-bold shrink-0 mt-0.5">DEFAULT</span>}
+                {t.is_default === 1 && <span className="text-[9px] bg-brand-100 text-brand-600 px-1.5 py-0.5 rounded-full font-bold shrink-0 mt-0.5">DEFAULT</span>}
               </div>
               <button onClick={e => del(t, e)}
                 className="text-[10px] text-red-400 hover:text-red-600 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -477,7 +479,7 @@ function EmailTemplatesSection() {
       {/* ── Main panel ── */}
       {!selected ? (
         <div className="flex-1 flex flex-col items-center justify-center text-gray-400 gap-3">
-          <span className="text-5xl">✉️</span>
+          <Mail size={48} strokeWidth={1} className="text-gray-300" />
           <p className="text-sm">Select a template or click "+ New Template"</p>
         </div>
       ) : (
@@ -494,7 +496,7 @@ function EmailTemplatesSection() {
             <div className="flex items-center gap-2 shrink-0">
               <PanelToggle view={view} setView={setView} />
               <button onClick={save} disabled={saving || !dirty}
-                className="px-4 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 disabled:opacity-40 transition">
+                className="px-4 py-1.5 bg-brand-600 text-white text-xs font-bold rounded-sm hover:bg-brand-700 disabled:opacity-40 transition">
                 {saving ? 'Saving…' : 'Save'}
               </button>
             </div>
@@ -519,7 +521,7 @@ function EmailTemplatesSection() {
                   <span className="text-[10px] text-gray-400 font-medium">Insert:</span>
                   {TEMPLATE_VARS.map(v => (
                     <button key={v} onMouseDown={e => { e.preventDefault(); insertVar(v); }}
-                      className="text-[10px] font-mono bg-indigo-50 text-indigo-600 border border-indigo-200 px-2 py-0.5 rounded hover:bg-indigo-100 transition">
+                      className="text-[10px] font-mono bg-brand-50 text-brand-600 border border-brand-200 px-2 py-0.5 rounded-sm hover:bg-brand-100 transition">
                       {v}
                     </button>
                   ))}
@@ -540,16 +542,18 @@ function EmailTemplatesSection() {
                   <span className="text-xs text-gray-500 shrink-0">Default attachment:</span>
                   {selectAttachment ? (
                     <div className="flex items-center gap-2 flex-1 min-w-0">
-                      <span className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded px-2 py-0.5 truncate flex-1">
+                      <span className="text-xs text-brand-700 bg-brand-50 border border-brand-200 rounded-sm px-2 py-0.5 truncate flex-1">
                         {selectAttachment.label}
                         {selectAttachment.type === 'local' && ' (not saved)'}
                       </span>
-                      <button onClick={() => { setSelectAttachment(null); setDirty(true); }} className="text-xs text-red-400 hover:text-red-600 shrink-0">✕</button>
+                      <button onClick={() => { setSelectAttachment(null); setDirty(true); }} className="text-gray-400 hover:text-red-500 shrink-0">
+                        <X size={12} />
+                      </button>
                     </div>
                   ) : (
                     <button
                       onClick={() => setShowAttachPicker(true)}
-                      className="text-xs px-2.5 py-1 border border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-blue-400 hover:text-blue-600 transition"
+                      className="text-xs px-2.5 py-1 border border-dashed border-gray-300 rounded-sm text-gray-500 hover:border-brand-400 hover:text-brand-600 transition"
                     >
                       + Pick resume (vault / drive / local / profile)
                     </button>
@@ -597,7 +601,7 @@ function ResumeTemplatesSection() {
     finally  { setSaving(false); }
   }
 
-  function copyText() {
+  function doCopy() {
     navigator.clipboard.writeText(editText).then(() => { setCopyDone(true); setTimeout(() => setCopyDone(false), 2000); });
   }
 
@@ -609,7 +613,7 @@ function ResumeTemplatesSection() {
   }
 
   return (
-    <div className="flex h-[680px] rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+    <div className="flex h-[680px] rounded-md border border-gray-200 shadow-card overflow-hidden">
 
       {/* ── Domain sidebar ── */}
       <div className="w-52 border-r bg-gray-50 flex flex-col shrink-0 overflow-y-auto">
@@ -620,17 +624,17 @@ function ResumeTemplatesSection() {
         <div className="flex-1 p-3 space-y-2">
           {RESUME_TEMPLATES.map(t => (
             <button key={t.id} onClick={() => open(t)}
-              className={`w-full text-left p-3 rounded-xl border transition-all ${
+              className={`w-full text-left p-3 rounded-sm border transition-all ${
                 selected?.id === t.id
-                  ? 'bg-blue-600 border-blue-600 shadow-md'
-                  : 'bg-white border-gray-200 hover:border-blue-300 hover:shadow-sm'
+                  ? 'bg-brand-600 border-brand-600 shadow-md'
+                  : 'bg-white border-gray-200 hover:border-brand-300 hover:shadow-sm'
               }`}
             >
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-xl shrink-0">{t.icon}</span>
                 <p className={`text-sm font-semibold leading-tight ${selected?.id === t.id ? 'text-white' : 'text-gray-800'}`}>{t.label}</p>
               </div>
-              <p className={`text-[11px] leading-relaxed line-clamp-2 ${selected?.id === t.id ? 'text-blue-100' : 'text-gray-400'}`}>{t.description}</p>
+              <p className={`text-[11px] leading-relaxed line-clamp-2 ${selected?.id === t.id ? 'text-brand-100' : 'text-gray-400'}`}>{t.description}</p>
             </button>
           ))}
         </div>
@@ -639,7 +643,7 @@ function ResumeTemplatesSection() {
       {/* ── Main area ── */}
       {!selected ? (
         <div className="flex-1 flex flex-col items-center justify-center text-gray-500 gap-3 bg-gray-900">
-          <span className="text-5xl">📄</span>
+          <FileText size={48} strokeWidth={1} className="text-gray-600" />
           <p className="text-sm text-gray-400">Select a domain template from the sidebar</p>
           <p className="text-xs text-gray-600">The editor and live preview will open here</p>
         </div>
@@ -659,21 +663,25 @@ function ResumeTemplatesSection() {
             </div>
             <div className="flex items-center gap-2">
               <PanelToggle view={view} setView={setView} />
-              <button onClick={copyText}
-                className="text-xs text-gray-400 hover:text-gray-200 border border-gray-700 px-2.5 py-1 rounded transition">
-                {copyDone ? '✓ Copied' : '📋 Copy'}
+              <button onClick={doCopy}
+                className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-200 border border-gray-700 px-2.5 py-1 rounded-sm transition">
+                {copyDone ? <Check size={12} /> : <Copy size={12} />}
+                {copyDone ? 'Copied' : 'Copy'}
               </button>
               <button onClick={download}
-                className="text-xs text-gray-400 hover:text-gray-200 border border-gray-700 px-2.5 py-1 rounded transition">
+                className="text-xs text-gray-400 hover:text-gray-200 border border-gray-700 px-2.5 py-1 rounded-sm transition">
                 ↓ .txt
               </button>
               <button onClick={() => setEditText(selected.template)}
-                className="text-xs text-gray-400 hover:text-gray-200 border border-gray-700 px-2.5 py-1 rounded transition">
+                className="text-xs text-gray-400 hover:text-gray-200 border border-gray-700 px-2.5 py-1 rounded-sm transition">
                 ↺ Reset
               </button>
               <button onClick={handleSave} disabled={saving || !user}
-                className="text-xs px-3 py-1 bg-green-600 text-white rounded font-semibold hover:bg-green-700 disabled:opacity-50 transition">
-                {saving ? 'Saving…' : user ? '💾 Save to Profile' : '🔒 Login'}
+                className="flex items-center gap-1.5 text-xs px-3 py-1 bg-green-600 text-white rounded-sm font-semibold hover:bg-green-700 disabled:opacity-50 transition">
+                {saving ? 'Saving…' : user
+                  ? <><Save size={12} /> Save to Profile</>
+                  : <><Lock size={12} /> Login</>
+                }
               </button>
             </div>
           </div>
@@ -709,23 +717,25 @@ function ResumeTemplatesSection() {
 export default function TemplatesPage({ defaultTab = 'email' }) {
   const [subTab, setSubTab] = useState(defaultTab);
 
+  const TABS = [
+    { id: 'email',  Icon: Mail,     label: 'Email Templates',      desc: 'Create, edit & preview personalised email templates' },
+    { id: 'resume', Icon: FileText, label: 'ATS Resume Templates',  desc: 'ATS-optimised resume starters with live document preview' },
+  ];
+
   return (
     <div className="space-y-4">
       {/* Tab selector */}
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-1.5 flex gap-1.5">
-        {[
-          { id: 'email',  icon: '✉️',  label: 'Email Templates',      desc: 'Create, edit & preview personalised email templates' },
-          { id: 'resume', icon: '📄', label: 'ATS Resume Templates',  desc: 'ATS-optimised resume starters with live document preview' },
-        ].map(t => (
-          <button key={t.id} onClick={() => setSubTab(t.id)}
-            className={`flex-1 flex items-center gap-3 px-4 py-3 rounded-xl text-left transition-all ${
-              subTab === t.id ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50'
+      <div className="bg-white rounded-md border border-gray-200 shadow-card p-1.5 flex gap-1.5">
+        {TABS.map(({ id, Icon, label, desc }) => (
+          <button key={id} onClick={() => setSubTab(id)}
+            className={`flex-1 flex items-center gap-3 px-4 py-3 rounded-sm text-left transition-all ${
+              subTab === id ? 'bg-brand-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50'
             }`}
           >
-            <span className="text-xl shrink-0">{t.icon}</span>
+            <Icon size={20} className="shrink-0" strokeWidth={1.5} />
             <div className="min-w-0">
-              <p className="text-sm font-semibold">{t.label}</p>
-              <p className={`text-xs mt-0.5 truncate ${subTab === t.id ? 'text-blue-200' : 'text-gray-400'}`}>{t.desc}</p>
+              <p className="text-sm font-semibold">{label}</p>
+              <p className={`text-xs mt-0.5 truncate ${subTab === id ? 'text-brand-100' : 'text-gray-400'}`}>{desc}</p>
             </div>
           </button>
         ))}

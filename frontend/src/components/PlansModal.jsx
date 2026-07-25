@@ -12,8 +12,8 @@ const PLANS = [
   },
   {
     id: 'demo', name: 'Demo', price: 'Free', per: 'forever',
-    badge: null, color: 'border-blue-300', headerBg: 'bg-blue-50',
-    btnCls: 'bg-blue-600 text-white hover:bg-blue-700',
+    badge: null, color: 'border-brand-300', headerBg: 'bg-brand-50',
+    btnCls: 'bg-brand-600 text-white hover:bg-brand-700',
     btnLabel: 'Current Plan', btnAction: 'current',
     contacts: 10, emails: '10/day',
     features: ['10 real emails & apply links', 'Send up to 10 emails/day', 'Job Analyzer', 'Profile + resume autofill', 'Excel sync & calendar'],
@@ -21,8 +21,8 @@ const PLANS = [
   },
   {
     id: 'basic', name: 'Basic', price: '₹299', per: '/mo',
-    badge: null, color: 'border-indigo-300', headerBg: 'bg-indigo-50',
-    btnCls: 'bg-indigo-600 text-white hover:bg-indigo-700',
+    badge: null, color: 'border-brand-300', headerBg: 'bg-brand-50',
+    btnCls: 'bg-brand-600 text-white hover:bg-brand-700',
     btnLabel: 'Upgrade to Basic', btnAction: 'upgrade',
     contacts: 100, emails: '50/day',
     features: ['100 real emails & apply links', '50 emails/day', 'Bulk compose', 'Import 5,000 contacts', 'Everything in Demo'],
@@ -30,7 +30,7 @@ const PLANS = [
   },
   {
     id: 'advanced', name: 'Advanced', price: '₹599', per: '/mo',
-    badge: '🔥 Popular', color: 'border-purple-400 ring-2 ring-purple-200', headerBg: 'bg-gradient-to-br from-purple-50 to-indigo-50',
+    badge: 'Popular', color: 'border-purple-400 ring-2 ring-purple-200', headerBg: 'bg-gradient-to-br from-purple-50 to-indigo-50',
     btnCls: 'bg-purple-600 text-white hover:bg-purple-700',
     btnLabel: 'Upgrade to Advanced', btnAction: 'upgrade',
     contacts: '∞', emails: '200/day',
@@ -46,7 +46,7 @@ export default function PlansModal({ onClose, onSignupClick }) {
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto"
+        className="bg-white rounded-md shadow-modal w-full max-w-3xl max-h-[90vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -82,7 +82,7 @@ export default function PlansModal({ onClose, onSignupClick }) {
             return (
               <div
                 key={plan.id}
-                className={`relative flex flex-col rounded-xl border-2 overflow-hidden ${plan.color} ${isCurrent ? 'shadow-md' : ''}`}
+                className={`relative flex flex-col rounded-md border-2 overflow-hidden ${plan.color} ${isCurrent ? 'shadow-card' : ''}`}
               >
                 {plan.badge && (
                   <span className="absolute top-2 right-2 bg-purple-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
@@ -118,7 +118,7 @@ export default function PlansModal({ onClose, onSignupClick }) {
                   <button
                     onClick={() => !btnDisabled && plan.btnAction === 'signup' && onSignupClick?.()}
                     disabled={btnDisabled}
-                    className={`w-full py-1.5 rounded-lg text-xs font-semibold transition ${plan.btnCls} ${btnDisabled ? 'opacity-60 cursor-default' : ''}`}
+                    className={`w-full py-1.5 rounded-sm text-xs font-semibold transition ${plan.btnCls} ${btnDisabled ? 'opacity-60 cursor-default' : ''}`}
                   >
                     {btnLabel}
                   </button>
@@ -133,7 +133,7 @@ export default function PlansModal({ onClose, onSignupClick }) {
         <div className="px-5 pb-4 text-center border-t pt-3">
           <p className="text-[10px] text-gray-400">
             No payment gateway active yet · Pricing subject to change ·{' '}
-            <span className="text-blue-500">Interested in early access? Fill the form above.</span>
+            <span className="text-brand-600">Interested in early access? Fill the form above.</span>
           </p>
         </div>
       </div>

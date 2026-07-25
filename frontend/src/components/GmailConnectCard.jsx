@@ -65,12 +65,12 @@ export default function GmailConnectCard({ onStatusChange }) {
   }
 
   if (!status) {
-    return <div className="h-24 bg-gray-100 animate-pulse rounded-xl" />;
+    return <div className="h-24 bg-gray-100 animate-pulse rounded-md" />;
   }
 
   if (!status.configured) {
     return (
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+      <div className="bg-amber-50 border border-amber-200 rounded-md p-4 flex items-start gap-3">
         <span className="text-2xl">⚠️</span>
         <div>
           <p className="font-semibold text-amber-800 text-sm">Gmail not configured</p>
@@ -93,8 +93,8 @@ export default function GmailConnectCard({ onStatusChange }) {
 
   if (!status.connected) {
     return (
-      <div className="bg-white border-2 border-dashed border-blue-300 rounded-xl p-5 flex flex-col items-center gap-3 text-center">
-        <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center text-2xl">📧</div>
+      <div className="bg-white border-2 border-dashed border-blue-300 rounded-md p-5 flex flex-col items-center gap-3 text-center">
+        <div className="w-12 h-12 rounded-full bg-brand-100 flex items-center justify-center text-2xl">📧</div>
         <div>
           <p className="font-semibold text-gray-800">Connect your Gmail</p>
           <p className="text-gray-500 text-xs mt-1">
@@ -105,7 +105,7 @@ export default function GmailConnectCard({ onStatusChange }) {
         </div>
         <button
           onClick={handleConnect}
-          className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors"
+          className="px-5 py-2 bg-brand-600 text-white rounded-sm text-sm font-semibold hover:bg-brand-700 transition-colors"
         >
           Connect Gmail Account
         </button>
@@ -115,7 +115,7 @@ export default function GmailConnectCard({ onStatusChange }) {
 
   if (!status.hasMetadataScope) {
     return (
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center justify-between gap-4 flex-wrap">
+      <div className="bg-amber-50 border border-amber-200 rounded-md p-4 flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center text-lg">🔒</div>
           <div>
@@ -129,7 +129,7 @@ export default function GmailConnectCard({ onStatusChange }) {
         <div className="flex gap-2">
           <button
             onClick={handleConnect}
-            className="px-4 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-semibold hover:bg-amber-700 transition-colors"
+            className="px-4 py-1.5 bg-amber-600 text-white rounded-sm text-xs font-semibold hover:bg-amber-700 transition-colors"
           >
             Reconnect Gmail
           </button>
@@ -145,7 +145,7 @@ export default function GmailConnectCard({ onStatusChange }) {
   }
 
   return (
-    <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-center justify-between gap-4 flex-wrap">
+    <div className="bg-green-50 border border-green-200 rounded-md p-4 flex items-center justify-between gap-4 flex-wrap">
       <div className="flex items-center gap-3">
         <div className="w-9 h-9 rounded-full bg-green-100 flex items-center justify-center text-lg">✅</div>
         <div>
@@ -160,9 +160,9 @@ export default function GmailConnectCard({ onStatusChange }) {
         <button
           onClick={handleSync}
           disabled={syncing}
-          className="px-4 py-1.5 bg-green-600 text-white rounded-lg text-xs font-semibold hover:bg-green-700 disabled:opacity-60 transition-colors"
+          className="px-4 py-1.5 bg-green-600 text-white rounded-sm text-xs font-semibold hover:bg-green-700 disabled:opacity-60 transition-colors"
         >
-          {syncing ? '⏳ Syncing…' : '🔄 Sync Now'}
+          {syncing ? 'Syncing…' : 'Sync Now'}
         </button>
         <button
           onClick={handleDisconnect}

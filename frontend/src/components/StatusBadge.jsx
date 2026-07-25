@@ -1,6 +1,6 @@
 const STYLES = {
   'New':            'bg-gray-100 text-gray-600',
-  'Drafted':        'bg-blue-100 text-blue-700',
+  'Drafted':        'bg-brand-100 text-brand-700',
   'Sent':           'bg-yellow-100 text-yellow-800',
   'Opened':         'bg-lime-100 text-lime-700',
   'Replied':        'bg-green-100 text-green-700',

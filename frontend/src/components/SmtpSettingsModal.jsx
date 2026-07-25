@@ -17,7 +17,7 @@ const PRESETS = {
   },
 };
 
-const inp = 'w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none transition';
+const inp = 'w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none transition';
 
 export default function SmtpSettingsModal({ onClose }) {
   const [smtp, setSmtp] = useState({
@@ -132,7 +132,7 @@ export default function SmtpSettingsModal({ onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-md shadow-modal w-full max-w-md max-h-[90vh] overflow-y-auto">
 
         <div className="sticky top-0 bg-white flex items-center justify-between px-6 py-4 border-b z-10">
           <h2 className="text-base font-bold">Email / SMTP Settings</h2>
@@ -146,7 +146,7 @@ export default function SmtpSettingsModal({ onClose }) {
             {google === null ? (
               <div className="text-sm text-gray-400 px-3 py-2">Checking connection…</div>
             ) : google.connected ? (
-              <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg px-3 py-2.5">
+              <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-sm px-3 py-2.5">
                 <span className="text-sm text-green-800">✓ Connected as <strong>{google.email}</strong></span>
                 <button onClick={handleDisconnectGoogle} disabled={disconnecting}
                   className="text-xs font-medium text-red-600 hover:text-red-700 disabled:opacity-50">
@@ -155,7 +155,7 @@ export default function SmtpSettingsModal({ onClose }) {
               </div>
             ) : (
               <button onClick={handleConnectGoogle} disabled={connecting}
-                className="w-full flex items-center justify-center gap-2 border border-gray-300 rounded-lg py-2.5 text-sm font-semibold hover:bg-gray-50 disabled:opacity-50 transition">
+                className="w-full flex items-center justify-center gap-2 border border-gray-300 rounded-sm py-2.5 text-sm font-semibold hover:bg-gray-50 disabled:opacity-50 transition">
                 {connecting ? 'Redirecting…' : 'Connect Google Account'}
               </button>
             )}
@@ -178,16 +178,16 @@ export default function SmtpSettingsModal({ onClose }) {
                 <div className="flex gap-2">
                   {Object.keys(PRESETS).map(key => (
                     <button key={key} type="button" onClick={() => applyPreset(key)}
-                      className={`flex-1 py-2 text-sm font-medium rounded-lg border transition capitalize
+                      className={`flex-1 py-2 text-sm font-medium rounded-sm border transition capitalize
                         ${preset === key
-                          ? 'bg-blue-600 text-white border-blue-600'
+                          ? 'bg-brand-600 text-white border-brand-600'
                           : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
                     >
                       {key}
                     </button>
                   ))}
                 </div>
-                <p className="mt-2 text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 leading-relaxed">
+                <p className="mt-2 text-xs text-amber-700 bg-amber-50 rounded-sm px-3 py-2 leading-relaxed">
                   {PRESETS[preset]?.hint}
                 </p>
               </div>
@@ -250,7 +250,7 @@ export default function SmtpSettingsModal({ onClose }) {
 
           {/* Test result */}
           {testMsg && (
-            <div className={`rounded-lg px-3 py-2 text-sm ${
+            <div className={`rounded-sm px-3 py-2 text-sm ${
               testMsg.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
             }`}>
               {testMsg.ok ? '✓' : '✗'} {testMsg.text}
@@ -260,11 +260,11 @@ export default function SmtpSettingsModal({ onClose }) {
           {/* Buttons */}
           <div className="flex gap-3">
             <button onClick={handleTest} disabled={testing}
-              className="flex-1 border rounded-lg py-2.5 text-sm font-medium hover:bg-gray-50 disabled:opacity-50 transition">
+              className="flex-1 border rounded-sm py-2.5 text-sm font-medium hover:bg-gray-50 disabled:opacity-50 transition">
               {testing ? 'Testing…' : 'Test Connection'}
             </button>
             <button onClick={handleSave} disabled={saving}
-              className="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition">
+              className="flex-1 bg-brand-600 text-white rounded-sm py-2.5 text-sm font-semibold hover:bg-brand-700 disabled:opacity-50 transition">
               {saving ? 'Saving…' : 'Save Settings'}
             </button>
           </div>

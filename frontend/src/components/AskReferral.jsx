@@ -2,9 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api/client.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import toast from 'react-hot-toast';
+import { X, Search, Users, Inbox, MapPin, Mail, Handshake } from 'lucide-react';
 
 const AVATAR_COLORS = [
-  'bg-blue-500', 'bg-purple-500', 'bg-green-500',
+  'bg-brand-500', 'bg-purple-500', 'bg-green-500',
   'bg-orange-500', 'bg-pink-500', 'bg-indigo-500', 'bg-teal-500',
 ];
 const TAG_COLORS = [
@@ -80,7 +81,7 @@ function ComposeModal({ target, myUser, myProfile, limit, remaining, onClose, on
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] flex flex-col">
+      <div className="bg-white rounded-md shadow-modal w-full max-w-2xl max-h-[92vh] flex flex-col">
 
         {/* Header */}
         <div className="flex items-center gap-3 px-6 py-4 border-b">
@@ -93,7 +94,7 @@ function ComposeModal({ target, myUser, myProfile, limit, remaining, onClose, on
               <span className="text-blue-600">{target.email}</span>
             </p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none p-1">✕</button>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors p-1"><X size={18} /></button>
         </div>
 
         {/* Body */}
@@ -103,7 +104,7 @@ function ComposeModal({ target, myUser, myProfile, limit, remaining, onClose, on
             <input
               value={subject}
               onChange={e => setSubject(e.target.value)}
-              className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+              className="w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none"
               placeholder="Email subject"
             />
           </div>
@@ -113,7 +114,7 @@ function ComposeModal({ target, myUser, myProfile, limit, remaining, onClose, on
               value={message}
               onChange={e => setMessage(e.target.value)}
               rows={13}
-              className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none resize-none font-mono leading-relaxed"
+              className="w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none resize-none font-mono leading-relaxed"
               placeholder="Your referral request message…"
             />
           </div>
@@ -124,16 +125,16 @@ function ComposeModal({ target, myUser, myProfile, limit, remaining, onClose, on
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50 rounded-b-2xl">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 border rounded-lg hover:bg-gray-100 transition-colors">
+        <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50 rounded-b-md">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 border rounded-sm hover:bg-gray-100 transition-colors">
             Cancel
           </button>
           <button
             onClick={handleSend}
             disabled={sending || !subject.trim() || !message.trim()}
-            className="px-5 py-2 text-sm font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            className="px-5 py-2 text-sm font-semibold bg-brand-600 text-white rounded-sm hover:bg-brand-700 disabled:opacity-50 transition-colors"
           >
-            {sending ? 'Sending…' : '✉ Send Request'}
+            {sending ? 'Sending…' : 'Send Request'}
           </button>
         </div>
       </div>
@@ -154,7 +155,7 @@ function UserCard({ user, onAsk, sent, limit }) {
   const count = user.request_count || 0;
 
   return (
-    <div className={`bg-white border rounded-xl p-4 flex flex-col gap-3 shadow-sm hover:shadow-md transition-all ${sent ? 'border-green-200 bg-green-50/30' : 'hover:border-blue-200'}`}>
+    <div className={`bg-white border rounded-md p-4 flex flex-col gap-3 shadow-card hover:shadow-md transition-all ${sent ? 'border-green-200 bg-green-50/30' : 'hover:border-brand-200'}`}>
 
       {/* Top: avatar + name */}
       <div className="flex items-start gap-3">
@@ -173,8 +174,8 @@ function UserCard({ user, onAsk, sent, limit }) {
 
       {/* Location + email */}
       <div className="space-y-0.5">
-        {user.location && <p className="text-xs text-gray-400 flex items-center gap-1.5">📍 {user.location}</p>}
-        <p className="text-xs text-blue-600 truncate">✉ {user.email}</p>
+        {user.location && <p className="text-xs text-gray-400 flex items-center gap-1.5"><MapPin size={11} className="shrink-0" /> {user.location}</p>}
+        <p className="text-xs text-brand-600 truncate flex items-center gap-1"><Mail size={11} className="shrink-0" /> {user.email}</p>
       </div>
 
       {/* Skills */}
@@ -197,13 +198,13 @@ function UserCard({ user, onAsk, sent, limit }) {
       <button
         onClick={onAsk}
         disabled={sent}
-        className={`w-full py-2 rounded-lg text-sm font-semibold transition-colors mt-auto ${
+        className={`w-full py-2 rounded-sm text-sm font-semibold transition-colors mt-auto flex items-center justify-center gap-1.5 ${
           sent
             ? 'bg-green-50 text-green-700 border border-green-200 cursor-default'
-            : 'bg-blue-600 text-white hover:bg-blue-700 active:scale-95'
+            : 'bg-brand-600 text-white hover:bg-brand-700 active:scale-95'
         }`}
       >
-        {sent ? '✓ Request Sent' : '🤝 Ask for Referral'}
+        {sent ? '✓ Request Sent' : <><Handshake size={14} /> Ask for Referral</>}
       </button>
 
       {/* LinkedIn link */}
@@ -302,14 +303,14 @@ export default function AskReferral() {
       {/* Page header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">🤝 Ask for Referral</h2>
+          <h2 className="text-2xl font-bold text-gray-900">Ask for Referral</h2>
           <p className="text-sm text-gray-500 mt-1">
             Browse registered community members and send a one-time referral request email directly from the portal.
           </p>
         </div>
-        <div className="flex items-center gap-2 text-sm text-gray-500 bg-blue-50 border border-blue-100 px-3 py-2 rounded-lg">
-          <span>💡</span>
-          <span>You can send up to {limit} request{limit !== 1 ? 's' : ''} per person to prevent spam.</span>
+        <div className="flex items-center gap-2 text-sm text-gray-500 bg-brand-50 border border-brand-100 px-3 py-2 rounded-sm">
+          <span className="text-brand-600 font-semibold text-xs">{limit}x</span>
+          <span>max per person to prevent spam</span>
         </div>
       </div>
 
@@ -324,7 +325,7 @@ export default function AskReferral() {
             onClick={() => setActiveTab(t.id)}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
               activeTab === t.id
-                ? 'border-blue-600 text-blue-700'
+                ? 'border-brand-600 text-brand-700'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             }`}
           >
@@ -339,13 +340,13 @@ export default function AskReferral() {
           {/* Search */}
           <div className="flex items-center gap-3">
             <div className="relative flex-1 max-w-sm">
-              <span className="absolute left-3 top-2.5 text-gray-400 text-sm">🔍</span>
+              <Search size={14} className="absolute left-3 top-2.5 text-gray-400" />
               <input
                 type="text"
                 placeholder="Search by name, title, company, skills…"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                className="w-full pl-8 pr-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+                className="w-full pl-8 pr-3 py-2 border rounded-sm text-sm focus:ring-2 focus:ring-brand-300 outline-none"
               />
             </div>
             {search && (
@@ -357,7 +358,7 @@ export default function AskReferral() {
             <div className="flex items-center justify-center h-40 text-gray-400 text-sm">Loading community members…</div>
           ) : users.length === 0 ? (
             <div className="text-center h-40 flex flex-col items-center justify-center gap-2 text-gray-400">
-              <span className="text-3xl">👥</span>
+              <Users size={32} strokeWidth={1} className="text-gray-300" />
               <p className="text-sm">No other members have registered yet.</p>
             </div>
           ) : filtered.length === 0 ? (
@@ -413,13 +414,13 @@ export default function AskReferral() {
             <div className="flex items-center justify-center h-40 text-gray-400 text-sm">Loading…</div>
           ) : received.length === 0 ? (
             <div className="text-center h-40 flex flex-col items-center justify-center gap-2 text-gray-400">
-              <span className="text-3xl">📭</span>
+              <Inbox size={32} strokeWidth={1} className="text-gray-300" />
               <p className="text-sm">No referral requests received yet.</p>
             </div>
           ) : (
             <div className="space-y-3">
               {received.map(r => (
-                <div key={r.id} className="bg-white border rounded-xl p-4 flex flex-col sm:flex-row gap-4">
+                <div key={r.id} className="bg-white border rounded-md p-4 flex flex-col sm:flex-row gap-4 shadow-card">
                   <Avatar name={r.from_name} />
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-2 mb-1">
@@ -429,12 +430,12 @@ export default function AskReferral() {
                       <span className="text-xs text-gray-400 ml-auto">{r.created_at?.slice(0, 10)}</span>
                     </div>
                     <p className="text-xs text-blue-600 mb-2">From: {r.from_email}</p>
-                    {r.subject && <p className="text-sm font-medium text-gray-700 mb-1">📌 {r.subject}</p>}
+                    {r.subject && <p className="text-sm font-medium text-gray-700 mb-1">{r.subject}</p>}
                     <p className="text-sm text-gray-600 whitespace-pre-wrap line-clamp-4">{r.message}</p>
                   </div>
                   <a
                     href={`mailto:${r.from_email}?subject=${encodeURIComponent('Re: ' + (r.subject || 'Referral Request'))}`}
-                    className="shrink-0 self-start px-3 py-1.5 text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+                    className="shrink-0 self-start px-3 py-1.5 text-xs font-semibold bg-brand-50 text-brand-700 border border-brand-200 rounded-sm hover:bg-brand-100 transition-colors"
                   >
                     Reply →
                   </a>

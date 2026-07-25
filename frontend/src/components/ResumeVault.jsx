@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { api, API_ROOT } from '../api/client.js';
 import { confirm } from '../utils/confirm.js';
 import toast from 'react-hot-toast';
+import { X, Eye, Pencil, Trash2, Plus, FolderOpen, Upload, Target } from 'lucide-react';
 
 const MAX = 5;
 
@@ -13,7 +14,7 @@ function formatDate(str) {
   return isNaN(d) ? str.slice(0, 10) : d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-const CARD_COLORS = ['bg-blue-600', 'bg-purple-600', 'bg-green-600', 'bg-orange-600', 'bg-pink-600'];
+const CARD_COLORS = ['bg-brand-600', 'bg-purple-600', 'bg-green-600', 'bg-orange-600', 'bg-pink-600'];
 
 // ── Preview Modal ─────────────────────────────────────────────────────────────
 
@@ -59,15 +60,15 @@ function PreviewModal({ version, onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col">
+      <div className="bg-white rounded-md shadow-modal w-full max-w-4xl h-[90vh] flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b shrink-0">
           <div>
             <h3 className="font-bold text-gray-900">{version.label || 'Resume Preview'}</h3>
             {version.target_role && <p className="text-xs text-gray-400 mt-0.5">Target: {version.target_role}</p>}
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-xl leading-none">✕</button>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 transition-colors"><X size={18} /></button>
         </div>
-        <div className="flex-1 min-h-0 overflow-hidden rounded-b-2xl">
+        <div className="flex-1 min-h-0 overflow-hidden rounded-b-md">
           {loading ? (
             <div className="flex items-center justify-center h-full text-gray-400 text-sm">Loading preview…</div>
           ) : blobUrl ? (
@@ -174,10 +175,10 @@ function AddModal({ profileResume, vaultCount, onClose, onSaved }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
+      <div className="bg-white rounded-md shadow-modal w-full max-w-lg">
         <div className="px-6 py-4 border-b flex items-center justify-between">
           <h3 className="font-bold text-gray-900">Save Resume to Vault</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors"><X size={18} /></button>
         </div>
 
         {/* Tabs */}
@@ -185,7 +186,7 @@ function AddModal({ profileResume, vaultCount, onClose, onSaved }) {
           {ADD_TABS.map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
               className={`flex-1 py-2.5 text-xs font-semibold transition ${
-                tab === t.id ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500 hover:text-gray-700'
+                tab === t.id ? 'border-b-2 border-brand-600 text-brand-600' : 'text-gray-500 hover:text-gray-700'
               }`}>
               {t.label}
             </button>
@@ -220,18 +221,18 @@ function AddModal({ profileResume, vaultCount, onClose, onSaved }) {
               <input ref={fileRef} type="file" accept=".pdf,.docx,.doc,.txt" className="hidden"
                 onChange={e => { if (e.target.files[0]) { setSelectedFile(e.target.files[0]); if (!label.trim()) setLabel(e.target.files[0].name.replace(/\.[^.]+$/, '')); } }} />
               {selectedFile ? (
-                <div className="flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
-                  <span className="text-2xl">📄</span>
+                <div className="flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-sm">
+                  <Upload size={20} className="text-green-600 shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-green-800 truncate">{selectedFile.name}</p>
                     <p className="text-xs text-green-600">{(selectedFile.size / 1024).toFixed(0)} KB</p>
                   </div>
-                  <button onClick={() => setSelectedFile(null)} className="text-green-600 hover:text-red-500 text-sm">✕</button>
+                  <button onClick={() => setSelectedFile(null)} className="text-green-600 hover:text-red-500"><X size={14} /></button>
                 </div>
               ) : (
                 <button onClick={() => fileRef.current?.click()}
-                  className="w-full py-6 border-2 border-dashed border-gray-300 rounded-xl text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50/50 transition text-center">
-                  <div className="text-3xl mb-1">📤</div>
+                  className="w-full py-6 border-2 border-dashed border-gray-300 rounded-sm text-sm text-gray-500 hover:border-brand-400 hover:text-brand-600 hover:bg-brand-50/50 transition text-center">
+                  <Upload size={28} className="mx-auto mb-1.5 opacity-50" />
                   <div className="font-medium">Click to browse files</div>
                   <div className="text-xs text-gray-400 mt-1">PDF, DOCX, DOC, TXT (max 10 MB)</div>
                 </button>
@@ -246,7 +247,7 @@ function AddModal({ profileResume, vaultCount, onClose, onSaved }) {
                 <label className="block text-xs font-semibold text-gray-600 mb-1.5">Google Drive Share Link</label>
                 <input value={driveUrl} onChange={e => setDriveUrl(e.target.value)}
                   placeholder="https://drive.google.com/file/d/..."
-                  className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none" />
+                  className="w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none" />
               </div>
               <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700">
                 The file must be shared as <strong>"Anyone with the link"</strong> in Google Drive. Works with PDF and DOCX files.
@@ -260,7 +261,7 @@ function AddModal({ profileResume, vaultCount, onClose, onSaved }) {
               <label className="block text-xs font-semibold text-gray-600 mb-1.5">Paste your resume text</label>
               <textarea value={pasteText} onChange={e => setPasteText(e.target.value)} rows={9}
                 placeholder="Paste your resume content here (plain text)…"
-                className="w-full border rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-300 outline-none resize-y" />
+                className="w-full border rounded-sm px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-brand-300 outline-none resize-y" />
             </div>
           )}
 
@@ -270,21 +271,21 @@ function AddModal({ profileResume, vaultCount, onClose, onSaved }) {
               <label className="block text-xs font-semibold text-gray-600 mb-1.5">Version Label</label>
               <input value={label} onChange={e => setLabel(e.target.value)}
                 placeholder="e.g. Java Backend v2"
-                className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none" maxLength={80} />
+                className="w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none" maxLength={80} />
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1.5">Target Role</label>
               <input value={targetRole} onChange={e => setTargetRole(e.target.value)}
                 placeholder="e.g. Senior Backend Engineer"
-                className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none" maxLength={80} />
+                className="w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none" maxLength={80} />
             </div>
           </div>
         </div>
 
         <div className="flex gap-3 px-6 pb-5">
-          <button onClick={onClose} className="flex-1 border rounded-lg py-2.5 text-sm font-medium hover:bg-gray-50 transition">Cancel</button>
+          <button onClick={onClose} className="flex-1 border rounded-sm py-2.5 text-sm font-medium hover:bg-gray-50 transition">Cancel</button>
           <button onClick={handleSave} disabled={saving || !canSave()}
-            className="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition">
+            className="flex-1 bg-brand-600 text-white rounded-sm py-2.5 text-sm font-semibold hover:bg-brand-700 disabled:opacity-50 transition">
             {saving
               ? (tab === 'drive' ? 'Importing from Drive…' : tab === 'upload' ? 'Uploading…' : 'Saving…')
               : 'Save to Vault'}
@@ -316,9 +317,9 @@ function VersionCard({ version, index, onPreview, onDelete, onRename }) {
   };
 
   return (
-    <div className="bg-white border rounded-xl shadow-sm hover:shadow-md transition-all flex flex-col">
+    <div className="bg-white border rounded-md shadow-card hover:shadow-md transition-all flex flex-col">
       {/* Top colour band with number */}
-      <div className={`${CARD_COLORS[index % CARD_COLORS.length]} rounded-t-xl px-4 py-3 flex items-center justify-between`}>
+      <div className={`${CARD_COLORS[index % CARD_COLORS.length]} rounded-t-md px-4 py-3 flex items-center justify-between`}>
         <div className="flex items-center gap-2">
           <span className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center text-white text-xs font-bold">
             {index + 1}
@@ -340,13 +341,13 @@ function VersionCard({ version, index, onPreview, onDelete, onRename }) {
               value={editLabel}
               onChange={e => setEditLabel(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setEditing(false); }}
-              className="flex-1 text-sm font-semibold border rounded px-2 py-1 focus:ring-2 focus:ring-blue-300 outline-none"
+              className="flex-1 text-sm font-semibold border rounded-sm px-2 py-1 focus:ring-2 focus:ring-brand-300 outline-none"
               maxLength={80}
             />
-            <button onClick={commitRename} disabled={saving} className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">
+            <button onClick={commitRename} disabled={saving} className="text-xs px-2 py-1 bg-brand-600 text-white rounded-sm hover:bg-brand-700 disabled:opacity-50">
               {saving ? '…' : '✓'}
             </button>
-            <button onClick={() => setEditing(false)} className="text-xs px-2 py-1 border rounded hover:bg-gray-50">✕</button>
+            <button onClick={() => setEditing(false)} className="text-xs px-2 py-1 border rounded-sm hover:bg-gray-50"><X size={12} /></button>
           </div>
         ) : (
           <div className="flex items-start gap-1.5 group">
@@ -356,7 +357,7 @@ function VersionCard({ version, index, onPreview, onDelete, onRename }) {
               className="text-gray-300 hover:text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5"
               title="Rename"
             >
-              ✏️
+              <Pencil size={12} />
             </button>
           </div>
         )}
@@ -364,7 +365,7 @@ function VersionCard({ version, index, onPreview, onDelete, onRename }) {
         {/* Target role */}
         {version.target_role && (
           <p className="text-xs text-gray-500 flex items-center gap-1">
-            <span className="text-gray-400">🎯</span> {version.target_role}
+            <Target size={11} className="text-gray-400 shrink-0" /> {version.target_role}
           </p>
         )}
 
@@ -387,16 +388,16 @@ function VersionCard({ version, index, onPreview, onDelete, onRename }) {
       <div className="border-t px-4 py-3 flex gap-2">
         <button
           onClick={onPreview}
-          className="flex-1 text-xs font-medium text-blue-600 border border-blue-200 rounded-lg py-1.5 hover:bg-blue-50 transition"
+          className="flex-1 flex items-center justify-center gap-1.5 text-xs font-medium text-brand-600 border border-brand-200 rounded-sm py-1.5 hover:bg-brand-50 transition"
         >
-          👁 Preview
+          <Eye size={12} /> Preview
         </button>
         <button
           onClick={onDelete}
-          className="text-xs font-medium text-red-500 border border-red-100 rounded-lg px-3 py-1.5 hover:bg-red-50 transition"
+          className="flex items-center justify-center text-xs font-medium text-red-500 border border-red-100 rounded-sm px-3 py-1.5 hover:bg-red-50 transition"
           title="Remove from vault"
         >
-          🗑
+          <Trash2 size={12} />
         </button>
       </div>
     </div>
@@ -410,10 +411,10 @@ function AddSlot({ onClick, disabled }) {
     <button
       onClick={onClick}
       disabled={disabled}
-      className="border-2 border-dashed border-gray-200 rounded-xl p-6 flex flex-col items-center justify-center gap-2 text-gray-400 hover:border-blue-300 hover:text-blue-500 hover:bg-blue-50/50 transition disabled:opacity-40 disabled:cursor-not-allowed"
+      className="border-2 border-dashed border-gray-200 rounded-md p-6 flex flex-col items-center justify-center gap-2 text-gray-400 hover:border-brand-300 hover:text-brand-500 hover:bg-brand-50/50 transition disabled:opacity-40 disabled:cursor-not-allowed"
       title={disabled ? 'Upload a resume to your Profile first' : 'Save current resume'}
     >
-      <span className="text-2xl">➕</span>
+      <Plus size={24} className="opacity-70" />
       <span className="text-xs font-medium">Add resume version</span>
     </button>
   );
@@ -478,7 +479,7 @@ export default function ResumeVault() {
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">📂 Resume Vault</h2>
+          <h2 className="text-2xl font-bold text-gray-900">Resume Vault</h2>
           <p className="text-sm text-gray-500 mt-1">
             Store up to 5 tailored resume versions. The best match is auto-suggested in Job Analyzer.
           </p>
@@ -487,13 +488,13 @@ export default function ResumeVault() {
           <span className={`text-sm font-semibold px-3 py-1 rounded-full border ${
             versions.length >= MAX
               ? 'bg-amber-50 text-amber-700 border-amber-200'
-              : 'bg-blue-50 text-blue-700 border-blue-200'
+              : 'bg-brand-50 text-brand-700 border-brand-200'
           }`}>
             {versions.length}/{MAX} saved
           </span>
           <button
             onClick={() => setShowAdd(true)}
-            className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition"
+            className="px-4 py-2 bg-brand-600 text-white text-sm font-semibold rounded-sm hover:bg-brand-700 transition"
           >
             + Save Resume
           </button>
@@ -501,9 +502,9 @@ export default function ResumeVault() {
       </div>
 
       {/* Info */}
-      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-xl p-4 flex gap-3">
-        <span className="text-xl shrink-0">💡</span>
-        <div className="text-sm text-blue-800 space-y-1">
+      <div className="bg-brand-50 border border-brand-100 rounded-md p-4 flex gap-3">
+        <FolderOpen size={18} className="text-brand-600 shrink-0 mt-0.5" />
+        <div className="text-sm text-brand-800 space-y-1">
           <p><strong>How it works:</strong> Save different resume versions here — each tailored for a specific job type or company.</p>
           <p>In <strong>Job Analyzer</strong>, the vault auto-suggests whichever version covers the most required skills for that role.</p>
           <p className="text-blue-600 text-xs">Add from your Profile resume, upload a file (PDF/DOCX), import from Google Drive, or paste text directly.</p>
@@ -533,7 +534,7 @@ export default function ResumeVault() {
 
           {versions.length === 0 && (
             <div className="col-span-full text-center py-16 text-gray-400 space-y-2">
-              <p className="text-4xl">📂</p>
+              <FolderOpen size={40} className="mx-auto text-gray-300" />
               <p className="font-medium text-gray-500">Your vault is empty</p>
               <p className="text-sm">Click "+ Save Resume" to add a version from your Profile or paste text directly.</p>
             </div>

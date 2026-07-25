@@ -76,7 +76,7 @@ export default function AttachmentPicker({ profile, onSelect, onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+      <div className="bg-white rounded-md shadow-modal w-full max-w-sm overflow-hidden">
 
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b">
@@ -90,7 +90,7 @@ export default function AttachmentPicker({ profile, onSelect, onClose }) {
             <button key={t.id} onClick={() => { userTabRef.current = true; setTab(t.id); }}
               className={`flex-1 py-2.5 text-xs font-semibold transition ${
                 tab === t.id
-                  ? 'border-b-2 border-blue-600 text-blue-600'
+                  ? 'border-b-2 border-brand-600 text-brand-600'
                   : 'text-gray-500 hover:text-gray-700'
               }`}>
               {t.label}
@@ -106,10 +106,10 @@ export default function AttachmentPicker({ profile, onSelect, onClose }) {
             profile?.has_resume_file ? (
               <button
                 onClick={() => onSelect({ type: 'profile', label: profile.resume_filename || 'Profile Resume' })}
-                className="w-full text-left p-4 bg-blue-50 border border-blue-200 rounded-xl hover:bg-blue-100 transition"
+                className="w-full text-left p-4 bg-brand-50 border border-brand-200 rounded-sm hover:bg-brand-100 transition"
               >
-                <div className="text-sm font-semibold text-blue-700">Use Profile Resume</div>
-                <div className="text-xs text-blue-500 mt-0.5 truncate">{profile.resume_filename || 'Your uploaded resume'}</div>
+                <div className="text-sm font-semibold text-brand-700">Use Profile Resume</div>
+                <div className="text-xs text-brand-500 mt-0.5 truncate">{profile.resume_filename || 'Your uploaded resume'}</div>
               </button>
             ) : (
               <div className="text-center py-6 space-y-2">
@@ -128,8 +128,8 @@ export default function AttachmentPicker({ profile, onSelect, onClose }) {
               <div className="space-y-2">
                 {vaultFiles.map(v => (
                   <button key={v.id} onClick={() => onSelect({ type: 'vault', vaultId: v.id, label: v.label })}
-                    className="w-full text-left p-3 border rounded-xl hover:bg-gray-50 transition group">
-                    <div className="text-sm font-medium text-gray-700 group-hover:text-blue-600 transition">{v.label}</div>
+                    className="w-full text-left p-3 border rounded-sm hover:bg-gray-50 transition group">
+                    <div className="text-sm font-medium text-gray-700 group-hover:text-brand-600 transition">{v.label}</div>
                     {v.target_role && <div className="text-xs text-gray-400 mt-0.5">{v.target_role}</div>}
                   </button>
                 ))}
@@ -156,7 +156,7 @@ export default function AttachmentPicker({ profile, onSelect, onClose }) {
               />
               <button
                 onClick={() => fileRef.current?.click()}
-                className="w-full py-6 border-2 border-dashed border-gray-300 rounded-xl text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50/50 transition text-center"
+                className="w-full py-6 border-2 border-dashed border-gray-300 rounded-sm text-sm text-gray-500 hover:border-brand-400 hover:text-brand-600 hover:bg-brand-50/50 transition text-center"
               >
                 <div className="text-3xl mb-2">📤</div>
                 <div className="font-medium">Browse files</div>
@@ -174,17 +174,17 @@ export default function AttachmentPicker({ profile, onSelect, onClose }) {
                   value={driveUrl}
                   onChange={e => { setDriveUrl(e.target.value); setDriveErr(''); }}
                   placeholder="https://drive.google.com/file/d/..."
-                  className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+                  className="w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none"
                 />
                 {driveErr && <p className="text-xs text-red-500 mt-1">{driveErr}</p>}
               </div>
-              <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700">
+              <div className="bg-amber-50 border border-amber-200 rounded-sm px-3 py-2 text-xs text-amber-700">
                 The file must be shared as <strong>"Anyone with the link"</strong> in Google Drive settings.
               </div>
               <button
                 onClick={handleDrive}
                 disabled={!driveUrl.trim()}
-                className="w-full py-2.5 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition"
+                className="w-full py-2.5 bg-brand-600 text-white rounded-sm text-sm font-semibold hover:bg-brand-700 disabled:opacity-50 transition"
               >
                 Attach from Drive
               </button>

@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext.jsx';
 import RolesPermissions from './RolesPermissions.jsx';
 import PasswordVault from './PasswordVault.jsx';
 import ApifySettingsModal from './ApifySettingsModal.jsx';
+import { Pencil, Trash2, Eye, EyeOff, Shield, Users, Lock, Search, Database, Settings, LayoutGrid, List, Handshake, Inbox, Copy } from 'lucide-react';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const PLANS  = ['guest', 'demo', 'basic', 'advanced'];
@@ -13,10 +14,10 @@ const ROLES  = ['user', 'admin'];
 const STAGES = ['new', 'contacted', 'converted', 'rejected'];
 
 const STAGE_META = {
-  new:       { label: 'New',       icon: '🆕', color: 'blue',   bar: 'bg-blue-500',   pill: 'bg-blue-100 text-blue-700',   border: 'border-l-blue-500',   header: 'bg-blue-50' },
-  contacted: { label: 'Contacted', icon: '📬', color: 'amber',  bar: 'bg-amber-500',  pill: 'bg-amber-100 text-amber-700', border: 'border-l-amber-500',  header: 'bg-amber-50' },
-  converted: { label: 'Converted', icon: '✅', color: 'green',  bar: 'bg-green-500',  pill: 'bg-green-100 text-green-700', border: 'border-l-green-500',  header: 'bg-green-50' },
-  rejected:  { label: 'Rejected',  icon: '❌', color: 'red',    bar: 'bg-red-400',    pill: 'bg-red-100 text-red-600',     border: 'border-l-red-400',    header: 'bg-red-50' },
+  new:       { label: 'New',       color: 'blue',   bar: 'bg-blue-500',   pill: 'bg-blue-100 text-blue-700',   border: 'border-l-blue-500',   header: 'bg-blue-50' },
+  contacted: { label: 'Contacted', color: 'amber',  bar: 'bg-amber-500',  pill: 'bg-amber-100 text-amber-700', border: 'border-l-amber-500',  header: 'bg-amber-50' },
+  converted: { label: 'Converted', color: 'green',  bar: 'bg-green-500',  pill: 'bg-green-100 text-green-700', border: 'border-l-green-500',  header: 'bg-green-50' },
+  rejected:  { label: 'Rejected',  color: 'red',    bar: 'bg-red-400',    pill: 'bg-red-100 text-red-600',     border: 'border-l-red-400',    header: 'bg-red-50' },
 };
 
 const PLAN_BADGE = {
@@ -104,19 +105,19 @@ function EmailChooser({ email, subject = '', body = '', label = 'Email', size = 
   ];
 
   const btnCls = size === 'xs'
-    ? 'text-xs text-blue-500 hover:text-blue-700 border border-blue-200 rounded-lg px-2 py-1 hover:bg-blue-50 transition font-medium'
-    : 'inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full border bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200 transition-all';
+    ? 'text-xs text-brand-600 hover:text-brand-700 border border-brand-200 rounded-sm px-2 py-1 hover:bg-brand-50 transition font-medium'
+    : 'inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-sm border bg-brand-50 hover:bg-brand-100 text-brand-700 border-brand-200 transition-all';
 
   return (
     <div className="relative" ref={ref}>
       <button type="button" onClick={() => setOpen(o => !o)} className={btnCls}>
-        {size !== 'xs' && <span>✉️</span>}
+        {size !== 'xs' && <Copy size={12} />}
         <span>{label}</span>
         <span className="ml-0.5 opacity-60">▾</span>
       </button>
 
       {open && (
-        <div className="absolute z-50 top-full mt-1.5 left-0 bg-white border border-gray-200 rounded-2xl shadow-xl w-52 py-1.5 overflow-hidden">
+        <div className="absolute z-50 top-full mt-1.5 left-0 bg-white border border-gray-200 rounded-md shadow-modal w-52 py-1.5 overflow-hidden">
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-3 py-1.5">Send via…</p>
           {clients.map(c => (
             <a key={c.name} href={c.url}
@@ -198,9 +199,9 @@ function LeadCard({ lead, onStatusChange, onSave, onDelete }) {
 
   if (editing) {
     return (
-      <div className={`bg-white rounded-2xl border-l-4 ${meta.border} border border-gray-200 shadow-sm p-4 space-y-3`}>
+      <div className={`bg-white rounded-md border-l-4 ${meta.border} border border-gray-200 shadow-card p-4 space-y-3`}>
         <div className="flex items-center justify-between">
-          <p className="text-xs font-bold text-purple-700">✏️ Editing — {lead.email}</p>
+          <p className="text-xs font-bold text-brand-700">Editing — {lead.email}</p>
           <button onClick={() => setEditing(false)} className="text-gray-400 hover:text-gray-600 text-lg leading-none">×</button>
         </div>
         <div className="grid grid-cols-2 gap-2.5">
@@ -218,44 +219,44 @@ function LeadCard({ lead, onStatusChange, onSave, onDelete }) {
               <label className="block text-[11px] font-semibold text-gray-400 mb-1 uppercase tracking-wide">{label}</label>
               <input type={type} value={editForm[k] || ''}
                 onChange={e => setEditForm(f => ({ ...f, [k]: e.target.value }))}
-                className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-purple-300" />
+                className="w-full border border-gray-200 rounded-sm px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-brand-300" />
             </div>
           ))}
           <div className="col-span-2">
             <label className="block text-[11px] font-semibold text-gray-400 mb-1 uppercase tracking-wide">Other Info</label>
             <textarea rows={2} value={editForm.other_info || ''}
               onChange={e => setEditForm(f => ({ ...f, other_info: e.target.value }))}
-              className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-purple-300 resize-none" />
+              className="w-full border border-gray-200 rounded-sm px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-brand-300 resize-none" />
           </div>
           <div className="col-span-2">
             <label className="block text-[11px] font-semibold text-gray-400 mb-1 uppercase tracking-wide">Admin Notes</label>
             <textarea rows={2} value={editForm.notes || ''}
               onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))}
-              className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-purple-300 resize-none" />
+              className="w-full border border-gray-200 rounded-sm px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-brand-300 resize-none" />
           </div>
         </div>
         <div className="flex gap-2">
           <button onClick={saveEdit} disabled={saving}
-            className="px-4 py-1.5 bg-purple-600 text-white text-xs font-bold rounded-lg hover:bg-purple-700 disabled:opacity-50">
-            {saving ? 'Saving…' : '💾 Save'}
+            className="px-4 py-1.5 bg-brand-600 text-white text-xs font-bold rounded-sm hover:bg-brand-700 disabled:opacity-50">
+            {saving ? 'Saving…' : 'Save'}
           </button>
           <button onClick={() => setEditing(false)}
-            className="px-4 py-1.5 border border-gray-200 text-xs text-gray-600 rounded-lg hover:bg-gray-50">Cancel</button>
+            className="px-4 py-1.5 border border-gray-200 text-xs text-gray-600 rounded-sm hover:bg-gray-50">Cancel</button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className={`bg-white rounded-2xl border-l-4 ${meta.border} border border-gray-200 shadow-sm hover:shadow-md transition-shadow`}>
+    <div className={`bg-white rounded-md border-l-4 ${meta.border} border border-gray-200 shadow-card hover:shadow-md transition-shadow`}>
       {/* Card header */}
-      <div className={`px-4 pt-3.5 pb-2 ${meta.header} rounded-tr-2xl`}>
+      <div className={`px-4 pt-3.5 pb-2 ${meta.header} rounded-tr-md`}>
         <div className="flex items-start gap-3">
           <Avatar name={lead.name} />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <p className="text-sm font-bold text-gray-900 leading-tight">{lead.name}</p>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${meta.pill}`}>{meta.icon} {meta.label}</span>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${meta.pill}`}>{meta.label}</span>
               {lead.preferred_contact && (
                 <span className="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-semibold">
                   Prefers: {lead.preferred_contact}
@@ -266,9 +267,9 @@ function LeadCard({ lead, onStatusChange, onSave, onDelete }) {
           </div>
           <div className="flex gap-1 shrink-0">
             <button onClick={startEdit} title="Edit lead"
-              className="text-gray-400 hover:text-blue-500 text-base px-1.5 py-0.5 rounded transition">✏️</button>
+              className="text-gray-400 hover:text-brand-500 p-1 rounded-sm transition"><Pencil size={14} /></button>
             <button onClick={() => onDelete(lead.id, lead.name)} title="Delete"
-              className="text-gray-400 hover:text-red-500 text-base px-1.5 py-0.5 rounded transition">🗑</button>
+              className="text-gray-400 hover:text-red-500 p-1 rounded-sm transition"><Trash2 size={14} /></button>
           </div>
         </div>
       </div>
@@ -279,7 +280,7 @@ function LeadCard({ lead, onStatusChange, onSave, onDelete }) {
         <div className="flex flex-wrap gap-1.5">
           {lead.mobile       && <span className="text-[11px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">📞 {lead.mobile}</span>}
           {lead.experience   && <span className="text-[11px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">💼 {lead.experience}</span>}
-          {lead.job_type     && <span className="text-[11px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-semibold">{lead.job_type}</span>}
+          {lead.job_type     && <span className="text-[11px] bg-brand-50 text-brand-700 px-2 py-0.5 rounded-full font-semibold">{lead.job_type}</span>}
           {lead.plan_interest && <span className="text-[11px] bg-purple-50 text-purple-700 px-2 py-0.5 rounded-full font-semibold">{lead.plan_interest}</span>}
         </div>
 
@@ -288,7 +289,7 @@ function LeadCard({ lead, onStatusChange, onSave, onDelete }) {
 
         {/* Other info */}
         {lead.other_info && (
-          <p className="text-xs text-gray-500 italic bg-gray-50 rounded-lg px-2.5 py-1.5">
+          <p className="text-xs text-gray-500 italic bg-gray-50 rounded-sm px-2.5 py-1.5">
             "{lead.other_info}"
           </p>
         )}
@@ -297,20 +298,20 @@ function LeadCard({ lead, onStatusChange, onSave, onDelete }) {
         {showNotes ? (
           <div className="space-y-1.5">
             <textarea rows={2} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Add admin notes…"
-              className="w-full border border-amber-300 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-amber-300 resize-none bg-amber-50" />
+              className="w-full border border-amber-300 rounded-sm px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-amber-300 resize-none bg-amber-50" />
             <div className="flex gap-1.5">
               <button onClick={saveNotes} disabled={saving}
-                className="text-[11px] px-2.5 py-1 bg-amber-500 text-white rounded-lg font-bold hover:bg-amber-600 disabled:opacity-50">
+                className="text-[11px] px-2.5 py-1 bg-amber-500 text-white rounded-sm font-bold hover:bg-amber-600 disabled:opacity-50">
                 {saving ? '…' : 'Save'}
               </button>
               <button onClick={() => { setShowNotes(false); setNotes(lead.notes||''); }}
-                className="text-[11px] px-2.5 py-1 border border-gray-200 text-gray-500 rounded-lg hover:bg-gray-50">Cancel</button>
+                className="text-[11px] px-2.5 py-1 border border-gray-200 text-gray-500 rounded-sm hover:bg-gray-50">Cancel</button>
             </div>
           </div>
         ) : lead.notes ? (
           <button onClick={() => setShowNotes(true)}
-            className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 w-full text-left hover:bg-amber-100 transition">
-            📝 {lead.notes}
+            className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-sm px-2.5 py-1.5 w-full text-left hover:bg-amber-100 transition">
+            {lead.notes}
           </button>
         ) : (
           <button onClick={() => setShowNotes(true)}
@@ -328,7 +329,7 @@ function LeadCard({ lead, onStatusChange, onSave, onDelete }) {
               return (
                 <button key={s} onClick={() => onStatusChange(lead.id, s)}
                   className={`text-[11px] font-bold px-2.5 py-1 rounded-full border transition-all hover:opacity-80 ${m.pill} border-current`}>
-                  {m.icon} {m.label}
+                  {m.label}
                 </button>
               );
             })}
@@ -339,7 +340,7 @@ function LeadCard({ lead, onStatusChange, onSave, onDelete }) {
         <div className="flex items-center justify-between text-[10px] text-gray-300 pt-0.5">
           <span>Submitted: {fmtDate(lead.created_at)}</span>
           <button onClick={() => copyText(lead.email, 'Email copied!')}
-            className="hover:text-gray-500 transition">📋 Copy email</button>
+            className="hover:text-gray-500 transition flex items-center gap-1"><Copy size={10} /> Copy email</button>
         </div>
       </div>
     </div>
@@ -419,7 +420,7 @@ function LeadsSection() {
           { label: 'Contacted',       value: leads.filter(l => l.status === 'contacted').length, sub: 'in progress', icon: '📬', gradient: 'from-amber-500 to-orange-500' },
           { label: 'Pending Review',  value: leads.filter(l => l.status === 'new').length,       sub: 'new leads',   icon: '🆕', gradient: 'from-blue-500 to-blue-700' },
         ].map(s => (
-          <div key={s.label} className={`rounded-2xl p-4 bg-gradient-to-br ${s.gradient} text-white shadow-sm`}>
+          <div key={s.label} className={`rounded-md p-4 bg-gradient-to-br ${s.gradient} text-white shadow-card`}>
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-2xl font-black leading-none">{s.value}</p>
@@ -436,22 +437,22 @@ function LeadsSection() {
       <div className="flex items-center gap-3 flex-wrap">
         <input value={search} onChange={e => setSearch(e.target.value)}
           placeholder="Search name, email, role…"
-          className="flex-1 min-w-[200px] border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-purple-300" />
+          className="flex-1 min-w-[200px] border border-gray-200 rounded-sm px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-300" />
         <select value={sort} onChange={e => setSort(e.target.value)}
-          className="border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-purple-300">
+          className="border border-gray-200 rounded-sm px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-brand-300">
           <option value="newest">Newest first</option>
           <option value="oldest">Oldest first</option>
         </select>
-        <div className="flex bg-gray-100 p-0.5 rounded-xl">
-          {[{ id: 'pipeline', icon: '⬛' }, { id: 'list', icon: '☰' }].map(v => (
+        <div className="flex bg-gray-100 p-0.5 rounded-md">
+          {[{ id: 'pipeline', Icon: LayoutGrid }, { id: 'list', Icon: List }].map(v => (
             <button key={v.id} onClick={() => setView(v.id)}
-              className={`px-3 py-1.5 rounded-lg text-sm transition-all ${view === v.id ? 'bg-white shadow-sm text-gray-800' : 'text-gray-400 hover:text-gray-600'}`}>
-              {v.icon}
+              className={`px-3 py-1.5 rounded-sm text-sm transition-all flex items-center ${view === v.id ? 'bg-white shadow-sm text-gray-800' : 'text-gray-400 hover:text-gray-600'}`}>
+              <v.Icon size={15} />
             </button>
           ))}
         </div>
         <button onClick={() => exportCSV(sorted)}
-          className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-xl text-sm bg-white hover:bg-gray-50 font-medium transition">
+          className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-sm text-sm bg-white hover:bg-gray-50 font-medium transition">
           ↓ Export CSV
         </button>
       </div>
@@ -471,16 +472,15 @@ function LeadsSection() {
             return (
               <div key={stage} className="flex flex-col gap-3">
                 {/* Column header */}
-                <div className={`flex items-center justify-between px-3 py-2.5 rounded-xl ${meta.header} border border-current/10`}>
+                <div className={`flex items-center justify-between px-3 py-2.5 rounded-md ${meta.header} border border-current/10`}>
                   <div className="flex items-center gap-2">
-                    <span className="text-base">{meta.icon}</span>
                     <span className="text-sm font-bold text-gray-700">{meta.label}</span>
                   </div>
                   <span className={`text-xs font-black px-2 py-0.5 rounded-full ${meta.pill}`}>{cards.length}</span>
                 </div>
                 {/* Cards */}
                 {cards.length === 0 ? (
-                  <div className="border-2 border-dashed border-gray-200 rounded-2xl py-8 flex items-center justify-center text-xs text-gray-300">
+                  <div className="border-2 border-dashed border-gray-200 rounded-md py-8 flex items-center justify-center text-xs text-gray-300">
                     No leads here
                   </div>
                 ) : (
@@ -533,7 +533,7 @@ function ResetPasswordModal({ user: target, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+      <div className="bg-white rounded-md shadow-modal w-full max-w-sm p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-base font-bold text-gray-900">Reset Password</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
@@ -545,7 +545,7 @@ function ResetPasswordModal({ user: target, onClose }) {
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-sm text-xs text-amber-800">
               Setting a new password for <strong>{target.name}</strong> ({target.email})
             </div>
             <div>
@@ -553,7 +553,7 @@ function ResetPasswordModal({ user: target, onClose }) {
               <div className="relative">
                 <input
                   type={show ? 'text' : 'password'}
-                  className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-sm text-sm font-mono focus:ring-2 focus:ring-brand-500 outline-none"
                   placeholder="Min 6 characters"
                   value={password}
                   onChange={e => setPassword(e.target.value)}
@@ -561,7 +561,7 @@ function ResetPasswordModal({ user: target, onClose }) {
                 />
                 <button type="button" onClick={() => setShow(s => !s)}
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                  {show ? '🙈' : '👁'}
+                  {show ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
             </div>
@@ -569,7 +569,7 @@ function ResetPasswordModal({ user: target, onClose }) {
               <label className="block text-xs font-medium text-gray-600 mb-1">Confirm Password</label>
               <input
                 type={show ? 'text' : 'password'}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-500 outline-none"
+                className="w-full px-3 py-2 border border-gray-300 rounded-sm text-sm font-mono focus:ring-2 focus:ring-brand-500 outline-none"
                 placeholder="Repeat password"
                 value={confirm}
                 onChange={e => setConfirm(e.target.value)}
@@ -580,11 +580,11 @@ function ResetPasswordModal({ user: target, onClose }) {
             )}
             <div className="flex gap-2 pt-1">
               <button type="button" onClick={onClose}
-                className="flex-1 px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50">
+                className="flex-1 px-4 py-2 text-sm border border-gray-300 rounded-sm text-gray-600 hover:bg-gray-50">
                 Cancel
               </button>
               <button type="submit" disabled={saving}
-                className="flex-1 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 font-semibold">
+                className="flex-1 px-4 py-2 text-sm bg-brand-600 text-white rounded-sm hover:bg-brand-700 disabled:opacity-60 font-semibold">
                 {saving ? 'Resetting…' : 'Reset Password'}
               </button>
             </div>
@@ -655,7 +655,7 @@ function UsersSection() {
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {PLANS.map(p => (
-          <div key={p} className={`bg-white rounded-2xl border border-gray-200 p-4`}>
+          <div key={p} className={`bg-white rounded-md border border-gray-200 p-4`}>
             <p className="text-2xl font-black text-gray-800">{planCounts[p]}</p>
             <span className={`text-xs font-bold px-2 py-0.5 rounded-full mt-1.5 inline-block capitalize ${PLAN_BADGE[p]}`}>{p}</span>
           </div>
@@ -666,12 +666,12 @@ function UsersSection() {
       <div className="flex items-center gap-3">
         <input value={search} onChange={e => setSearch(e.target.value)}
           placeholder="Search name or email…"
-          className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-300" />
+          className="flex-1 border border-gray-200 rounded-sm px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-300" />
         <p className="text-xs text-gray-400 shrink-0">{filtered.length} of {users.length} users</p>
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-md border border-gray-200 shadow-card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -687,14 +687,14 @@ function UsersSection() {
               {filtered.map(u => {
                 const isMe = u.id === me?.id;
                 return (
-                  <tr key={u.id} className={`hover:bg-gray-50/60 transition-colors ${isMe ? 'bg-indigo-50/30' : ''}`}>
+                  <tr key={u.id} className={`hover:bg-gray-50/60 transition-colors ${isMe ? 'bg-brand-50/30' : ''}`}>
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-3">
-                        <Avatar name={u.name} gradient={isMe ? 'from-indigo-500 to-blue-500' : 'from-blue-400 to-indigo-500'} size="md" />
+                        <Avatar name={u.name} gradient={isMe ? 'from-brand-500 to-brand-700' : 'from-brand-400 to-brand-600'} size="md" />
                         <div>
                           <p className="font-semibold text-gray-800">
                             {u.name}
-                            {isMe && <span className="ml-1.5 text-[10px] bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full font-bold">YOU</span>}
+                            {isMe && <span className="ml-1.5 text-[10px] bg-brand-100 text-brand-600 px-1.5 py-0.5 rounded-full font-bold">YOU</span>}
                           </p>
                           <div className="flex items-center gap-2 mt-0.5">
                             <p className="text-xs text-gray-400">{u.email}</p>
@@ -710,7 +710,7 @@ function UsersSection() {
                         <span className={`text-xs px-2 py-0.5 rounded-full ${ROLE_BADGE[u.role]}`}>{u.role}</span>
                       ) : (
                         <select value={u.role} onChange={e => changeRole(u.id, e.target.value)}
-                          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-blue-300 cursor-pointer">
+                          className="text-xs border border-gray-200 rounded-sm px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-brand-300 cursor-pointer">
                           {allRoles.map(r => <option key={r} value={r}>{r}</option>)}
                         </select>
                       )}
@@ -723,10 +723,10 @@ function UsersSection() {
                     </td>
                     <td className="px-4 py-3.5">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <EmailChooser email={u.email} subject="Hi from HR Outreach Tracker" body={`Hi ${u.name},\n\n`} label="✉ Email" size="xs" />
+                        <EmailChooser email={u.email} subject="Hi from HR Outreach Tracker" body={`Hi ${u.name},\n\n`} label="Email" size="xs" />
                         {!isMe && (
                           <button onClick={() => setResetTarget(u)}
-                            className="text-xs text-amber-600 hover:text-amber-800 border border-amber-200 rounded-lg px-2 py-1 hover:bg-amber-50 transition font-medium">
+                            className="text-xs text-amber-600 hover:text-amber-800 border border-amber-200 rounded-sm px-2 py-1 hover:bg-amber-50 transition font-medium">
                             Reset PW
                           </button>
                         )}
@@ -815,7 +815,7 @@ function DataManagementSection() {
             { label: 'Last 30 days',     value: jobStats.last30, color: 'green'  },
             { label: 'Last 7 days',      value: jobStats.last7,  color: 'purple' },
           ].map(s => (
-            <div key={s.label} className={`bg-${s.color}-50 border border-${s.color}-100 rounded-xl p-4 text-center`}>
+            <div key={s.label} className={`bg-${s.color}-50 border border-${s.color}-100 rounded-md p-4 text-center`}>
               <p className={`text-2xl font-black text-${s.color}-700`}>{s.value.toLocaleString()}</p>
               <p className="text-xs text-gray-500 mt-0.5">{s.label}</p>
             </div>
@@ -824,8 +824,8 @@ function DataManagementSection() {
       )}
 
       {/* Purge Config */}
-      <div className="bg-white border rounded-2xl p-5 space-y-4">
-        <h3 className="font-bold text-gray-800 flex items-center gap-2">🗑️ Data Retention &amp; Purge</h3>
+      <div className="bg-white border rounded-md p-5 space-y-4">
+        <h3 className="font-bold text-gray-800 flex items-center gap-2">Data Retention &amp; Purge</h3>
         <p className="text-sm text-gray-500">Scraped jobs older than the retention window are purged from the database. Data is pushed to GitHub backup before deletion if configured.</p>
 
         <div className="flex flex-wrap items-end gap-4">
@@ -836,7 +836,7 @@ function DataManagementSection() {
               min="1" max="365"
               value={purge.retention_days}
               onChange={e => setPurge(p => ({ ...p, retention_days: parseInt(e.target.value) || 30 }))}
-              className="w-28 border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+              className="w-28 border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none"
             />
           </div>
           <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer pb-2">
@@ -851,7 +851,7 @@ function DataManagementSection() {
           <button
             onClick={savePurgeConfig}
             disabled={saving}
-            className="px-5 py-2 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 disabled:opacity-60 transition-colors pb-2"
+            className="px-5 py-2 bg-red-600 text-white rounded-sm text-sm font-semibold hover:bg-red-700 disabled:opacity-60 transition-colors pb-2"
           >
             {saving ? 'Purging…' : `Purge Now (>${purge.retention_days}d)`}
           </button>
@@ -864,7 +864,7 @@ function DataManagementSection() {
       </div>
 
       {/* GitHub Backup Config */}
-      <div className="bg-white border rounded-2xl p-5 space-y-4">
+      <div className="bg-white border rounded-md p-5 space-y-4">
         <h3 className="font-bold text-gray-800 flex items-center gap-2">
           <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.44 9.8 8.2 11.4.6.1.82-.26.82-.58v-2.17c-3.34.72-4.04-1.6-4.04-1.6-.54-1.38-1.33-1.75-1.33-1.75-1.08-.74.08-.72.08-.72 1.2.08 1.83 1.23 1.83 1.23 1.06 1.82 2.78 1.3 3.46.99.1-.77.42-1.3.76-1.6-2.66-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.12-.3-.54-1.52.12-3.17 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 3-.4c1.02 0 2.04.14 3 .4 2.28-1.55 3.29-1.23 3.29-1.23.66 1.65.24 2.87.12 3.17.77.84 1.24 1.91 1.24 3.22 0 4.61-2.81 5.63-5.48 5.92.43.37.81 1.1.81 2.22v3.29c0 .32.22.69.82.57C20.56 21.8 24 17.3 24 12c0-6.63-5.37-12-12-12z"/></svg>
           GitHub Backup
@@ -883,7 +883,7 @@ function DataManagementSection() {
               placeholder={ghCfg.token ? '***configured***' : 'ghp_xxxx…'}
               value={ghCfg.token === '***configured***' ? '' : (ghCfg.token || '')}
               onChange={e => setGhCfg(c => ({ ...c, token: e.target.value }))}
-              className="w-full border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+              className="w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none"
             />
             <p className="text-xs text-gray-400 mt-0.5">Needs repo write access</p>
           </div>
@@ -894,7 +894,7 @@ function DataManagementSection() {
               placeholder="your-username"
               value={ghCfg.owner || ''}
               onChange={e => setGhCfg(c => ({ ...c, owner: e.target.value }))}
-              className="w-full border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+              className="w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none"
             />
           </div>
           <div>
@@ -904,7 +904,7 @@ function DataManagementSection() {
               placeholder="hr-outreach-data-backup"
               value={ghCfg.repo || ''}
               onChange={e => setGhCfg(c => ({ ...c, repo: e.target.value }))}
-              className="w-full border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+              className="w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none"
             />
           </div>
           <div>
@@ -913,7 +913,7 @@ function DataManagementSection() {
               type="number" min="7" max="365"
               value={ghCfg.retention_days || 30}
               onChange={e => setGhCfg(c => ({ ...c, retention_days: parseInt(e.target.value) || 30 }))}
-              className="w-full border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+              className="w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none"
             />
           </div>
         </div>
@@ -932,17 +932,17 @@ function DataManagementSection() {
           <button
             onClick={saveGhConfig}
             disabled={saving}
-            className="px-5 py-2 bg-gray-900 text-white rounded-xl text-sm font-semibold hover:bg-gray-800 disabled:opacity-60 transition-colors"
+            className="px-5 py-2 bg-gray-900 text-white rounded-sm text-sm font-semibold hover:bg-gray-800 disabled:opacity-60 transition-colors"
           >
             {saving ? 'Saving…' : 'Save Config'}
           </button>
           <button
             onClick={runBackup}
             disabled={running || !ghStatus?.configured}
-            className="px-5 py-2 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 disabled:opacity-60 transition-colors"
+            className="px-5 py-2 bg-green-600 text-white rounded-sm text-sm font-semibold hover:bg-green-700 disabled:opacity-60 transition-colors"
             title={!ghStatus?.configured ? 'Configure GitHub settings first' : ''}
           >
-            {running ? '⏳ Backing up…' : '⬆️ Run Backup Now'}
+            {running ? 'Backing up…' : 'Run Backup Now'}
           </button>
         </div>
       </div>
@@ -999,8 +999,8 @@ function ReferralsSection() {
   return (
     <div className="space-y-6">
       {/* Global limit */}
-      <div className="bg-white border rounded-2xl p-5 space-y-3">
-        <h3 className="font-bold text-gray-800 flex items-center gap-2">🤝 Referral Request Limit</h3>
+      <div className="bg-white border rounded-md p-5 space-y-3">
+        <h3 className="font-bold text-gray-800 flex items-center gap-2">Referral Request Limit</h3>
         <p className="text-sm text-gray-500">
           How many times a user can request a referral from the <em>same</em> community member before being blocked.
           Currently <strong>{savedLimit}</strong> per pair.
@@ -1012,13 +1012,13 @@ function ReferralsSection() {
               type="number" min="1" max="100"
               value={limit}
               onChange={e => setLimit(parseInt(e.target.value) || 1)}
-              className="w-28 border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+              className="w-28 border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none"
             />
           </div>
           <button
             onClick={saveLimit}
             disabled={saving || limit === savedLimit}
-            className="px-5 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            className="px-5 py-2 bg-brand-600 text-white rounded-sm text-sm font-semibold hover:bg-brand-700 disabled:opacity-50 transition-colors"
           >
             {saving ? 'Saving…' : 'Save'}
           </button>
@@ -1026,7 +1026,7 @@ function ReferralsSection() {
       </div>
 
       {/* Per-pair usage + reset */}
-      <div className="bg-white border rounded-2xl overflow-hidden">
+      <div className="bg-white border rounded-md overflow-hidden">
         <div className="px-5 py-4 border-b">
           <h3 className="font-bold text-gray-800">Requests Sent</h3>
           <p className="text-xs text-gray-500 mt-0.5">Reset a pair to let that user request a referral from that person again, even past the limit.</p>
@@ -1065,7 +1065,7 @@ function ReferralsSection() {
                     <td className="px-4 py-3">
                       <button
                         onClick={() => resetPair(r.from_user_id, r.to_user_id, r.from_name, r.to_name)}
-                        className="text-xs text-amber-600 hover:text-amber-800 border border-amber-200 rounded-lg px-2 py-1 hover:bg-amber-50 transition font-medium"
+                        className="text-xs text-amber-600 hover:text-amber-800 border border-amber-200 rounded-sm px-2 py-1 hover:bg-amber-50 transition font-medium"
                       >
                         Reset
                       </button>
@@ -1163,9 +1163,9 @@ function ScraperSection() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white border rounded-2xl p-5 space-y-4">
+      <div className="bg-white border rounded-md p-5 space-y-4">
         <div>
-          <h3 className="font-bold text-gray-800 flex items-center gap-2">🔍 Job Scraper</h3>
+          <h3 className="font-bold text-gray-800 flex items-center gap-2">Job Scraper</h3>
           <p className="text-sm text-gray-500 mt-1">
             Every morning at 7:00 AM IST, the tracker automatically prefetches jobs across the configured role queries:
             <strong> General</strong> (LinkedIn Jobs, Naukri.com, Internshala, Instahyre, Foundit),
@@ -1188,28 +1188,28 @@ function ScraperSection() {
         <div className="flex flex-wrap gap-3 pt-1">
           <button
             onClick={() => setShowConfig(true)}
-            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-xl text-sm font-semibold hover:bg-gray-50 transition-colors"
+            className="flex items-center gap-1.5 px-4 py-2 border border-gray-300 text-gray-700 rounded-sm text-sm font-semibold hover:bg-gray-50 transition-colors"
           >
-            ⚙️ Edit Query List / Config
+            <Settings size={14} /> Edit Query List / Config
           </button>
           <button
             onClick={runApifyNow}
             disabled={apifyRunning}
-            className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 disabled:opacity-60 transition-colors"
+            className="px-4 py-2 bg-brand-600 text-white rounded-sm text-sm font-semibold hover:bg-brand-700 disabled:opacity-60 transition-colors"
           >
-            {apifyRunning ? '⏳ Running…' : '🚀 Scrape Now (Apify)'}
+            {apifyRunning ? 'Running…' : 'Scrape Now (Apify)'}
           </button>
           <button
             onClick={runFeedScraperNow}
             disabled={feedRunning}
-            className="px-4 py-2 bg-purple-600 text-white rounded-xl text-sm font-semibold hover:bg-purple-700 disabled:opacity-60 transition-colors"
+            className="px-4 py-2 bg-brand-600 text-white rounded-sm text-sm font-semibold hover:bg-brand-700 disabled:opacity-60 transition-colors"
           >
-            {feedRunning ? '⏳ Running…' : '🚀 Scrape Now (LinkedIn Feed)'}
+            {feedRunning ? 'Running…' : 'Scrape Now (LinkedIn Feed)'}
           </button>
         </div>
 
         {showFeedLogs && (
-          <div className="bg-gray-900 rounded-xl border border-gray-700 p-4 space-y-1 max-h-48 overflow-y-auto">
+          <div className="bg-gray-900 rounded-sm border border-gray-700 p-4 space-y-1 max-h-48 overflow-y-auto">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-semibold text-gray-400">LinkedIn Feed Scraper Output</span>
               <button onClick={() => setShowFeedLogs(false)} className="text-gray-500 hover:text-gray-300 text-xs">Hide</button>
@@ -1237,32 +1237,32 @@ export default function AdminPanel() {
   if (user?.role !== 'admin') {
     return (
       <div className="flex flex-col items-center justify-center h-48 gap-3">
-        <span className="text-4xl">🔒</span>
+        <Lock size={36} className="text-gray-300" />
         <p className="text-gray-500 text-sm font-medium">Admin access required.</p>
       </div>
     );
   }
 
   const TABS = [
-    { id: 'leads',     icon: '🚀', label: 'Interest Leads'       },
-    { id: 'users',     icon: '👥', label: 'User Management'      },
-    { id: 'roles',     icon: '🛡️', label: 'Roles & Permissions'  },
-    { id: 'passwords', icon: '🔐', label: 'Password Vault'       },
-    { id: 'scraper',   icon: '🔍', label: 'Job Scraper'          },
-    { id: 'referrals', icon: '🤝', label: 'Referrals'            },
-    { id: 'data',      icon: '🗄️', label: 'Data & Backup'       },
+    { id: 'leads',     Icon: Inbox,      label: 'Interest Leads'       },
+    { id: 'users',     Icon: Users,      label: 'User Management'      },
+    { id: 'roles',     Icon: Shield,     label: 'Roles & Permissions'  },
+    { id: 'passwords', Icon: Lock,       label: 'Password Vault'       },
+    { id: 'scraper',   Icon: Search,     label: 'Job Scraper'          },
+    { id: 'referrals', Icon: Handshake,  label: 'Referrals'            },
+    { id: 'data',      Icon: Database,   label: 'Data & Backup'        },
   ];
 
   return (
     <div className="space-y-5">
 
       {/* Header */}
-      <div className="relative bg-gradient-to-br from-slate-800 via-slate-900 to-purple-950 rounded-2xl overflow-hidden">
+      <div className="relative bg-gradient-to-br from-slate-800 via-slate-900 to-purple-950 rounded-md overflow-hidden">
         <div className="absolute inset-0 pointer-events-none">
           <div className="absolute top-0 right-0 w-64 h-64 bg-purple-500/10 rounded-full -translate-y-1/2 translate-x-1/4" />
         </div>
         <div className="relative px-6 py-6 flex items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center text-2xl shadow-lg">🛡️</div>
+          <div className="w-14 h-14 rounded-md bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center shadow-lg"><Shield size={28} className="text-white" /></div>
           <div>
             <h1 className="text-xl font-black text-white">Admin Control Centre</h1>
             <p className="text-slate-400 text-sm mt-0.5">Manage users · Reach out to leads · Control plans & permissions</p>
@@ -1271,13 +1271,13 @@ export default function AdminPanel() {
       </div>
 
       {/* Tab bar */}
-      <div className="flex gap-1.5 bg-gray-100 p-1 rounded-2xl w-fit">
+      <div className="flex gap-1.5 bg-gray-100 p-1 rounded-md w-fit flex-wrap">
         {TABS.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-sm text-sm font-bold transition-all ${
               tab === t.id ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'
             }`}>
-            <span>{t.icon}</span><span>{t.label}</span>
+            <t.Icon size={14} /><span>{t.label}</span>
           </button>
         ))}
       </div>
@@ -1285,7 +1285,7 @@ export default function AdminPanel() {
       {tab === 'leads' && <LeadsSection />}
       {tab === 'users' && <UsersSection />}
       {tab === 'roles' && (
-        <div className="bg-white border rounded-2xl p-5">
+        <div className="bg-white border rounded-md p-5">
           <div className="mb-4">
             <h2 className="text-base font-bold text-gray-800">Roles & Permissions</h2>
             <p className="text-xs text-gray-500 mt-0.5">
@@ -1296,7 +1296,7 @@ export default function AdminPanel() {
         </div>
       )}
       {tab === 'passwords' && (
-        <div className="bg-white border rounded-2xl p-5">
+        <div className="bg-white border rounded-md p-5">
           <div className="mb-4">
             <h2 className="text-base font-bold text-gray-800">Password Vault — All Users</h2>
             <p className="text-xs text-gray-500 mt-0.5">

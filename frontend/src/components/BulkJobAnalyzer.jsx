@@ -36,7 +36,7 @@ function StatusBadge({ status }) {
   };
   return (
     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${map[status] || map.pending}`}>
-      {status === 'fetching' ? '⏳' : status === 'done' ? '✓' : status === 'error' ? '✗' : '•'}
+      {status === 'fetching' ? '…' : status === 'done' ? '✓' : status === 'error' ? '✗' : '·'}
     </span>
   );
 }
@@ -45,7 +45,7 @@ function StatusBadge({ status }) {
 function MatchScoreCard({ score, presentCount, missingCount }) {
   const ring = score >= 70 ? 'border-emerald-500' : score >= 40 ? 'border-amber-400' : 'border-red-400';
   return (
-    <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-5 flex items-center gap-5">
+    <div className="bg-white rounded-md shadow-card border border-gray-100 p-5 flex items-center gap-5">
       <div className={`w-20 h-20 rounded-full border-4 ${ring} flex flex-col items-center justify-center shrink-0`}>
         <span className="font-display text-2xl font-bold text-stone-900 leading-none">{score}</span>
         <span className="text-[10px] text-stone-400">/100</span>
@@ -229,10 +229,10 @@ export default function BulkJobAnalyzer() {
   const matchScore   = allJobSkills.length ? Math.round((presentSkills.length / allJobSkills.length) * 100) : 0;
 
   return (
-    <div className="font-landing space-y-4">
+    <div className="space-y-4">
 
       {/* ── Section header ──────────────────────────────────────────────── */}
-      <div className="bg-gradient-to-r from-emerald-600 to-teal-600 rounded-2xl p-5 text-white">
+      <div className="bg-gradient-to-r from-emerald-600 to-teal-600 rounded-md p-5 text-white">
         <h2 className="font-display text-lg font-bold">🚀 Bulk Apply</h2>
         <p className="text-emerald-100 text-sm mt-0.5">
           Paste every job you want to apply to — we'll score your combined skill match and open every tab at once.
@@ -248,7 +248,7 @@ export default function BulkJobAnalyzer() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
 
         {/* ── LEFT: Job URLs + Results ──────────────────────────────────────── */}
-        <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-5 space-y-4">
+        <div className="bg-white rounded-md shadow-card border border-gray-100 p-5 space-y-4">
           <div>
             <p className="text-[11px] font-bold tracking-widest text-emerald-700 uppercase">Job Post URLs</p>
             <h2 className="text-sm font-bold text-gray-800 mt-0.5">📋 Paste every job to apply to</h2>
@@ -261,14 +261,14 @@ export default function BulkJobAnalyzer() {
               onChange={e => setUrlsInput(e.target.value)}
               rows={6}
               placeholder={`https://careers.google.com/jobs/1234\nhttps://jobs.lever.co/company/5678\nhttps://www.naukri.com/job/...`}
-              className="w-full border rounded-lg px-3 py-2 text-xs font-mono resize-none focus:ring-2 focus:ring-emerald-300 outline-none"
+              className="w-full border rounded-sm px-3 py-2 text-xs font-mono resize-none focus:ring-2 focus:ring-emerald-300 outline-none"
             />
           </div>
 
           <button
             onClick={handleAnalyzeAll}
             disabled={analyzing || !urlsInput.trim()}
-            className="w-full py-2 bg-emerald-600 text-white text-sm font-semibold rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition"
+            className="w-full py-2 bg-emerald-600 text-white text-sm font-semibold rounded-sm hover:bg-emerald-700 disabled:opacity-50 transition"
           >
             {analyzing ? '⏳ Analyzing…' : `🔍 Analyze All (${jobUrls.length} URL${jobUrls.length !== 1 ? 's' : ''})`}
           </button>
@@ -278,7 +278,7 @@ export default function BulkJobAnalyzer() {
             <div className="space-y-2">
               <p className="text-xs font-semibold text-gray-600">Results</p>
               {jobs.map((j, i) => (
-                <div key={i} className={`rounded-lg border px-3 py-2 text-xs flex items-start gap-2 ${
+                <div key={i} className={`rounded-sm border px-3 py-2 text-xs flex items-start gap-2 ${
                   j.status === 'done'    ? 'border-green-200 bg-green-50' :
                   j.status === 'error'   ? 'border-red-200 bg-red-50'    :
                   j.status === 'fetching'? 'border-emerald-200 bg-emerald-50' :
@@ -316,7 +316,7 @@ export default function BulkJobAnalyzer() {
         </div>
 
         {/* ── RIGHT: Resume + Analysis ──────────────────────────────────────── */}
-        <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-5 space-y-4">
+        <div className="bg-white rounded-md shadow-card border border-gray-100 p-5 space-y-4">
           <div>
             <p className="text-[11px] font-bold tracking-widest text-emerald-700 uppercase">Your Resume</p>
             <h2 className="text-sm font-bold text-gray-800 mt-0.5">📄 Upload or paste your resume</h2>
@@ -340,7 +340,7 @@ export default function BulkJobAnalyzer() {
             <button
               onClick={() => fileRef.current?.click()}
               disabled={parsingResume}
-              className="w-full border-2 border-dashed border-gray-300 rounded-lg py-3 text-sm text-gray-500 hover:border-emerald-400 hover:text-emerald-600 hover:bg-emerald-50 transition disabled:opacity-50"
+              className="w-full border-2 border-dashed border-gray-300 rounded-sm py-3 text-sm text-gray-500 hover:border-emerald-400 hover:text-emerald-600 hover:bg-emerald-50 transition disabled:opacity-50"
             >
               {parsingResume ? '⏳ Parsing…' : usingProfileResume ? '↺ Upload different resume' : '⬆ Upload PDF, DOCX, or TXT'}
             </button>
@@ -352,7 +352,7 @@ export default function BulkJobAnalyzer() {
               onChange={e => setResumeText(e.target.value)}
               placeholder="Paste your resume text here…"
               rows={8}
-              className="w-full border rounded-lg px-3 py-2 text-xs font-mono resize-none focus:ring-2 focus:ring-emerald-300 outline-none"
+              className="w-full border rounded-sm px-3 py-2 text-xs font-mono resize-none focus:ring-2 focus:ring-emerald-300 outline-none"
             />
           </div>
 
@@ -363,7 +363,7 @@ export default function BulkJobAnalyzer() {
 
               {presentSkills.length > 0 && (
                 <div>
-                  <p className="text-xs font-medium text-green-700 mb-1">✅ Already in your resume ({presentSkills.length})</p>
+                  <p className="text-xs font-medium text-green-700 mb-1">In your resume ({presentSkills.length})</p>
                   <div className="flex flex-wrap gap-1">
                     {presentSkills.map(s => <SkillChip key={s} label={s} color="green" />)}
                   </div>
@@ -372,7 +372,7 @@ export default function BulkJobAnalyzer() {
 
               {missingSkills.length > 0 ? (
                 <div className="space-y-2">
-                  <p className="text-xs font-medium text-red-700">❌ Missing from your resume ({missingSkills.length})</p>
+                  <p className="text-xs font-medium text-red-700">Missing from your resume ({missingSkills.length})</p>
                   <div className="flex flex-wrap gap-1">
                     {missingSkills.map(s => (
                       <SkillChip key={s} label={s} color="blue" selected={selectedSkills.has(s)} onClick={() => toggleSkill(s)} />
@@ -381,24 +381,24 @@ export default function BulkJobAnalyzer() {
                   <p className="text-xs text-gray-400">Click skills to select specific ones</p>
                   <div className="flex gap-2 flex-wrap pt-1">
                     <button onClick={addAllMissing}
-                      className="px-4 py-2 bg-green-600 text-white text-xs font-semibold rounded-lg hover:bg-green-700 transition">
+                      className="px-4 py-2 bg-green-600 text-white text-xs font-semibold rounded-sm hover:bg-green-700 transition">
                       ✚ Add All Missing ({missingSkills.length})
                     </button>
                     <button onClick={addSelected} disabled={selectedSkills.size === 0}
-                      className="px-4 py-2 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700 disabled:opacity-40 transition">
+                      className="px-4 py-2 bg-emerald-600 text-white text-xs font-semibold rounded-sm hover:bg-emerald-700 disabled:opacity-40 transition">
                       ✚ Add Selected ({selectedSkills.size})
                     </button>
                     {addedSkills.length > 0 && (
                       <button onClick={() => { setAddedSkills([]); setSelectedSkills(new Set()); }}
-                        className="px-4 py-2 border text-xs font-medium rounded-lg hover:bg-gray-50 text-gray-600 transition">
+                        className="px-4 py-2 border text-xs font-medium rounded-sm hover:bg-gray-50 text-gray-600 transition">
                         Reset
                       </button>
                     )}
                   </div>
                 </div>
               ) : (
-                <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-xs text-green-700">
-                  🎉 Your resume already covers all skills across these {doneCount} jobs!
+                <div className="bg-green-50 border border-green-200 rounded-sm p-3 text-xs text-green-700">
+                  Your resume already covers all skills across these {doneCount} jobs!
                 </div>
               )}
             </div>
@@ -423,7 +423,7 @@ export default function BulkJobAnalyzer() {
 
       {/* ── Apply All bar ──────────────────────────────────────────────────── */}
       {hasJobs && (
-        <div className="bg-white rounded-2xl border border-stone-200 shadow-sm px-5 py-4 space-y-3">
+        <div className="bg-white rounded-md shadow-card border border-gray-100 px-5 py-4 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <p className="text-sm font-semibold text-gray-800">
@@ -435,14 +435,14 @@ export default function BulkJobAnalyzer() {
             </div>
             <div className="flex gap-3 flex-wrap items-center">
               {!user && (
-                <span className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-lg">
-                  🔒 Sign in to apply
+                <span className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-sm">
+                  Sign in to apply
                 </span>
               )}
               <button
                 onClick={user ? applyAll : () => window.dispatchEvent(new CustomEvent('hr-open-login'))}
                 disabled={doneCount === 0}
-                className="px-6 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 transition"
+                className="px-6 py-2 bg-emerald-600 text-white rounded-sm text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 transition"
               >
                 {user ? `Open All ${doneCount} Job Tabs →` : 'Sign In to Apply →'}
               </button>

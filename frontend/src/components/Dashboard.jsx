@@ -15,7 +15,7 @@ const PIPELINE_ORDER = ['New', 'Drafted', 'Sent', 'Opened', 'Replied', 'Intervie
 // Bar colors match StatusPill semantic palette exactly
 const PIPELINE_BAR = {
   New:       'bg-slate-300',
-  Drafted:   'bg-blue-300',
+  Drafted:   'bg-brand-300',
   Sent:      'bg-amber-400',
   Opened:    'bg-violet-400',
   Replied:   'bg-emerald-500',

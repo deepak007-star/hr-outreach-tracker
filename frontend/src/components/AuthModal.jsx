@@ -19,8 +19,8 @@ function Field({ label, fkey, type, placeholder, hint, form, errors, set, showPa
           onBlur={e => set(fkey, e.target.value.trim())}
           placeholder={placeholder}
           autoComplete={type === 'password' ? 'current-password' : fkey === 'identifier' ? 'username email' : 'name'}
-          className={`w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 outline-none transition
-            ${hasError ? 'border-red-400 focus:ring-red-200 bg-red-50' : 'border-gray-300 focus:ring-blue-200'}`}
+          className={`w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 outline-none transition
+            ${hasError ? 'border-red-400 focus:ring-red-200 bg-red-50' : 'border-gray-300 focus:ring-brand-200'}`}
         />
         {type === 'password' && (
           <button
@@ -130,7 +130,7 @@ export default function AuthModal({ onClose }) {
       className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
       onClick={e => e.target === e.currentTarget && onClose()}
     >
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-md shadow-modal w-full max-w-sm" onClick={e => e.stopPropagation()}>
 
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b">
@@ -151,7 +151,7 @@ export default function AuthModal({ onClose }) {
               type="button"
               onClick={() => switchTab(t)}
               className={`flex-1 py-2.5 text-sm font-medium transition-colors ${
-                tab === t ? 'border-b-2 border-blue-600 text-blue-700' : 'text-gray-500 hover:text-gray-700'
+                tab === t ? 'border-b-2 border-brand-600 text-brand-700' : 'text-gray-500 hover:text-gray-700'
               }`}
             >
               {t === 'login' ? 'Sign In' : 'Register'}
@@ -165,7 +165,7 @@ export default function AuthModal({ onClose }) {
             type="button"
             onClick={handleGoogleLogin}
             disabled={googleLoading}
-            className="w-full flex items-center justify-center gap-2 border border-gray-300 rounded-lg py-2.5 text-sm font-semibold hover:bg-gray-50 disabled:opacity-50 transition"
+            className="w-full flex items-center justify-center gap-2 border border-gray-300 rounded-sm py-2.5 text-sm font-semibold hover:bg-gray-50 disabled:opacity-50 transition"
           >
             <svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true">
               <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.9 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 3l5.7-5.7C34.6 6.1 29.6 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.5z"/>
@@ -216,8 +216,7 @@ export default function AuthModal({ onClose }) {
           )}
 
           {errors.general && (
-            <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">
-              <span className="text-red-400 mt-0.5 shrink-0">⚠️</span>
+            <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-sm px-3 py-2.5">
               <p className="text-xs text-red-600 font-medium">{errors.general}</p>
             </div>
           )}
@@ -225,7 +224,7 @@ export default function AuthModal({ onClose }) {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-2.5 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition"
+            className="w-full py-2.5 bg-brand-600 text-white rounded-sm text-sm font-semibold hover:bg-brand-700 disabled:opacity-50 transition"
           >
             {loading ? '…' : tab === 'login' ? 'Sign In' : 'Create Account'}
           </button>
@@ -236,7 +235,7 @@ export default function AuthModal({ onClose }) {
           <button
             type="button"
             onClick={() => switchTab(tab === 'login' ? 'register' : 'login')}
-            className="text-blue-600 hover:underline font-medium"
+            className="text-brand-600 hover:underline font-medium"
           >
             {tab === 'login' ? 'Register' : 'Sign in'}
           </button>

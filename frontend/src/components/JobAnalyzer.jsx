@@ -36,7 +36,7 @@ function SkillChip({ label, color = 'gray', selected, onClick }) {
 function MatchScoreCard({ score, presentCount, missingCount }) {
   const ring = score >= 70 ? 'border-emerald-500' : score >= 40 ? 'border-amber-400' : 'border-red-400';
   return (
-    <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-5 flex items-center gap-5">
+    <div className="bg-white rounded-md shadow-card border border-gray-100 p-5 flex items-center gap-5">
       <div className={`w-20 h-20 rounded-full border-4 ${ring} flex flex-col items-center justify-center shrink-0`}>
         <span className="font-display text-2xl font-bold text-stone-900 leading-none">{score}</span>
         <span className="text-[10px] text-stone-400">/100</span>
@@ -233,10 +233,10 @@ export default function JobAnalyzer() {
   const matchScore      = jobSkills.length ? Math.round((presentSkills.length / jobSkills.length) * 100) : 0;
 
   return (
-    <div className="font-landing space-y-4">
+    <div className="space-y-4">
 
       {/* ── Section header ──────────────────────────────────────────────── */}
-      <div className="bg-gradient-to-r from-emerald-600 to-teal-600 rounded-2xl p-5 text-white">
+      <div className="bg-gradient-to-r from-emerald-600 to-teal-600 rounded-md p-5 text-white">
         <h2 className="font-display text-lg font-bold">🎯 Job Analyzer</h2>
         <p className="text-emerald-100 text-sm mt-0.5">
           Paste a job post and your resume — see your match score and exactly which skills are missing.
@@ -252,7 +252,7 @@ export default function JobAnalyzer() {
 
       {/* ── Resume Vault suggestion banner ─────────────────────────────────── */}
       {vaultSuggest && !suggestDismiss && (
-        <div className="bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-xl px-5 py-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-md px-5 py-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-start gap-3 min-w-0">
             <span className="text-2xl shrink-0">📂</span>
             <div className="min-w-0">
@@ -272,7 +272,7 @@ export default function JobAnalyzer() {
                   .then(r => applyVaultResume(r.resume_text))
                   .catch(() => toast.error('Failed to load vault resume'));
               }}
-              className="px-4 py-1.5 bg-purple-600 text-white text-xs font-semibold rounded-lg hover:bg-purple-700 transition whitespace-nowrap"
+              className="px-4 py-1.5 bg-purple-600 text-white text-xs font-semibold rounded-sm hover:bg-purple-700 transition whitespace-nowrap"
             >
               Use This Resume
             </button>
@@ -285,7 +285,7 @@ export default function JobAnalyzer() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
 
         {/* ── LEFT: Job Post ──────────────────────────────────────────────── */}
-        <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-5 space-y-4">
+        <div className="bg-white rounded-md shadow-card border border-gray-100 p-5 space-y-4">
           <div>
             <p className="text-[11px] font-bold tracking-widest text-emerald-700 uppercase">Job Post</p>
             <h2 className="text-sm font-bold text-gray-800 mt-0.5">📋 Paste or fetch the job</h2>
@@ -301,18 +301,18 @@ export default function JobAnalyzer() {
                 onChange={e => setJobUrl(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleScrape()}
                 placeholder="https://careers.company.com/job/12345"
-                className="flex-1 border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-300 outline-none"
+                className="flex-1 border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-300 outline-none"
               />
               <button
                 onClick={handleScrape}
                 disabled={scraping || !jobUrl.trim()}
-                className="px-4 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition whitespace-nowrap"
+                className="px-4 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-sm hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition whitespace-nowrap"
               >
                 {scraping ? 'Fetching…' : 'Fetch'}
               </button>
             </div>
             {scrapeErr && (
-              <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
+              <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-sm p-2.5">
                 ⚠ {scrapeErr}
               </div>
             )}
@@ -343,7 +343,7 @@ export default function JobAnalyzer() {
               onChange={e => setJobContent(e.target.value)}
               placeholder="Paste the full job description here…"
               rows={10}
-              className="w-full border rounded-lg px-3 py-2 text-xs font-mono resize-none focus:ring-2 focus:ring-emerald-300 outline-none"
+              className="w-full border rounded-sm px-3 py-2 text-xs font-mono resize-none focus:ring-2 focus:ring-emerald-300 outline-none"
             />
           </div>
 
@@ -375,7 +375,7 @@ export default function JobAnalyzer() {
         </div>
 
         {/* ── RIGHT: Resume ────────────────────────────────────────────────── */}
-        <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-5 space-y-4">
+        <div className="bg-white rounded-md shadow-card border border-gray-100 p-5 space-y-4">
           <div>
             <p className="text-[11px] font-bold tracking-widest text-emerald-700 uppercase">Your Resume</p>
             <h2 className="text-sm font-bold text-gray-800 mt-0.5">📄 Upload or paste your resume</h2>
@@ -384,7 +384,7 @@ export default function JobAnalyzer() {
           {/* Upload */}
           <div className="space-y-2">
             {usingProfileResume && (
-              <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+              <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-sm px-3 py-2">
                 <div className="flex items-center gap-2 text-xs text-emerald-700">
                   <span>👤</span>
                   <span><strong>Using resume from your Profile.</strong> Skills pre-loaded.</span>
@@ -407,7 +407,7 @@ export default function JobAnalyzer() {
             <button
               onClick={() => fileRef.current?.click()}
               disabled={parsingResume}
-              className="w-full border-2 border-dashed border-gray-300 rounded-lg py-4 text-sm text-gray-500 hover:border-emerald-400 hover:text-emerald-600 hover:bg-emerald-50 transition disabled:opacity-50"
+              className="w-full border-2 border-dashed border-gray-300 rounded-sm py-4 text-sm text-gray-500 hover:border-emerald-400 hover:text-emerald-600 hover:bg-emerald-50 transition disabled:opacity-50"
             >
               {parsingResume
                 ? '⏳ Parsing resume…'
@@ -450,7 +450,7 @@ export default function JobAnalyzer() {
               onChange={e => setResumeText(e.target.value)}
               placeholder="Paste your resume text here…"
               rows={10}
-              className="w-full border rounded-lg px-3 py-2 text-xs font-mono resize-none focus:ring-2 focus:ring-emerald-300 outline-none"
+              className="w-full border rounded-sm px-3 py-2 text-xs font-mono resize-none focus:ring-2 focus:ring-emerald-300 outline-none"
             />
           </div>
 
@@ -463,7 +463,7 @@ export default function JobAnalyzer() {
               {presentSkills.length > 0 && (
                 <div className="space-y-1">
                   <p className="text-xs font-medium text-green-700">
-                    ✅ Already in your resume ({presentSkills.length})
+                    In your resume ({presentSkills.length})
                   </p>
                   <div className="flex flex-wrap gap-1">
                     {presentSkills.map(s => <SkillChip key={s} label={s} color="green" />)}
@@ -475,7 +475,7 @@ export default function JobAnalyzer() {
               {missingSkills.length > 0 ? (
                 <div className="space-y-2">
                   <p className="text-xs font-medium text-red-700">
-                    ❌ Missing from your resume ({missingSkills.length})
+                    Missing from your resume ({missingSkills.length})
                   </p>
                   <div className="flex flex-wrap gap-1">
                     {missingSkills.map(s => (
@@ -494,21 +494,21 @@ export default function JobAnalyzer() {
                   <div className="flex gap-2 flex-wrap pt-1">
                     <button
                       onClick={addAll}
-                      className="px-4 py-2 bg-green-600 text-white text-xs font-semibold rounded-lg hover:bg-green-700 transition"
+                      className="px-4 py-2 bg-green-600 text-white text-xs font-semibold rounded-sm hover:bg-green-700 transition"
                     >
                       ✚ Add All Missing ({missingSkills.length})
                     </button>
                     <button
                       onClick={addSelected}
                       disabled={selectedSkills.size === 0}
-                      className="px-4 py-2 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700 disabled:opacity-40 transition"
+                      className="px-4 py-2 bg-emerald-600 text-white text-xs font-semibold rounded-sm hover:bg-emerald-700 disabled:opacity-40 transition"
                     >
                       ✚ Add Selected ({selectedSkills.size})
                     </button>
                     {addedSkills.length > 0 && (
                       <button
                         onClick={() => { setAddedSkills([]); setSelectedSkills(new Set()); }}
-                        className="px-4 py-2 border text-xs font-medium rounded-lg hover:bg-gray-50 text-gray-600 transition"
+                        className="px-4 py-2 border text-xs font-medium rounded-sm hover:bg-gray-50 text-gray-600 transition"
                       >
                         Reset
                       </button>
@@ -516,8 +516,8 @@ export default function JobAnalyzer() {
                   </div>
                 </div>
               ) : (
-                <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-xs text-green-700">
-                  🎉 Your resume already covers all detected skills for this job!
+                <div className="bg-green-50 border border-green-200 rounded-sm p-3 text-xs text-green-700">
+                  Your resume already covers all detected skills for this job!
                 </div>
               )}
             </div>
@@ -534,7 +534,7 @@ export default function JobAnalyzer() {
                   <button onClick={handleDownloadPdf}  className="text-xs text-red-600   hover:text-red-800   font-medium border border-red-200   rounded px-2 py-1 hover:bg-red-50   transition">⬇ PDF</button>
                   <button onClick={handleDownloadWord} className="text-xs text-blue-700  hover:text-blue-900  font-medium border border-blue-200  rounded px-2 py-1 hover:bg-blue-50  transition">⬇ Word</button>
                   {user && (
-                    <button onClick={() => { setSaveVaultLabel(jobTitle || ''); setSaveVaultRole(jobTitle || ''); setShowSaveVault(true); }} className="text-xs text-purple-700 hover:text-purple-900 font-medium border border-purple-200 rounded px-2 py-1 hover:bg-purple-50 transition">📂 Save to Vault</button>
+                    <button onClick={() => { setSaveVaultLabel(jobTitle || ''); setSaveVaultRole(jobTitle || ''); setShowSaveVault(true); }} className="text-xs text-purple-700 hover:text-purple-900 font-medium border border-purple-200 rounded-sm px-2 py-1 hover:bg-purple-50 transition">Save to Vault</button>
                   )}
                 </div>
               </div>
@@ -550,9 +550,9 @@ export default function JobAnalyzer() {
       {/* ── Save to Vault modal ───────────────────────────────────────────── */}
       {showSaveVault && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={e => e.target === e.currentTarget && setShowSaveVault(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+          <div className="bg-white rounded-md shadow-modal w-full max-w-md">
             <div className="px-6 py-4 border-b">
-              <h3 className="font-bold text-gray-900">📂 Save Modified Resume to Vault</h3>
+              <h3 className="font-bold text-gray-900">Save Modified Resume to Vault</h3>
               <p className="text-xs text-gray-500 mt-0.5">Saves the resume with the {addedSkills.length} skill(s) you added</p>
             </div>
             <div className="p-6 space-y-4">
@@ -562,7 +562,7 @@ export default function JobAnalyzer() {
                   value={saveVaultLabel}
                   onChange={e => setSaveVaultLabel(e.target.value)}
                   placeholder={`e.g. ${jobTitle || 'Backend Role'} — modified`}
-                  className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+                  className="w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none"
                   maxLength={80}
                 />
               </div>
@@ -572,15 +572,15 @@ export default function JobAnalyzer() {
                   value={saveVaultRole}
                   onChange={e => setSaveVaultRole(e.target.value)}
                   placeholder="e.g. Senior Backend Engineer"
-                  className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+                  className="w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none"
                   maxLength={80}
                 />
               </div>
               <p className="text-xs text-gray-400">Skills saved: {[...resumeSkills, ...addedSkills].slice(0, 6).join(', ')}{([...resumeSkills, ...addedSkills].length > 6 ? ` +${[...resumeSkills, ...addedSkills].length - 6} more` : '')}</p>
             </div>
             <div className="flex gap-3 px-6 pb-5">
-              <button onClick={() => setShowSaveVault(false)} className="flex-1 border rounded-lg py-2.5 text-sm font-medium hover:bg-gray-50 transition">Cancel</button>
-              <button onClick={handleSaveVault} disabled={savingVault} className="flex-1 bg-purple-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-purple-700 disabled:opacity-50 transition">
+              <button onClick={() => setShowSaveVault(false)} className="flex-1 border rounded-sm py-2.5 text-sm font-medium hover:bg-gray-50 transition">Cancel</button>
+              <button onClick={handleSaveVault} disabled={savingVault} className="flex-1 bg-purple-600 text-white rounded-sm py-2.5 text-sm font-semibold hover:bg-purple-700 disabled:opacity-50 transition">
                 {savingVault ? 'Saving…' : 'Save to Vault'}
               </button>
             </div>
@@ -590,7 +590,7 @@ export default function JobAnalyzer() {
 
       {/* ── Apply bar ─────────────────────────────────────────────────────── */}
       {jobUrl && hasJobContent && (
-        <div className="bg-white rounded-xl border shadow-sm px-5 py-3.5 flex flex-wrap items-center justify-between gap-3">
+        <div className="bg-white rounded-md shadow-card border border-gray-100 px-5 py-3.5 flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="text-sm font-semibold text-gray-800 truncate">
               {jobTitle || 'Job Post'}
@@ -600,20 +600,20 @@ export default function JobAnalyzer() {
           {user ? (
             <button
               onClick={() => window.open(jobUrl, '_blank', 'noopener')}
-              className="px-5 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 transition whitespace-nowrap"
+              className="px-5 py-2 bg-emerald-600 text-white rounded-sm text-sm font-semibold hover:bg-emerald-700 transition whitespace-nowrap"
             >
               Open Job Post &amp; Apply →
             </button>
           ) : (
             <div className="flex items-center gap-3">
-              <span className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-lg">
-                🔒 Sign in to apply
+              <span className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-sm">
+                Sign in to apply
               </span>
               <button
                 onClick={() => {/* App.jsx will handle this via context — we use a custom event */
                   window.dispatchEvent(new CustomEvent('hr-open-login'));
                 }}
-                className="px-5 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 transition whitespace-nowrap"
+                className="px-5 py-2 bg-emerald-600 text-white rounded-sm text-sm font-semibold hover:bg-emerald-700 transition whitespace-nowrap"
               >
                 Sign In to Apply →
               </button>

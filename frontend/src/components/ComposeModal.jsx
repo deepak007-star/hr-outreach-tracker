@@ -63,7 +63,7 @@ ${name || '{{your_name}}'}${phone}${linkedin}`;
 function VarChip({ label, hint, onInsert }) {
   return (
     <button type="button" onMouseDown={e => { e.preventDefault(); onInsert(label); }} title={hint}
-      className="px-2 py-0.5 text-xs font-mono bg-indigo-50 text-indigo-700 border border-indigo-200 rounded hover:bg-indigo-100 transition">
+      className="px-2 py-0.5 text-xs font-mono bg-brand-50 text-brand-700 border border-brand-200 rounded-sm hover:bg-brand-100 transition">
       {label}
     </button>
   );
@@ -73,7 +73,7 @@ function VarChip({ label, hint, onInsert }) {
 function PreviewCard({ p, index }) {
   const [expanded, setExpanded] = useState(false);
   return (
-    <div className={`border rounded-xl overflow-hidden text-sm transition-all ${p.blocked ? 'bg-gray-50 border-gray-200' : 'bg-white border-gray-200 shadow-sm'}`}>
+    <div className={`border rounded-md overflow-hidden text-sm transition-all ${p.blocked ? 'bg-gray-50 border-gray-200' : 'bg-white border-gray-200 shadow-card'}`}>
       <div className="flex items-center justify-between px-4 py-3 cursor-pointer" onClick={() => setExpanded(e => !e)}>
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-gray-400 text-xs font-mono shrink-0">#{index + 1}</span>
@@ -215,7 +215,7 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
   return (
     <>
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] flex flex-col">
+      <div className="bg-white rounded-md shadow-modal w-full max-w-2xl max-h-[92vh] flex flex-col">
 
         {/* ── Header ───────────────────────────────────────────────── */}
         <div className="flex items-center justify-between px-6 py-4 border-b shrink-0">
@@ -243,17 +243,14 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
           <div className="flex-1 overflow-y-auto">
 
             {/* ── Template quick-pick ───────────────────────────────── */}
-            <div className="mx-5 mt-5 bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200 rounded-2xl p-4">
+            <div className="mx-5 mt-5 bg-brand-50 border border-brand-200 rounded-md p-4">
               <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-lg">📋</span>
-                  <div>
-                    <p className="text-sm font-bold text-indigo-800">Start with a Template</p>
-                    <p className="text-xs text-indigo-500">Pick one below or browse all templates</p>
-                  </div>
+                <div>
+                  <p className="text-sm font-bold text-brand-800">Start with a Template</p>
+                  <p className="text-xs text-brand-500">Pick one below or browse all templates</p>
                 </div>
                 <button onClick={() => setShowTemplates(true)}
-                  className="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-semibold transition whitespace-nowrap">
+                  className="text-xs px-3 py-1.5 bg-brand-600 text-white rounded-sm hover:bg-brand-700 font-semibold transition whitespace-nowrap">
                   Browse All →
                 </button>
               </div>
@@ -261,13 +258,13 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
                 <div className="flex flex-wrap gap-2">
                   {quickTpls.map(t => (
                     <button key={t.id} onClick={() => applyTemplate(t)}
-                      className="text-xs px-3 py-2 bg-white border border-indigo-200 text-indigo-700 rounded-xl hover:bg-indigo-600 hover:text-white hover:border-indigo-600 font-medium transition-all shadow-sm">
+                      className="text-xs px-3 py-2 bg-white border border-brand-200 text-brand-700 rounded-sm hover:bg-brand-600 hover:text-white hover:border-brand-600 font-medium transition-all shadow-card">
                       {t.name}
                     </button>
                   ))}
                 </div>
               ) : (
-                <p className="text-xs text-indigo-400">No templates yet — click "Browse All" to create one.</p>
+                <p className="text-xs text-brand-400">No templates yet — click "Browse All" to create one.</p>
               )}
             </div>
 
@@ -286,7 +283,7 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
                       type="button"
                       onMouseDown={e => { e.preventDefault(); insertVar(v.label); }}
                       title={v.hint}
-                      className="px-2 py-0.5 text-xs font-mono bg-purple-50 text-purple-700 border border-purple-200 rounded hover:bg-purple-100 transition"
+                      className="px-2 py-0.5 text-xs font-mono bg-brand-50 text-brand-700 border border-brand-200 rounded-sm hover:bg-brand-100 transition"
                     >
                       {v.label}
                     </button>
@@ -301,7 +298,7 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
                 <input ref={subjRef} value={subject}
                   onChange={e => { setSubject(e.target.value); setSubjectError(false); }}
                   onFocus={() => setFocused('subject')}
-                  className={`w-full border rounded-xl px-3 py-2 text-sm focus:ring-2 outline-none ${subjectError ? 'border-red-400 focus:ring-red-200 bg-red-50' : 'focus:ring-blue-300'}`} />
+                  className={`w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 outline-none ${subjectError ? 'border-red-400 focus:ring-red-200 bg-red-50' : 'focus:ring-brand-300'}`} />
               </div>
 
               <div>
@@ -309,7 +306,7 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
                   Body *{bodyError && <span className="ml-2 text-red-500 font-normal text-[11px]">Body is required</span>}
                 </label>
                 <div onFocus={() => { setFocused('body'); setBodyError(false); }}
-                  className={bodyError ? 'ring-2 ring-red-300 rounded-xl' : ''}>
+                  className={bodyError ? 'ring-2 ring-red-300 rounded-sm' : ''}>
                   <RichEditor
                     ref={bodyEditorRef}
                     value={body}
@@ -323,20 +320,20 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Attach Resume (optional)</label>
                 {attachment ? (
-                  <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl text-sm">
-                    <span className="text-blue-700 flex-1 truncate text-xs">{attachment.label}</span>
+                  <div className="flex items-center gap-2 px-3 py-2 bg-brand-50 border border-brand-200 rounded-sm text-sm">
+                    <span className="text-brand-700 flex-1 truncate text-xs">{attachment.label}</span>
                     <button onClick={() => setAttachment(null)}
                       className="text-xs text-red-400 hover:text-red-600 shrink-0 font-medium">Remove</button>
                   </div>
                 ) : (
                   <button onClick={() => setShowAttachPicker(true)}
-                    className="w-full px-3 py-2 border border-dashed border-gray-300 rounded-xl text-xs text-gray-500 hover:border-blue-400 hover:text-blue-600 transition text-left">
+                    className="w-full px-3 py-2 border border-dashed border-gray-300 rounded-sm text-xs text-gray-500 hover:border-brand-400 hover:text-brand-600 transition text-left">
                     + Attach resume — from profile, vault, or device
                   </button>
                 )}
               </div>
 
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800">
+              <div className="bg-amber-50 border border-amber-200 rounded-sm p-3 text-xs text-amber-800">
                 An unsubscribe line is automatically appended to every email (configurable in SMTP Settings).
               </div>
             </div>
@@ -347,7 +344,7 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
         {step === 'preview' && (
           <div className="flex-1 overflow-y-auto p-4 space-y-2">
             {attachment && (
-              <div className="px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-700">
+              <div className="px-3 py-2 bg-brand-50 border border-brand-200 rounded-sm text-xs text-brand-700">
                 Attachment: <strong>{attachment.label}</strong>
               </div>
             )}
@@ -361,15 +358,15 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
           {step === 'compose' && (
             <>
               <button onClick={handlePreview} disabled={loading}
-                className="flex-1 bg-blue-600 text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition">
+                className="flex-1 bg-brand-600 text-white rounded-sm py-2.5 text-sm font-semibold hover:bg-brand-700 disabled:opacity-50 transition">
                 {loading ? 'Generating previews…' : `Preview ${contacts.length} Email${contacts.length !== 1 ? 's' : ''} →`}
               </button>
-              <button onClick={onClose} className="border rounded-xl px-5 py-2.5 text-sm font-medium hover:bg-gray-50 transition">Cancel</button>
+              <button onClick={onClose} className="border rounded-sm px-5 py-2.5 text-sm font-medium hover:bg-gray-50 transition">Cancel</button>
             </>
           )}
           {step === 'preview' && (
             <>
-              <button onClick={() => setStep('compose')} className="border rounded-xl px-5 py-2.5 text-sm font-medium hover:bg-gray-50 transition">← Back</button>
+              <button onClick={() => setStep('compose')} className="border rounded-sm px-5 py-2.5 text-sm font-medium hover:bg-gray-50 transition">← Back</button>
               <button onClick={handleSend} disabled={sending || eligible === 0}
                 className="flex-1 bg-green-600 text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-green-700 disabled:opacity-50 transition">
                 {sending ? 'Sending…' : eligible === 0 ? 'No eligible recipients' : `Confirm & Send ${eligible} Email${eligible !== 1 ? 's' : ''}`}
