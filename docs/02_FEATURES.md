@@ -710,7 +710,9 @@ GET  /api/chatbot/feedback                                  → requireAdmin (al
 
 ### 18.1 Overview
 
-Razorpay replaces Stripe. Uses the Razorpay **Subscriptions** API with an inline JavaScript checkout modal (no redirect). Payment verification uses HMAC-SHA256.
+Razorpay replaces Stripe. Uses the Razorpay **Orders API** with an inline JavaScript checkout modal (no redirect). No recurring plan IDs needed — amounts are hardcoded (₹299 basic / ₹599 advanced). Payment verification uses HMAC-SHA256.
+
+**Why Orders API (not Subscriptions)?** The Subscriptions API requires creating plan IDs in the Razorpay dashboard first. Orders API is simpler: create an order with amount + notes, open the inline modal, verify HMAC. Works for one-time and recurring payments without any dashboard setup beyond API keys.
 
 ### 18.2 Setup — What You Need to Configure
 
@@ -733,87 +735,67 @@ Razorpay replaces Stripe. Uses the Razorpay **Subscriptions** API with an inline
    VITE_RAZORPAY_KEY_ID=rzp_test_XXXXXXXXXXXX
    ```
 
-**Step 3 — Create subscription plans in Razorpay dashboard**
-1. Dashboard → Products → Plans → Create Plan
-2. Create two plans:
-   - **Basic**: ₹299/month, interval=monthly
-   - **Advanced**: ₹599/month, interval=monthly
-3. Copy each plan's Plan ID (format: `plan_XXXXXXXXXXXX`)
-4. Add to `backend/.env`:
-   ```
-   RAZORPAY_PLAN_BASIC=plan_XXXXXXXXXXXX
-   RAZORPAY_PLAN_ADVANCED=plan_XXXXXXXXXXXX
-   ```
+No plan IDs to create — amounts are defined in code (`PLAN_AMOUNTS` in `payments.js`).
 
-**Step 4 — Set up webhook (for automatic plan updates)**
+**Step 3 — Set up webhook (optional — for server-side plan confirmation)**
 1. Dashboard → Settings → Webhooks → Add New Webhook
 2. Webhook URL: `https://your-backend-domain.com/api/payments/webhook`
    - For local dev use ngrok: `ngrok http 3001` → copy the HTTPS URL
-3. Select events: `subscription.activated`, `subscription.completed`, `subscription.halted`, `payment.captured`
+3. Select event: `payment.captured`
 4. Set a webhook secret and add to `backend/.env`:
    ```
    RAZORPAY_WEBHOOK_SECRET=your_webhook_secret_here
    ```
-
-**Step 5 — Add Razorpay checkout script to frontend**
-
-In `frontend/index.html`, add before `</head>`:
-```html
-<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-```
+   If `RAZORPAY_WEBHOOK_SECRET` is empty, the webhook endpoint returns 400 (safe to skip for dev).
 
 ### 18.3 Full Payment Flow
 
 ```
-User clicks "Upgrade" → selects plan → clicks "Subscribe"
-  → POST /api/payments/create-subscription { plan: 'basic'|'advanced' }
+User clicks "Upgrade" → selects plan
+  → POST /api/payments/create-order { plan: 'basic'|'advanced' }
       → requireAuth
-      → getRazorpay() (lazy init with RAZORPAY_KEY_ID + RAZORPAY_KEY_SECRET)
-      → razorpay.subscriptions.create({ plan_id, total_count:12, quantity:1, customer_notify:1 })
-      → returns { subscriptionId, keyId, amount, currency, name, description, prefill }
-  → Frontend: new window.Razorpay({ key, subscription_id, ...prefill, handler })
+      → rzp.orders.create({ amount: 29900|59900, currency:'INR', notes:{ userId, plan } })
+      → returns { orderId, keyId, amount, currency, plan, name, description, prefill }
+  → Frontend: new window.Razorpay({ key, order_id, amount, currency, name, description, prefill, handler })
   → User completes payment in Razorpay modal (UPI / card / net banking / wallet)
-  → Razorpay calls handler({ razorpay_payment_id, razorpay_subscription_id, razorpay_signature })
-  → POST /api/payments/verify { paymentId, subscriptionId, signature }
-      → HMAC verify: crypto.createHmac('sha256', KEY_SECRET).update(paymentId + '|' + subscriptionId)
+  → Razorpay calls handler({ razorpay_order_id, razorpay_payment_id, razorpay_signature })
+  → POST /api/payments/verify { razorpay_order_id, razorpay_payment_id, razorpay_signature, plan }
+      → HMAC verify: crypto.createHmac('sha256', KEY_SECRET).update(order_id + '|' + payment_id)
       → if valid: UPDATE users SET plan = targetPlan
-      → if valid: UPSERT subscriptions (user_id, razorpay_subscription_id, razorpay_payment_id, plan, status='active')
+      → if valid: UPSERT subscriptions row (razorpay_subscription_id stores order_id)
       → returns { success: true, plan }
-  → Frontend: re-fetches user via /auth/me, updates plan badge in Header
+  → Frontend: refreshUser() → plan badge updates in Header
 ```
 
-### 18.4 Webhook Flow (automatic plan enforcement)
+### 18.4 Webhook Flow (server-side confirmation)
 
 ```
 Razorpay → POST /api/payments/webhook (raw body, no JSON parser)
-  → HMAC-SHA256 verify: Razorpay-Signature header vs. crypto.createHmac(webhook_secret).update(rawBody)
+  → HMAC-SHA256 verify: x-razorpay-signature header vs. crypto.createHmac(webhook_secret).update(rawBody)
   → if invalid: 400
-  → parse JSON event
-  → subscription.activated  → UPDATE users SET plan = activePlan
-  → subscription.completed  → UPDATE users SET plan = 'demo' (subscription ended)
-  → subscription.halted     → UPDATE users SET plan = 'demo' (payment failed)
-  → payment.captured        → (no action; already handled by /verify)
+  → event: payment.captured
+      → payment.entity.notes.userId + notes.plan
+      → UPDATE users SET plan = plan
+      → UPSERT subscriptions row
 ```
 
 ### 18.5 Env Vars Summary
 
 | Var | Where | Purpose |
 |---|---|---|
-| `RAZORPAY_KEY_ID` | `backend/.env` | API key ID (used in API calls + sent to frontend) |
-| `RAZORPAY_KEY_SECRET` | `backend/.env` | API key secret (never sent to frontend) |
-| `RAZORPAY_PLAN_BASIC` | `backend/.env` | Plan ID for Basic ₹299/mo (from Razorpay dashboard) |
-| `RAZORPAY_PLAN_ADVANCED` | `backend/.env` | Plan ID for Advanced ₹599/mo (from Razorpay dashboard) |
-| `RAZORPAY_WEBHOOK_SECRET` | `backend/.env` | Webhook signing secret (from dashboard Webhooks page) |
-| `VITE_RAZORPAY_KEY_ID` | `frontend/.env` | Same Key ID as above — passed to `new window.Razorpay()` |
+| `RAZORPAY_KEY_ID` | `backend/.env` | API key ID (used in API calls + returned to frontend for checkout) |
+| `RAZORPAY_KEY_SECRET` | `backend/.env` | API key secret — backend only, never sent to frontend |
+| `RAZORPAY_WEBHOOK_SECRET` | `backend/.env` | Webhook signing secret — optional for dev, required for prod |
+| `VITE_RAZORPAY_KEY_ID` | `frontend/.env` | Same Key ID — passed to `new window.Razorpay()` for checkout init |
 
 ### 18.6 Backend API Routes
 
 ```
-GET  /api/payments/config          → { keyId } — public, no auth (for frontend init)
-GET  /api/payments/subscription    → current subscription details (requireAuth)
-POST /api/payments/create-subscription { plan } → returns subscriptionId (requireAuth)
-POST /api/payments/verify { paymentId, subscriptionId, signature } → verifies + upgrades (requireAuth)
-POST /api/payments/cancel          → cancel current subscription (requireAuth)
+GET  /api/payments/config          → { keyId, plans, configured } — public, no auth
+GET  /api/payments/subscription    → current subscription row (requireAuth)
+POST /api/payments/create-order { plan } → { orderId, keyId, amount, ... } (requireAuth)
+POST /api/payments/verify { razorpay_order_id, razorpay_payment_id, razorpay_signature, plan } → activates plan (requireAuth)
+POST /api/payments/cancel          → downgrade to demo (requireAuth)
 POST /api/payments/webhook         → Razorpay webhook (no auth, HMAC verified)
 GET  /api/payments/all             → all subscriptions (requireAdmin)
 PUT  /api/payments/admin/plan/:userId { plan } → manual plan override (requireAdmin)

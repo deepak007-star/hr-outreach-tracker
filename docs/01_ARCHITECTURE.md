@@ -49,10 +49,8 @@ A personal job-search CRM. Users track HR/recruiter contacts, send templated out
 | `GROQ_API_KEY` | Yes (VartaBot) | Groq AI API key — get from console.groq.com |
 | `GROQ_MODEL` | Optional | Groq model ID; defaults to `llama-3.3-70b-versatile` |
 | `RAZORPAY_KEY_ID` | Yes (payments) | Razorpay API Key ID from dashboard |
-| `RAZORPAY_KEY_SECRET` | Yes (payments) | Razorpay API Key Secret (never send to frontend) |
-| `RAZORPAY_PLAN_BASIC` | Yes (payments) | Plan ID for Basic ₹299/mo (created in Razorpay dashboard) |
-| `RAZORPAY_PLAN_ADVANCED` | Yes (payments) | Plan ID for Advanced ₹599/mo (created in Razorpay dashboard) |
-| `RAZORPAY_WEBHOOK_SECRET` | Yes (payments) | Webhook signing secret (from Razorpay dashboard Webhooks) |
+| `RAZORPAY_KEY_SECRET` | Yes (payments) | Razorpay API Key Secret — backend only, never sent to frontend |
+| `RAZORPAY_WEBHOOK_SECRET` | Optional | Webhook signing secret (configure webhook in Razorpay dashboard → set this) |
 
 Frontend env vars (`frontend/.env`):
 | Var | Required | Purpose |

@@ -83,8 +83,8 @@ export default function PlansModal({ onClose, onSignupClick }) {
 
     setUpgrading(planId);
     try {
-      // Step 1 — create subscription on backend
-      const data = await api.post('/payments/create-subscription', { plan: planId });
+      // Step 1 — create order on backend
+      const data = await api.post('/payments/create-order', { plan: planId });
 
       // Step 2 — load Razorpay script
       const loaded = await loadRazorpayScript();
@@ -93,18 +93,20 @@ export default function PlansModal({ onClose, onSignupClick }) {
       // Step 3 — open Razorpay modal
       await new Promise((resolve, reject) => {
         const options = {
-          key:             data.keyId,
-          subscription_id: data.subscriptionId,
-          name:            'HR Outreach Tracker',
-          description:     `${data.plan === 'basic' ? 'Basic — ₹299' : 'Advanced — ₹599'}/month`,
-          image:           '/favicon.svg',
+          key:      data.keyId,
+          order_id: data.orderId,
+          amount:   data.amount,
+          currency: data.currency,
+          name:     data.name,
+          description: data.description,
+          image:    '/favicon.svg',
           handler: async (response) => {
             // Step 4 — verify on backend
             try {
               const result = await api.post('/payments/verify', {
-                razorpay_payment_id:      response.razorpay_payment_id,
-                razorpay_subscription_id: response.razorpay_subscription_id,
-                razorpay_signature:       response.razorpay_signature,
+                razorpay_order_id:   response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature:  response.razorpay_signature,
                 plan: planId,
               });
               if (result.success) {
