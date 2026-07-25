@@ -72,11 +72,28 @@ Thanks,
 ${name}${phone}${li}`;
 }
 
+// Extract a best-guess first name from an email address
+// e.g. vishal.baliyan@gmail.com → "Vishal", deepak12@gmail.com → "Deepak"
+function guessNameFromEmail(email) {
+  if (!email) return '';
+  const local = email.split('@')[0];
+  const first = local.split(/[.\-_+]/)[0];
+  const clean = first.replace(/[^a-zA-Z]/g, '');
+  if (!clean) return '';
+  return clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase();
+}
+
+// Resolve display name: use provided name, else guess from email
+function resolveName(name, email) {
+  return (name || '').trim() || guessNameFromEmail(email);
+}
+
 // ─── Client-side template renderer (mirrors backend renderFeedTemplate) ────────
 function renderPreview(tpl, contact, profile) {
   if (!tpl) return '';
   const p = profile || {};
-  const firstName = (contact.name || '').split(' ')[0];
+  const effectiveName = resolveName(contact.name, contact.email);
+  const firstName = effectiveName.split(' ')[0];
   const skillsStr = Array.isArray(p.skills) ? p.skills.join(', ') : (p.skills || '');
 
   function sub(text, patterns, value) {
@@ -88,7 +105,7 @@ function renderPreview(tpl, contact, profile) {
   let r = tpl;
   r = sub(r, [/\{\{name\}\}/gi, /\{name\}/gi, /\{\{HR_?[Nn]ame\}\}/g, /\{HR_?[Nn]ame\}/g,
     /\{\{[Hh]iring_?[Mm]anager\}\}/g, /\{\{[Rr]ecipient_?[Nn]ame\}\}/g,
-    /\{\{[Ff]ull_?[Nn]ame\}\}/g], contact.name || '');
+    /\{\{[Ff]ull_?[Nn]ame\}\}/g], effectiveName);
   r = sub(r, [/\{\{[Ff]irst_?[Nn]ame\}\}/g], firstName);
   r = sub(r, [/\{\{company\}\}/gi, /\{company\}/gi, /\{\{[Cc]ompany_?[Nn]ame\}\}/g], contact.company || '');
   r = sub(r, [/\{\{title\}\}/gi, /\{title\}/gi, /\{\{role\}\}/gi, /\{\{[Pp]osition\}\}/gi], contact.title || '');
@@ -212,12 +229,16 @@ function FeedComposeModal({ contacts, onClose, onSent }) {
 
     setLoading(true);
     // Build client-side previews — mirrors backend renderFeedTemplate
-    const built = contacts.map(c => ({
-      email:   c.contact_email,
-      name:    c.contact_name || '',
-      subject: renderPreview(subject, { name: c.contact_name || '', company: c.company || '', title: c.title || '', email: c.contact_email }, profile),
-      body:    renderPreview(body,    { name: c.contact_name || '', company: c.company || '', title: c.title || '', email: c.contact_email }, profile),
-    }));
+    const built = contacts.map(c => {
+      const name = resolveName(c.contact_name, c.contact_email);
+      const ctx  = { name, company: c.company || '', title: c.title || '', email: c.contact_email };
+      return {
+        email:   c.contact_email,
+        name,
+        subject: renderPreview(subject, ctx, profile),
+        body:    renderPreview(body,    ctx, profile),
+      };
+    });
     setPreviews(built);
     setStep('preview');
     setLoading(false);
@@ -231,9 +252,9 @@ function FeedComposeModal({ contacts, onClose, onSent }) {
         template_body:    body,
         contacts: contacts.map(c => ({
           email:   c.contact_email,
-          name:    c.contact_name || '',
-          company: c.company      || '',
-          title:   c.title        || '',
+          name:    resolveName(c.contact_name, c.contact_email),
+          company: c.company || '',
+          title:   c.title   || '',
         })),
       };
       if (attachment) {

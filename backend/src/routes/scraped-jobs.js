@@ -60,6 +60,17 @@ function renderFeedTemplate(tpl, contact, profile) {
   return result;
 }
 
+// Extract a best-guess first name from an email address
+// e.g. vishal.baliyan@gmail.com → "Vishal", deepak12@gmail.com → "Deepak"
+function guessNameFromEmail(email) {
+  if (!email) return '';
+  const local  = email.split('@')[0];
+  const first  = local.split(/[.\-_+]/)[0];
+  const clean  = first.replace(/[^a-zA-Z]/g, '');
+  if (!clean) return '';
+  return clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase();
+}
+
 // Resolve attachment (mirrors email.js resolveAttachment, no google-drive dep here)
 async function resolveFeedAttachment(attachment, userId) {
   if (!attachment?.type) return [];
@@ -383,9 +394,14 @@ router.post('/send-feed-emails', requireAuth, async (req, res) => {
     const attachments = await resolveFeedAttachment(attachment || null, req.user.userId);
 
     for (const contact of contacts) {
-      const { email, name = '', company = '', title = '' } = contact;
+      const { email, name: rawName = '', company = '', title = '' } = contact;
       if (!email) { results.push({ email, ok: false, error: 'Missing email' }); continue; }
       if (remaining <= 0) { results.push({ email, ok: false, error: 'Daily cap reached' }); continue; }
+
+      // Resolve name: use provided → contacts table → email-prefix extraction
+      // Also fetch contact id for email_log (reuse the same row)
+      const cRow = await db.prepare('SELECT id, name FROM contacts WHERE LOWER(email) = LOWER(?) LIMIT 1').get(email);
+      let name = rawName.trim() || (cRow?.name || '').trim() || guessNameFromEmail(email);
 
       // Per-contact variable substitution
       const contactObj = { name, company, title, email };
@@ -414,8 +430,7 @@ router.post('/send-feed-emails', requireAuth, async (req, res) => {
           ...(attachments.length > 0 ? { attachments } : {}),
         });
 
-        // Record for daily cap tracking — look up contact row if it exists
-        const cRow = await db.prepare('SELECT id FROM contacts WHERE LOWER(email) = LOWER(?) LIMIT 1').get(email);
+        // Record for daily cap tracking (cRow already looked up above for name)
         await db.prepare(`
           INSERT INTO email_log (id, contact_id, user_id, subject, body_snapshot, delivery_status)
           VALUES (?, ?, ?, ?, ?, 'sent')
