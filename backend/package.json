@@ -31,8 +31,8 @@
     "pdf-parse": "^1.1.1",
     "pg": "^8.22.0",
     "playwright": "^1.61.1",
-    "sanitize-html": "^2.17.6",
-    "stripe": "^22.3.2"
+    "razorpay": "^2.9.8",
+    "sanitize-html": "^2.17.6"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"

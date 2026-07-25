@@ -110,11 +110,11 @@ async function main() {
   }));
 
   app.use(cookieParser());
-  // Preserve raw body for Stripe webhook signature verification
+  // Preserve raw body for Razorpay webhook HMAC signature verification
   app.use(express.json({
     limit: '2mb',
     verify: (req, _res, buf) => {
-      if (req.originalUrl === '/api/payments/webhook') req.rawBody = buf;
+      if (req.originalUrl === '/api/payments/webhook') req.rawBody = buf.toString('utf8');
     },
   }));
   app.use(express.urlencoded({ extended: true, limit: '2mb' }));

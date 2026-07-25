@@ -33,7 +33,7 @@ HR Outreach Tracker is a powerful job-search CRM that helps users:
 | Basic | ₹299/mo | 100 | 50/day |
 | Advanced | ₹599/mo | Unlimited | 200/day |
 
-Upgrade by clicking "Plans" in the top navigation, then selecting your plan and paying securely via Stripe.
+Upgrade by clicking "Plans" in the top navigation, then selecting your plan and paying securely via Razorpay (supports UPI, Cards, Net Banking, Wallets).
 
 ## Navigation Guide
 - **Home tab** (house icon): Dashboard — activity calendar, email stats, quick stats overview

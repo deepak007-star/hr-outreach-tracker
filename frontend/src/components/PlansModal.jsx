@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { api } from '../api/client.js';
 import toast from 'react-hot-toast';
@@ -42,58 +42,121 @@ const PLANS = [
   },
 ];
 
+// Load Razorpay checkout script once
+function loadRazorpayScript() {
+  return new Promise(resolve => {
+    if (window.Razorpay) { resolve(true); return; }
+    const s = document.createElement('script');
+    s.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    s.onload  = () => resolve(true);
+    s.onerror = () => resolve(false);
+    document.body.appendChild(s);
+  });
+}
+
 export default function PlansModal({ onClose, onSignupClick }) {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const currentId = user ? (user.plan || 'demo') : 'guest';
 
-  const [stripeConfigured, setStripeConfigured] = useState(false);
-  const [upgrading, setUpgrading]               = useState(null); // plan id being upgraded
-  const [subscription, setSubscription]         = useState(null);
-  const [managingBilling, setManagingBilling]   = useState(false);
+  const [config,         setConfig]         = useState(null);
+  const [subscription,   setSubscription]   = useState(null);
+  const [upgrading,      setUpgrading]      = useState(null);
+  const [cancelling,     setCancelling]     = useState(false);
 
   useEffect(() => {
     if (!user) return;
-    // Check if Stripe is configured
-    api.get('/payments/config').then(data => {
-      setStripeConfigured(data.configured);
-    }).catch(() => {});
-
-    // Load current subscription info
-    api.get('/payments/subscription').then(data => {
-      setSubscription(data.subscription);
+    Promise.all([
+      api.get('/payments/config'),
+      api.get('/payments/subscription'),
+    ]).then(([cfg, sub]) => {
+      setConfig(cfg);
+      setSubscription(sub.subscription);
     }).catch(() => {});
   }, [user]);
 
-  async function handleUpgrade(planId) {
+  const handleUpgrade = useCallback(async (planId) => {
     if (!user) { onSignupClick?.(); return; }
-    if (!stripeConfigured) {
+    if (!config?.configured) {
       toast.error('Payment gateway not configured yet. Contact the admin.');
       return;
     }
+
     setUpgrading(planId);
     try {
-      const data = await api.post('/payments/create-checkout', { plan: planId });
-      if (data.url) {
-        window.location.href = data.url;
-      }
+      // Step 1 — create subscription on backend
+      const data = await api.post('/payments/create-subscription', { plan: planId });
+
+      // Step 2 — load Razorpay script
+      const loaded = await loadRazorpayScript();
+      if (!loaded) { toast.error('Could not load payment gateway. Check your connection.'); return; }
+
+      // Step 3 — open Razorpay modal
+      await new Promise((resolve, reject) => {
+        const options = {
+          key:             data.keyId,
+          subscription_id: data.subscriptionId,
+          name:            'HR Outreach Tracker',
+          description:     `${data.plan === 'basic' ? 'Basic — ₹299' : 'Advanced — ₹599'}/month`,
+          image:           '/favicon.svg',
+          handler: async (response) => {
+            // Step 4 — verify on backend
+            try {
+              const result = await api.post('/payments/verify', {
+                razorpay_payment_id:      response.razorpay_payment_id,
+                razorpay_subscription_id: response.razorpay_subscription_id,
+                razorpay_signature:       response.razorpay_signature,
+                plan: planId,
+              });
+              if (result.success) {
+                toast.success(`${planId.charAt(0).toUpperCase() + planId.slice(1)} plan activated!`);
+                refreshUser?.();
+                setSubscription(s => ({ ...s, plan: planId, status: 'active' }));
+                onClose();
+              }
+              resolve();
+            } catch (e) {
+              toast.error(e?.response?.data?.error || 'Payment verification failed');
+              reject(e);
+            }
+          },
+          prefill: { name: data.prefill?.name || '', email: data.prefill?.email || '' },
+          theme:   { color: '#4f46e5' },
+          modal: {
+            ondismiss: () => {
+              toast('Payment cancelled.', { icon: 'ℹ️' });
+              resolve();
+            },
+          },
+        };
+        const rzp = new window.Razorpay(options);
+        rzp.on('payment.failed', (resp) => {
+          toast.error(`Payment failed: ${resp.error?.description || 'Unknown error'}`);
+          resolve();
+        });
+        rzp.open();
+      });
     } catch (e) {
       toast.error(e?.response?.data?.error || 'Could not start checkout. Try again.');
     } finally {
       setUpgrading(null);
     }
-  }
+  }, [user, config, onSignupClick, onClose, refreshUser]);
 
-  async function handleManageBilling() {
-    setManagingBilling(true);
+  const handleCancel = useCallback(async () => {
+    if (!window.confirm('Cancel your subscription? You\'ll keep access until the end of the billing period.')) return;
+    setCancelling(true);
     try {
-      const data = await api.post('/payments/manage');
-      if (data.url) window.open(data.url, '_blank');
+      await api.post('/payments/cancel');
+      toast.success('Subscription cancelled. Access continues until period end.');
+      setSubscription(s => ({ ...s, status: 'cancelled' }));
     } catch (e) {
-      toast.error(e?.response?.data?.error || 'Could not open billing portal.');
+      toast.error(e?.response?.data?.error || 'Could not cancel subscription.');
     } finally {
-      setManagingBilling(false);
+      setCancelling(false);
     }
-  }
+  }, []);
+
+  const isConfigured = config?.configured;
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
@@ -128,7 +191,7 @@ export default function PlansModal({ onClose, onSignupClick }) {
               btnLabel    = '✓ Current';
               btnDisabled = true;
             } else if (plan.btnAction === 'upgrade') {
-              btnLabel    = upgrading === plan.id ? 'Redirecting…' : plan.btnLabel;
+              btnLabel    = upgrading === plan.id ? 'Loading…' : plan.btnLabel;
               btnDisabled = !!upgrading;
               btnOnClick  = () => handleUpgrade(plan.id);
             } else if (plan.btnAction === 'signup') {
@@ -180,7 +243,7 @@ export default function PlansModal({ onClose, onSignupClick }) {
                   >
                     {btnLabel}
                   </button>
-                  {plan.btnAction === 'upgrade' && !stripeConfigured && !isCurrent && (
+                  {plan.btnAction === 'upgrade' && !isConfigured && !isCurrent && (
                     <p className="text-center text-[10px] text-amber-500 mt-1">Payment setup pending</p>
                   )}
                 </div>
@@ -189,22 +252,22 @@ export default function PlansModal({ onClose, onSignupClick }) {
           })}
         </div>
 
-        {/* Manage billing for paying users */}
+        {/* Active subscription management */}
         {subscription && subscription.status === 'active' && ['basic', 'advanced'].includes(currentId) && (
           <div className="mx-5 mb-3 p-3 bg-gray-50 border border-gray-200 rounded-md flex items-center justify-between">
             <div>
               <p className="text-xs font-semibold text-gray-700">Active Subscription</p>
               <p className="text-[10px] text-gray-500 mt-0.5">
                 {subscription.plan?.charAt(0).toUpperCase() + subscription.plan?.slice(1)} plan
-                {subscription.current_period_end && ` · Renews ${new Date(subscription.current_period_end).toLocaleDateString()}`}
+                {subscription.current_period_end && ` · Renews ${new Date(subscription.current_period_end).toLocaleDateString('en-IN')}`}
               </p>
             </div>
             <button
-              onClick={handleManageBilling}
-              disabled={managingBilling}
-              className="text-xs text-brand-600 hover:text-brand-700 font-medium underline underline-offset-2 disabled:opacity-60"
+              onClick={handleCancel}
+              disabled={cancelling}
+              className="text-xs text-red-500 hover:text-red-700 font-medium underline underline-offset-2 disabled:opacity-60"
             >
-              {managingBilling ? 'Loading…' : 'Manage Billing'}
+              {cancelling ? 'Cancelling…' : 'Cancel Plan'}
             </button>
           </div>
         )}
@@ -212,10 +275,15 @@ export default function PlansModal({ onClose, onSignupClick }) {
         {/* Footer */}
         <div className="px-5 pb-4 text-center border-t pt-3">
           <p className="text-[10px] text-gray-400">
-            {stripeConfigured
-              ? 'Secure payments via Stripe · Cancel anytime · GST may apply'
+            {isConfigured
+              ? 'Secure payments via Razorpay · UPI, Cards, Net Banking · Cancel anytime · GST may apply'
               : 'Payment gateway not configured yet · Contact admin to enable payments'}
           </p>
+          {isConfigured && (
+            <p className="text-[10px] text-gray-300 mt-1">
+              Powered by Razorpay — trusted by 10M+ Indian businesses
+            </p>
+          )}
         </div>
       </div>
     </div>

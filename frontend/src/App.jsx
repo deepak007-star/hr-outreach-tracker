@@ -137,21 +137,7 @@ export default function App() {
       window.history.replaceState({}, '', window.location.pathname + (rest ? `?${rest}` : ''));
     }
 
-    // Stripe payment callback
-    const payment = params.get('payment');
-    const plan    = params.get('plan');
-    if (payment === 'success') {
-      toast.success(`Payment successful! Your ${plan || ''} plan is now active.`, { duration: 6000 });
-      params.delete('payment');
-      params.delete('plan');
-      const rest2 = params.toString();
-      window.history.replaceState({}, '', window.location.pathname + (rest2 ? `?${rest2}` : ''));
-    } else if (payment === 'cancelled') {
-      toast('Payment cancelled. Your plan was not changed.', { icon: 'ℹ️' });
-      params.delete('payment');
-      const rest2 = params.toString();
-      window.history.replaceState({}, '', window.location.pathname + (rest2 ? `?${rest2}` : ''));
-    }
+    // Razorpay uses an inline modal — no redirect callbacks needed
   }, []);
 
   useEffect(() => {

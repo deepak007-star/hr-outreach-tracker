@@ -450,6 +450,9 @@ async function initialize() {
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_email_log_delivery      ON email_log (delivery_status)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_email_log_user_id       ON email_log (user_id)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_contacts_deliverable    ON contacts (email_deliverable)`);
+  // Razorpay payment gateway columns (replacing Stripe)
+  await addCol('subscriptions', 'razorpay_subscription_id', `TEXT`);
+  await addCol('subscriptions', 'razorpay_payment_id',      `TEXT`);
 
   // ── RBAC seed ────────────────────────────────────────────────────────────────
   const PERMISSIONS = [
