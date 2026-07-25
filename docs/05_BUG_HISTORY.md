@@ -142,12 +142,41 @@ Complete record of all bugs found, when they were fixed, and what the fix was.
 
 ---
 
+---
+
+## Phase 4 — Payments, AI, UX Bugs (2026-07)
+
+### Critical
+
+| ID | Severity | Feature | Description | Status | Fix |
+|---|---|---|---|---|---|
+| B074 | Critical | Payments | Razorpay webhook route (`POST /api/payments/webhook`) was defined and exported as `router.webhookHandler = webhookHandler` but never mounted with `router.post(...)` — webhook events (subscription.activated, subscription.halted) were silently dropped | ✅ Fixed | Added `router.post('/webhook', webhookHandler)` before `module.exports = router` |
+| B075 | Critical | DB Startup | `addCol('subscriptions', 'razorpay_subscription_id', ...)` ran at line ~454 of database.js, before `CREATE TABLE IF NOT EXISTS subscriptions` at line ~534 — backend crashed on every cold start with "relation subscriptions does not exist" | ✅ Fixed | Moved both `addCol('subscriptions', ...)` lines to after the CREATE TABLE block |
+
+### High
+
+| ID | Severity | Feature | Description | Status | Fix |
+|---|---|---|---|---|---|
+| B076 | High | File Upload | Resumé file upload to vault rejected by backend: filename had no extension (e.g. `My Resume`) — extension whitelist check `['.pdf','.docx',...].includes(ext)` returned false. Root cause: `EmailTemplatesModal` didn't append extension before `fd.append('resume', blob, filename)` | ✅ Fixed | Derived extension from `mimeType` before FormData append; falls back to `.pdf` |
+| B077 | High | Config | `OAUTH_TOKEN_ENCRYPTION_KEY` missing from `.env` — `tokenCrypto.js` threw on startup when any user tried to connect Gmail (AES-256-GCM key required) | ✅ Fixed | Generated 32-byte hex key; added to `backend/.env` |
+
+### Medium
+
+| ID | Severity | Feature | Description | Status | Fix |
+|---|---|---|---|---|---|
+| B078 | Medium | Feed Email | `contact_name` field missing from the `apifyContacts.push()` object in `send-feed-emails` route — `{{name}}` resolved to blank in outgoing emails even when the Apify post had an `author_name` | ✅ Fixed | Added `contact_name: post.author_name \|\| ''` to the push; added three-tier name resolution: DB name → email-derived guess → blank |
+| B079 | Medium | VartaBot | `Chatbot.jsx` had `if (!user) return null` — the chatbot floating button was completely invisible to guests; no way to discover the AI assistant without logging in | ✅ Fixed | Removed auth gate; added guest mode: sends `__LOGIN_PROMPT__` sentinel which renders a sign-in card instead of calling the API |
+| B080 | Medium | Navigation | "Upgrade / Plans" button inside `overflow-x-auto` nav flex container — `ml-auto` only extended the scrollable area, it didn't pin the button to the right. Button scrolled out of view on smaller screens | ✅ Fixed | Wrapped nav tabs in inner scrollable div; moved Upgrade button outside as `shrink-0 border-l` element |
+| B081 | Medium | Feed Email | Smart name resolution not implemented — `Hi {{name}},` rendered as `Hi ,` for contacts with no explicit name. Email-only contacts had no fallback | ✅ Fixed | Added `guessNameFromEmail(email)` (extracts first name from email prefix); three-tier resolution: `rawName → contacts table lookup → guessNameFromEmail` in both backend and frontend preview |
+
+---
+
 ## Summary
 
 | Severity | Total Found | Fixed | Deferred / Open |
 |---|---|---|---|
-| Critical | 7 | 6 | 1 (JWT_SECRET warning) |
-| High | 20 | 15 | 5 |
-| Medium | 22 | 18 | 4 |
+| Critical | 9 | 8 | 1 (JWT_SECRET warning) |
+| High | 22 | 17 | 5 |
+| Medium | 26 | 22 | 4 |
 | Low | 14 | 5 | 9 |
-| **Total** | **63** | **44** | **19** |
+| **Total** | **71** | **52** | **19** |

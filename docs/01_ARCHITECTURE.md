@@ -35,12 +35,30 @@ A personal job-search CRM. Users track HR/recruiter contacts, send templated out
 | Docker | nginx on :5173 | node src/index.js | postgres:16-alpine named volume `pgdata` |
 
 **Key env vars** (see `backend/.env.example`):
-- `DATABASE_URL` — Postgres connection string
-- `JWT_SECRET` — HMAC secret for session tokens (must be set; falls back to insecure hardcoded value)
-- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` — Gmail OAuth
-- `OAUTH_TOKEN_ENCRYPTION_KEY` — 32-byte hex, AES-256-GCM key for refresh token at-rest encryption
-- `FRONTEND_URL` — comma-separated CORS origins
-- `APIFY_TOKEN` — Apify cloud actor token (optional)
+
+| Var | Required | Purpose |
+|---|---|---|
+| `DATABASE_URL` | Yes | Postgres connection string |
+| `JWT_SECRET` | Yes (prod) | HMAC secret for session tokens; insecure fallback used if missing |
+| `GOOGLE_CLIENT_ID` | Yes (Gmail) | Google OAuth app client ID |
+| `GOOGLE_CLIENT_SECRET` | Yes (Gmail) | Google OAuth app client secret |
+| `GOOGLE_REDIRECT_URI` | Yes (Gmail) | Callback URL registered in Google Cloud Console |
+| `OAUTH_TOKEN_ENCRYPTION_KEY` | Yes (Gmail) | 32-byte hex — AES-256-GCM key for Gmail refresh tokens at rest |
+| `FRONTEND_URL` | Yes | Comma-separated CORS origins (e.g. `http://localhost:5173`) |
+| `APIFY_TOKEN` | Optional | Apify cloud actor token for LinkedIn scraping |
+| `GROQ_API_KEY` | Yes (VartaBot) | Groq AI API key — get from console.groq.com |
+| `GROQ_MODEL` | Optional | Groq model ID; defaults to `llama-3.3-70b-versatile` |
+| `RAZORPAY_KEY_ID` | Yes (payments) | Razorpay API Key ID from dashboard |
+| `RAZORPAY_KEY_SECRET` | Yes (payments) | Razorpay API Key Secret (never send to frontend) |
+| `RAZORPAY_PLAN_BASIC` | Yes (payments) | Plan ID for Basic ₹299/mo (created in Razorpay dashboard) |
+| `RAZORPAY_PLAN_ADVANCED` | Yes (payments) | Plan ID for Advanced ₹599/mo (created in Razorpay dashboard) |
+| `RAZORPAY_WEBHOOK_SECRET` | Yes (payments) | Webhook signing secret (from Razorpay dashboard Webhooks) |
+
+Frontend env vars (`frontend/.env`):
+| Var | Required | Purpose |
+|---|---|---|
+| `VITE_API_URL` | Optional | Backend base URL; defaults to `http://localhost:3001` |
+| `VITE_RAZORPAY_KEY_ID` | Yes (payments) | Same as `RAZORPAY_KEY_ID` — used in `new window.Razorpay()` |
 
 ## 3. Backend Structure
 
@@ -87,6 +105,8 @@ A personal job-search CRM. Users track HR/recruiter contacts, send templated out
 | `/api/linkedin-feed` | `routes/linkedin-feed.js` | `requireAuth` all |
 | `/api/delivery` | `routes/delivery.js` | `requireAuth` all |
 | `/api/admin` | `routes/admin.js` | `requireAuth + requireAdmin` all |
+| `/api/payments` | `routes/payments.js` | Mixed (`/webhook` — no auth, HMAC verified; `/config` — no auth; all others `requireAuth`) |
+| `/api/chatbot` | `routes/chatbot.js` | `requireAuth` all (guests handled client-side with `__LOGIN_PROMPT__` sentinel) |
 | `/api/health` | inline | None |
 
 ### Middleware Stack (per request)
@@ -133,10 +153,12 @@ Wraps `<App />` in `<AuthProvider>` (JWT validation on load) and `<Toaster>` (re
 ### `App.jsx` (~20KB)
 
 Single-file state machine for the SPA. Holds:
-- Active tab state (Contacts, LinkedIn Feed, Jobs, Profile, Referrals, Admin…)
+- Active tab state with URL sync — `goTo(tabId)` calls `history.pushState`; `popstate` listener handles back/forward; initial tab derived from `window.location.pathname` via `getTabFromPath()`
+- Tab → URL mapping: `home→/`, `contacts→/contacts`, `job-scraper→/jobs`, `templates→/templates`, `jobs→/analyzer`, `bulk→/bulk-apply`, `resume-vault→/vault`, `referrals→/referrals`, `profile→/profile`, `admin→/admin`
 - Contact list, pagination, filter state
 - Modal open/close state for Compose, Import, SMTP Settings, Apify, Templates, Reminder, Plans
 - `handleSend`, `handleDelete`, `handleBulkSend` functions passed down as props
+- Unsaved-profile guard: `navigateTo()` checks `profileDirtyRef` before switching tabs; shows `UnsavedChangesModal` if dirty
 
 No React Router — view switching is purely conditional rendering of feature components.
 

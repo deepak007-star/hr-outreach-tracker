@@ -330,7 +330,7 @@ Admin/User in Job Scraper section selects scraper + keywords + params
   → Frontend: JobScraperSection shows live log lines
 ```
 
-### 6.2 View Scraped Jobs
+### 6.2 View Scraped Jobs (with per-user profile filtering)
 
 ```
 GET /api/scraped-jobs?category=general&since=7d&search=&page=1&limit=20
@@ -338,6 +338,16 @@ GET /api/scraped-jobs?category=general&since=7d&search=&page=1&limit=20
   → date filter on scraped_at (TEXT comparison — same format as all date cols)
   → returns paginated job cards
 Frontend: Jobs tab, filter by category (general/remote/international)
+
+Per-user auto-filter (2026-07):
+  → On mount, JobScraperSection loads /api/profile
+  → If user has job_title_1/2/3 or current_title set AND search box is empty:
+      → passes profile's first title as ?search= to /api/scraped-jobs
+      → shows blue banner: "Showing jobs for your profile: [title]  |  Show all jobs →"
+  → User can click "Show all jobs →" to pause profile filter (suppressProfileFilter state)
+      → shows amber banner: "Showing all jobs (profile filter paused). ← Filter by profile"
+  → Typing in search box overrides profile filter entirely
+  → Profile filter resets to active whenever a new profile is loaded
 ```
 
 ### 6.3 Job Description Analyzer
@@ -587,11 +597,24 @@ System automatically inserts notifications after daily scrape completes.
 ## 14. Plans Page
 
 ```
-Frontend-only: PlansModal renders plan cards (Free / Pro / Enterprise)
-Triggered by: "💎 Plans" button in main navigation tab bar (always visible)
-Backend: plan stored in users.plan column (values: 'demo', 'user', 'pro', 'enterprise')
-Plan gates: enforced client-side (email masking based on plan) + RBAC permission checks
+Frontend: PlansModal renders plan cards (Guest / Basic / Advanced)
+Triggered by:
+  - "Crown Upgrade" button in Header (top-right, for non-Advanced logged-in users)
+  - "Plans" button in Header (for Advanced users and guests)
+  - Crown + "Upgrade" / "Plans" in main nav tab bar (always visible, pinned right)
+  - "Pricing" link in LandingPage top nav (for logged-out visitors)
+Backend: plan stored in users.plan column (values: 'guest', 'demo', 'basic', 'advanced')
+Plan gates: enforced client-side (contact visibility cap) + RBAC permission checks
+Payment: Razorpay inline checkout (see feature 18 for full setup)
 ```
+
+Plan limits:
+| Plan | Contacts visible | Emails/day |
+|------|-----------------|------------|
+| Guest | 5 | — |
+| Demo | 10 | 10 |
+| Basic | 100 | 50 |
+| Advanced | Unlimited | 200 |
 
 ---
 
@@ -619,3 +642,255 @@ GET /api/delivery/events  → event log (bounce, sent, delivered)
 Bounce webhook: POST /api/delivery/bounce
   → updates email_log.delivery_status + contacts.email_deliverable
 ```
+
+---
+
+## 17. VartaBot (Groq AI Chatbot) — Added 2026-07
+
+### 17.1 Overview
+
+VartaBot is an in-app AI assistant powered by Groq's `llama-3.3-70b-versatile` model. It helps users navigate the app, answers questions about plans/pricing/features, and collects feedback.
+
+Visible to everyone — guests get a "sign in to chat" prompt instead of a real API call.
+
+### 17.2 Architecture
+
+```
+User sends message
+  → if !user (guest):
+      → appends __LOGIN_PROMPT__ sentinel to messages
+      → renders sign-in card instead of API call
+  → if user (authenticated):
+      → POST /api/chatbot/message { message, sessionId }
+          → requireAuth
+          → get or create chat_sessions row (UUID PK, user_id FK)
+          → fetch last 12 messages from chat_messages for context
+          → buildSystemPrompt():
+              → BASE_SYSTEM_PROMPT (app navigation guide, plans, troubleshooting)
+              → + chatbot_knowledge rows (admin-editable Q&A pairs)
+              → + last 8 low-rating feedback summaries (avoids repeating bad answers)
+          → Groq.chat.completions.create({ model, messages, max_tokens:1024, temperature:0.65 })
+          → INSERT INTO chat_messages for user + assistant
+          → returns { reply, sessionId, messageId }
+  → User rates reply 1–5 stars (MessageBubble StarRating component)
+      → POST /api/chatbot/feedback { sessionId, messageId, rating, summary? }
+      → rating ≤ 2 prompts optional feedback textarea
+      → low-rating summaries feed back into buildSystemPrompt() to improve future answers
+```
+
+### 17.3 Required Env Var
+
+```
+GROQ_API_KEY=gsk_...     # Get from console.groq.com — free tier available
+GROQ_MODEL=llama-3.3-70b-versatile  # Optional; this is the default
+```
+
+### 17.4 DB Tables
+
+| Table | Purpose |
+|---|---|
+| `chat_sessions` | One session per active conversation (UUID PK, user_id, ended_at) |
+| `chat_messages` | All messages in a session (role: user/assistant, content TEXT) |
+| `chat_feedback` | Star ratings + optional text summary per assistant message |
+| `chatbot_knowledge` | Admin-editable Q&A pairs injected into every system prompt |
+
+### 17.5 Admin Knowledge Base
+
+```
+POST /api/chatbot/knowledge { category, question, answer }  → requireAdmin
+GET  /api/chatbot/knowledge                                 → requireAdmin
+DELETE /api/chatbot/knowledge/:id                           → requireAdmin
+GET  /api/chatbot/stats                                     → requireAdmin (session/message/avg-rating counts)
+GET  /api/chatbot/feedback                                  → requireAdmin (all feedback with user email)
+```
+
+---
+
+## 18. Razorpay Payment Gateway — Added 2026-07
+
+### 18.1 Overview
+
+Razorpay replaces Stripe. Uses the Razorpay **Subscriptions** API with an inline JavaScript checkout modal (no redirect). Payment verification uses HMAC-SHA256.
+
+### 18.2 Setup — What You Need to Configure
+
+**Step 1 — Create a Razorpay account**
+1. Go to https://dashboard.razorpay.com
+2. Sign up (or log in) and complete KYC
+3. Switch to "Test Mode" for development
+
+**Step 2 — Get API keys**
+1. Dashboard → Settings → API Keys
+2. Click "Generate Test Key"
+3. Copy **Key ID** and **Key Secret**
+4. Add to `backend/.env`:
+   ```
+   RAZORPAY_KEY_ID=rzp_test_XXXXXXXXXXXX
+   RAZORPAY_KEY_SECRET=XXXXXXXXXXXXXXXXXXXXXXXX
+   ```
+5. Add the **Key ID** (only, never the secret) to `frontend/.env`:
+   ```
+   VITE_RAZORPAY_KEY_ID=rzp_test_XXXXXXXXXXXX
+   ```
+
+**Step 3 — Create subscription plans in Razorpay dashboard**
+1. Dashboard → Products → Plans → Create Plan
+2. Create two plans:
+   - **Basic**: ₹299/month, interval=monthly
+   - **Advanced**: ₹599/month, interval=monthly
+3. Copy each plan's Plan ID (format: `plan_XXXXXXXXXXXX`)
+4. Add to `backend/.env`:
+   ```
+   RAZORPAY_PLAN_BASIC=plan_XXXXXXXXXXXX
+   RAZORPAY_PLAN_ADVANCED=plan_XXXXXXXXXXXX
+   ```
+
+**Step 4 — Set up webhook (for automatic plan updates)**
+1. Dashboard → Settings → Webhooks → Add New Webhook
+2. Webhook URL: `https://your-backend-domain.com/api/payments/webhook`
+   - For local dev use ngrok: `ngrok http 3001` → copy the HTTPS URL
+3. Select events: `subscription.activated`, `subscription.completed`, `subscription.halted`, `payment.captured`
+4. Set a webhook secret and add to `backend/.env`:
+   ```
+   RAZORPAY_WEBHOOK_SECRET=your_webhook_secret_here
+   ```
+
+**Step 5 — Add Razorpay checkout script to frontend**
+
+In `frontend/index.html`, add before `</head>`:
+```html
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+```
+
+### 18.3 Full Payment Flow
+
+```
+User clicks "Upgrade" → selects plan → clicks "Subscribe"
+  → POST /api/payments/create-subscription { plan: 'basic'|'advanced' }
+      → requireAuth
+      → getRazorpay() (lazy init with RAZORPAY_KEY_ID + RAZORPAY_KEY_SECRET)
+      → razorpay.subscriptions.create({ plan_id, total_count:12, quantity:1, customer_notify:1 })
+      → returns { subscriptionId, keyId, amount, currency, name, description, prefill }
+  → Frontend: new window.Razorpay({ key, subscription_id, ...prefill, handler })
+  → User completes payment in Razorpay modal (UPI / card / net banking / wallet)
+  → Razorpay calls handler({ razorpay_payment_id, razorpay_subscription_id, razorpay_signature })
+  → POST /api/payments/verify { paymentId, subscriptionId, signature }
+      → HMAC verify: crypto.createHmac('sha256', KEY_SECRET).update(paymentId + '|' + subscriptionId)
+      → if valid: UPDATE users SET plan = targetPlan
+      → if valid: UPSERT subscriptions (user_id, razorpay_subscription_id, razorpay_payment_id, plan, status='active')
+      → returns { success: true, plan }
+  → Frontend: re-fetches user via /auth/me, updates plan badge in Header
+```
+
+### 18.4 Webhook Flow (automatic plan enforcement)
+
+```
+Razorpay → POST /api/payments/webhook (raw body, no JSON parser)
+  → HMAC-SHA256 verify: Razorpay-Signature header vs. crypto.createHmac(webhook_secret).update(rawBody)
+  → if invalid: 400
+  → parse JSON event
+  → subscription.activated  → UPDATE users SET plan = activePlan
+  → subscription.completed  → UPDATE users SET plan = 'demo' (subscription ended)
+  → subscription.halted     → UPDATE users SET plan = 'demo' (payment failed)
+  → payment.captured        → (no action; already handled by /verify)
+```
+
+### 18.5 Env Vars Summary
+
+| Var | Where | Purpose |
+|---|---|---|
+| `RAZORPAY_KEY_ID` | `backend/.env` | API key ID (used in API calls + sent to frontend) |
+| `RAZORPAY_KEY_SECRET` | `backend/.env` | API key secret (never sent to frontend) |
+| `RAZORPAY_PLAN_BASIC` | `backend/.env` | Plan ID for Basic ₹299/mo (from Razorpay dashboard) |
+| `RAZORPAY_PLAN_ADVANCED` | `backend/.env` | Plan ID for Advanced ₹599/mo (from Razorpay dashboard) |
+| `RAZORPAY_WEBHOOK_SECRET` | `backend/.env` | Webhook signing secret (from dashboard Webhooks page) |
+| `VITE_RAZORPAY_KEY_ID` | `frontend/.env` | Same Key ID as above — passed to `new window.Razorpay()` |
+
+### 18.6 Backend API Routes
+
+```
+GET  /api/payments/config          → { keyId } — public, no auth (for frontend init)
+GET  /api/payments/subscription    → current subscription details (requireAuth)
+POST /api/payments/create-subscription { plan } → returns subscriptionId (requireAuth)
+POST /api/payments/verify { paymentId, subscriptionId, signature } → verifies + upgrades (requireAuth)
+POST /api/payments/cancel          → cancel current subscription (requireAuth)
+POST /api/payments/webhook         → Razorpay webhook (no auth, HMAC verified)
+GET  /api/payments/all             → all subscriptions (requireAdmin)
+PUT  /api/payments/admin/plan/:userId { plan } → manual plan override (requireAdmin)
+```
+
+### 18.7 Test Cards (Razorpay Test Mode)
+
+| Card | Number | Expiry | CVV |
+|---|---|---|---|
+| Success | 4111 1111 1111 1111 | Any future date | Any 3 digits |
+| Failure | 4000 0000 0000 0002 | Any future date | Any 3 digits |
+
+UPI Test ID: `success@razorpay` (always succeeds)
+
+---
+
+## 19. URL Routing (SPA) — Added 2026-07
+
+Tab navigation now updates the browser URL. Direct links, bookmarks, browser back/forward all work.
+
+### Tab → URL mapping
+
+| Tab ID | URL path |
+|---|---|
+| home | `/` |
+| contacts | `/contacts` |
+| job-scraper | `/jobs` |
+| templates | `/templates` |
+| jobs | `/analyzer` |
+| bulk | `/bulk-apply` |
+| resume-vault | `/vault` |
+| referrals | `/referrals` |
+| profile | `/profile` |
+| admin | `/admin` |
+
+### Implementation
+
+```
+App.jsx:
+  const [activeTab, setActiveTab] = useState(() => getTabFromPath(window.location.pathname))
+  
+  goTo(tabId):
+    → setActiveTab(tabId)
+    → window.history.pushState({ tabId }, '', TAB_PATHS[tabId])
+
+  navigateTo(tabId, requiresAuth):
+    → if requiresAuth && !user: show auth modal
+    → if profile dirty & leaving profile tab: show unsaved changes modal
+    → else: goTo(tabId)
+
+  popstate listener:
+    → window.addEventListener('popstate', e => setActiveTab(e.state?.tabId || getTabFromPath(pathname)))
+
+  All direct setActiveTab() calls replaced with goTo() to keep URL in sync.
+```
+
+---
+
+## 20. Landing Page Social Links — Added 2026-07
+
+The LandingPage footer now includes social media icons and a "Connect" column.
+
+```
+Footer layout (flex-row on desktop, stacked on mobile):
+  [Brand + tagline + social icons]  |  [Product links]  |  [Connect links]
+
+Social icons (circular buttons, hover effect):
+  LinkedIn → https://linkedin.com  (update to actual profile URL)
+  GitHub   → https://github.com    (update to actual repo URL)
+  Twitter/X → https://twitter.com  (update to actual handle URL)
+  Email    → mailto:support@hroutreach.app
+
+Connect column (text links with brand icon):
+  LinkedIn, GitHub, Twitter/X, Contact Us (mailto)
+
+Copyright bar:
+  "© 2026 HR Outreach Tracker. All rights reserved."  |  "Made with ❤️ in India"
+```
+
+To update social URLs: edit `frontend/src/components/LandingPage.jsx` footer section, replace `href` values on the `<a>` tags.

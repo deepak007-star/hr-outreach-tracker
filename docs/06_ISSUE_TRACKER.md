@@ -3,7 +3,7 @@
 Active tracking of all open issues, planned features, and improvements.
 Reference the bug IDs in `05_BUG_HISTORY.md` for full context on any B### item.
 
-Last updated: 2026-07-22 (post-roundtrip audit)
+Last updated: 2026-07-25
 
 ---
 
@@ -202,6 +202,9 @@ Full API roundtrip performed against the live backend. All endpoints below verif
 | F13 | Accessibility pass (aria, focus-trap, keyboard nav) | Medium | All modals, table interactions |
 | F14 | Referral request accept/decline flow (UI) | Medium | DB column exists; UI for updating status |
 | F15 | Job match score in scraped jobs feed | Low | Show ATS score badge on each job card in profile-matched view |
+| F16 | Razorpay live-mode switch | High | Replace test keys with live keys before production; add plan ID env vars |
+| F17 | Update social media links in footer | Low | LandingPage footer has placeholder hrefs (linkedin.com, github.com, twitter.com); update to real URLs |
+| F18 | VartaBot admin knowledge base UI | Medium | Admin panel UI for adding/editing/deleting chatbot_knowledge Q&A entries |
 
 ---
 
@@ -257,3 +260,13 @@ Full API roundtrip performed against the live backend. All endpoints below verif
 | R46 | Feed did not auto-refresh when user returned to the tab after being away | Added `visibilitychange` event listener in `LinkedInPosts.jsx` → calls `fetchPosts()` on tab focus |
 | R47 | No feedback when feed fell back from today to 7-day range | Added amber banner: "No new posts scraped today — showing posts from the last 7 days" with Refresh button |
 | R48 | "Add target roles" hint banner was subtle gray; users missed it | Changed to amber warning color; message now points to "Profile → Overview → Target Role 1/2/3" |
+| R49 | Razorpay webhook route defined but never mounted (B074) | Added `router.post('/webhook', webhookHandler)` in payments.js |
+| R50 | Backend crashed on cold start — addCol('subscriptions') before CREATE TABLE (B075) | Moved Razorpay `addCol` migrations to after the subscriptions table creation block in database.js |
+| R51 | Resume file upload to vault silently rejected — no file extension (B076) | Derived extension from mimeType before FormData append in EmailTemplatesModal |
+| R52 | OAUTH_TOKEN_ENCRYPTION_KEY missing — Gmail token encryption crashed (B077) | Generated 32-byte hex key and added to backend/.env |
+| R53 | Feed email contacts had blank `{{name}}` in body (B078, B081) | Added contact_name from author_name; added three-tier name resolution + guessNameFromEmail helper |
+| R54 | VartaBot invisible to guests (B079) | Removed auth gate; added guest mode with __LOGIN_PROMPT__ sentinel and sign-in card |
+| R55 | Plans / Upgrade button scrolled off-screen in nav (B080) | Wrapped tabs in inner scrollable div; Upgrade button pinned outside as shrink-0 |
+| R56 | Tab navigation didn't update URL (feature request) | Added history.pushState + popstate listener + URL-to-tab mapping in App.jsx |
+| R57 | Jobs tab showed all jobs regardless of user's profile (feature request) | Auto-pass profile title as search filter in JobScraperSection; suppressProfileFilter toggle |
+| R58 | No social media links on LandingPage footer (feature request) | Added LinkedIn/GitHub/Twitter/email icons + Connect column to footer |
