@@ -290,10 +290,10 @@ export default function App() {
   // Block rendering until we know the auth state (prevents "Sign In" flash for logged-in users)
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-orange-50 flex items-center justify-center">
+      <div className="min-h-screen bg-stone-50 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3 text-gray-400">
           <div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-gray-500">Scanning for signals…</p>
+          <p className="text-sm text-gray-500">Milaan dhoond rahe hain…</p>
         </div>
       </div>
     );
@@ -320,19 +320,19 @@ export default function App() {
   // Creative labels (Section 2.6) + always-visible subtitles.
   // Sidebar label must match page <h1> exactly — enforced by using NAV_ITEMS as source of truth.
   const NAV_ITEMS = [
-    { id: 'home',        icon: <Home         size={16} />, label: 'Overview',    sub: 'Your daily job hunt at a glance'     },
-    { id: 'contacts',    icon: <Users        size={16} />, label: 'HR Contacts', sub: 'Recruiters & hiring managers'        },
-    { id: 'templates',   icon: <FileText     size={16} />, label: 'Templates',   sub: 'Cold emails & resume formats'        },
-    { id: 'jobs',        icon: <Target       size={16} />, label: 'Job Matcher', sub: 'ATS score & resume fit check'        },
-    { id: 'bulk',        icon: <ListChecks   size={16} />, label: 'Bulk Apply',  sub: 'Apply to multiple jobs at once'      },
-    { id: 'resume-vault',icon: <FolderOpen   size={16} />, label: 'Resume Box',  sub: 'Your saved resume versions',   requiresAuth: true },
-    { id: 'referrals',   icon: <UserPlus     size={16} />, label: 'Referrals',   sub: 'Get referred at top companies', requiresAuth: true },
-    { id: 'profile',     icon: <User         size={16} />, label: 'My Profile',  sub: 'Skills, resume & profile data', requiresAuth: true },
-    ...(user?.role === 'admin' ? [{ id: 'admin', icon: <ShieldCheck size={16} />, label: 'Admin', sub: 'User & system management', requiresAuth: true }] : []),
+    { id: 'home',        icon: <Home         size={16} />, label: 'Basecamp',    sub: 'Your outreach at a glance'                    },
+    { id: 'contacts',    icon: <Users        size={16} />, label: 'Roster',      sub: 'Every HR contact you\'ve tracked'             },
+    { id: 'templates',   icon: <FileText     size={16} />, label: 'Arsenal',     sub: 'Email & resume templates'                     },
+    { id: 'jobs',        icon: <Target       size={16} />, label: 'The Mirror',  sub: 'See your resume-to-job fit'                   },
+    { id: 'bulk',        icon: <ListChecks   size={16} />, label: 'Volley',      sub: 'Apply to many jobs at once'                   },
+    { id: 'resume-vault',icon: <FolderOpen   size={16} />, label: 'The Vault',   sub: 'Your saved resume versions',  requiresAuth: true },
+    { id: 'referrals',   icon: <UserPlus     size={16} />, label: 'Warm Intros', sub: 'Ask the community for referrals', requiresAuth: true },
+    { id: 'profile',     icon: <User         size={16} />, label: 'Your Story',  sub: 'Your profile & skills',       requiresAuth: true },
+    ...(user?.role === 'admin' ? [{ id: 'admin', icon: <ShieldCheck size={16} />, label: 'Control Room', sub: 'Manage users, leads & permissions', requiresAuth: true }] : []),
   ];
 
   return (
-    <div className="min-h-screen bg-orange-50">
+    <div className="min-h-screen bg-stone-50">
       <ConfirmDialog />
       <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
       <EarlyAccessBanner />
@@ -374,9 +374,9 @@ export default function App() {
           >
             <span className="flex items-center gap-1.5 text-sm font-medium leading-tight">
               <Crown size={16} className="text-violet-400" />
-              Upgrade
+              Level Up
             </span>
-            <span className="text-[10px] leading-tight mt-0.5 text-violet-400">Compare &amp; upgrade plan</span>
+            <span className="text-[10px] leading-tight mt-0.5 text-violet-400">Compare plans &amp; upgrade</span>
           </button>
         </div>
       </div>
@@ -471,7 +471,7 @@ export default function App() {
 
         {/* Cold Emailing sub-tab */}
         {contactSubTab === 'cold-email' && (
-          <div className="bg-orange-50/40 rounded-b-md border border-gray-200 border-t-0 p-4">
+          <div className="bg-stone-50 rounded-b-md border border-gray-200 border-t-0 p-4">
             <TabErrorBoundary>
               <ColdEmailSection />
             </TabErrorBoundary>
@@ -480,7 +480,7 @@ export default function App() {
 
         {/* Job Scraper sub-tab */}
         {contactSubTab === 'job-links' && (
-          <div className="bg-orange-50/40 rounded-b-md border border-gray-200 border-t-0 p-4">
+          <div className="bg-stone-50 rounded-b-md border border-gray-200 border-t-0 p-4">
             <TabErrorBoundary>
               <JobScraperSection />
             </TabErrorBoundary>

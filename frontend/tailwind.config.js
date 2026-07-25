@@ -3,19 +3,19 @@ export default {
   content: ['./index.html', './src/**/*.{js,jsx}'],
   theme: {
     extend: {
-      // ── Brand token: warm orange (Indian market — Naukri/Internshala palette) ─
+      // ── Brand token: saffron-amber (Indian market — restrained warm tone) ─────
       colors: {
         brand: {
-          50:  '#fff7ed',
-          100: '#ffedd5',
-          200: '#fed7aa',
+          50:  '#fff8f1',
+          100: '#feecdc',
+          200: '#fcd9bd',
           300: '#fdba74',
           400: '#fb923c',
           500: '#f97316',
-          600: '#ea580c',  // primary CTA · active nav · focus rings
-          700: '#c2410c',  // hover state
-          800: '#9a3412',
-          900: '#7c2d12',
+          600: '#c2410c',  // primary CTA · active nav · focus rings (burnt orange)
+          700: '#9a3412',  // hover state
+          800: '#7c2d12',
+          900: '#6c2410',
           950: '#431407',
         },
       },
@@ -27,7 +27,7 @@ export default {
       },
       // ── Shadow: two elevations only ─────────────────────────────────────────
       boxShadow: {
-        card:  '0 1px 2px rgba(0,0,0,.05), 0 0 0 1px rgba(234,88,12,.08)',
+        card:  '0 1px 2px rgba(0,0,0,.05), 0 0 0 1px rgba(194,65,12,.07)',
         modal: '0 8px 32px rgba(0,0,0,.12), 0 0 0 1px rgba(0,0,0,.06)',
       },
       // ── Typography ──────────────────────────────────────────────────────────

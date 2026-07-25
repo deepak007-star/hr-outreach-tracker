@@ -118,7 +118,7 @@ export default function ActivityCalendar({ refreshKey = 0 }) {
         <h2 className="text-sm font-semibold text-gray-700">Outreach Activity</h2>
         <div className="flex flex-wrap items-center gap-4 text-xs text-gray-500">
           <span title="Consecutive days with activity ending today">
-            🔥 <strong className="text-gray-800">{stats.cur}</strong> day streak
+            🔥 <strong className="text-gray-800">{stats.cur}</strong>-din ka safar jaari hai{stats.cur > 0 ? ' — ruko mat' : ''}
           </span>
           <span>⚡ Longest: <strong className="text-gray-800">{stats.longest}</strong></span>
           <span>✅ <strong className="text-gray-800">{stats.activeDays}</strong> active days</span>

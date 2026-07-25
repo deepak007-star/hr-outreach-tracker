@@ -182,8 +182,8 @@ export default function ContactTable({
                 <td colSpan={10}>
                   <EmptyState
                     icon={<Users size={20} strokeWidth={1.5} />}
-                    title="No contacts yet"
-                    description="Add a contact manually or import a CSV / Excel file."
+                    title="Abhi tak jawaab nahi aaya — par agla email hi ho sakta hai woh wala."
+                    description="Add a contact manually or import a CSV / Excel file to start tracking."
                     className="py-12"
                   />
                 </td>

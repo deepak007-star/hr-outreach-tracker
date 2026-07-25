@@ -535,8 +535,8 @@ export default function ResumeVault() {
           {versions.length === 0 && (
             <div className="col-span-full text-center py-16 text-gray-400 space-y-2">
               <FolderOpen size={40} className="mx-auto text-gray-300" />
-              <p className="font-medium text-gray-500">Your vault is empty</p>
-              <p className="text-sm">Click "+ Save Resume" to add a version from your Profile or paste text directly.</p>
+              <p className="font-medium text-gray-600">Khaali table ek shuruaat hai, haar nahi.</p>
+              <p className="text-sm text-gray-400">Click "+ Save Resume" to add a version from your Profile or paste text directly.</p>
             </div>
           )}
         </div>

@@ -255,7 +255,7 @@ export default function BulkJobAnalyzer() {
           </div>
 
           <div className="space-y-2">
-            <label className="text-xs font-medium text-gray-600">Paste job post URLs (one per line)</label>
+            <label className="text-xs font-medium text-gray-600">Jitne chaho utne daalo — hum sabka hisaab rakhenge</label>
             <textarea
               value={urlsInput}
               onChange={e => setUrlsInput(e.target.value)}
