@@ -1,4 +1,7 @@
+import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext.jsx';
+import { api } from '../api/client.js';
+import toast from 'react-hot-toast';
 
 const PLANS = [
   {
@@ -43,6 +46,55 @@ export default function PlansModal({ onClose, onSignupClick }) {
   const { user } = useAuth();
   const currentId = user ? (user.plan || 'demo') : 'guest';
 
+  const [stripeConfigured, setStripeConfigured] = useState(false);
+  const [upgrading, setUpgrading]               = useState(null); // plan id being upgraded
+  const [subscription, setSubscription]         = useState(null);
+  const [managingBilling, setManagingBilling]   = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    // Check if Stripe is configured
+    api.get('/payments/config').then(data => {
+      setStripeConfigured(data.configured);
+    }).catch(() => {});
+
+    // Load current subscription info
+    api.get('/payments/subscription').then(data => {
+      setSubscription(data.subscription);
+    }).catch(() => {});
+  }, [user]);
+
+  async function handleUpgrade(planId) {
+    if (!user) { onSignupClick?.(); return; }
+    if (!stripeConfigured) {
+      toast.error('Payment gateway not configured yet. Contact the admin.');
+      return;
+    }
+    setUpgrading(planId);
+    try {
+      const data = await api.post('/payments/create-checkout', { plan: planId });
+      if (data.url) {
+        window.location.href = data.url;
+      }
+    } catch (e) {
+      toast.error(e?.response?.data?.error || 'Could not start checkout. Try again.');
+    } finally {
+      setUpgrading(null);
+    }
+  }
+
+  async function handleManageBilling() {
+    setManagingBilling(true);
+    try {
+      const data = await api.post('/payments/manage');
+      if (data.url) window.open(data.url, '_blank');
+    } catch (e) {
+      toast.error(e?.response?.data?.error || 'Could not open billing portal.');
+    } finally {
+      setManagingBilling(false);
+    }
+  }
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div
@@ -68,15 +120,21 @@ export default function PlansModal({ onClose, onSignupClick }) {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-5">
           {PLANS.map(plan => {
             const isCurrent = plan.id === currentId;
-            let btnLabel = plan.btnLabel;
+            let btnLabel    = plan.btnLabel;
             let btnDisabled = false;
-            let comingSoon = false;
+            let btnOnClick  = null;
 
-            if (isCurrent) { btnLabel = '✓ Current'; btnDisabled = true; }
-            else if (plan.btnAction === 'upgrade') { comingSoon = true; btnDisabled = true; }
-            else if (plan.btnAction === 'signup') {
-              btnLabel = currentId === 'guest' ? 'Sign Up Free →' : '✓ Signed In';
+            if (isCurrent) {
+              btnLabel    = '✓ Current';
+              btnDisabled = true;
+            } else if (plan.btnAction === 'upgrade') {
+              btnLabel    = upgrading === plan.id ? 'Redirecting…' : plan.btnLabel;
+              btnDisabled = !!upgrading;
+              btnOnClick  = () => handleUpgrade(plan.id);
+            } else if (plan.btnAction === 'signup') {
+              btnLabel    = currentId === 'guest' ? 'Sign Up Free →' : '✓ Signed In';
               btnDisabled = currentId !== 'guest';
+              btnOnClick  = () => { if (currentId === 'guest') onSignupClick?.(); };
             }
 
             return (
@@ -116,24 +174,47 @@ export default function PlansModal({ onClose, onSignupClick }) {
 
                 <div className="px-3 pb-3">
                   <button
-                    onClick={() => !btnDisabled && plan.btnAction === 'signup' && onSignupClick?.()}
+                    onClick={btnOnClick}
                     disabled={btnDisabled}
                     className={`w-full py-1.5 rounded-sm text-xs font-semibold transition ${plan.btnCls} ${btnDisabled ? 'opacity-60 cursor-default' : ''}`}
                   >
                     {btnLabel}
                   </button>
-                  {comingSoon && <p className="text-center text-[10px] text-gray-400 mt-1">Payment coming soon</p>}
+                  {plan.btnAction === 'upgrade' && !stripeConfigured && !isCurrent && (
+                    <p className="text-center text-[10px] text-amber-500 mt-1">Payment setup pending</p>
+                  )}
                 </div>
               </div>
             );
           })}
         </div>
 
+        {/* Manage billing for paying users */}
+        {subscription && subscription.status === 'active' && ['basic', 'advanced'].includes(currentId) && (
+          <div className="mx-5 mb-3 p-3 bg-gray-50 border border-gray-200 rounded-md flex items-center justify-between">
+            <div>
+              <p className="text-xs font-semibold text-gray-700">Active Subscription</p>
+              <p className="text-[10px] text-gray-500 mt-0.5">
+                {subscription.plan?.charAt(0).toUpperCase() + subscription.plan?.slice(1)} plan
+                {subscription.current_period_end && ` · Renews ${new Date(subscription.current_period_end).toLocaleDateString()}`}
+              </p>
+            </div>
+            <button
+              onClick={handleManageBilling}
+              disabled={managingBilling}
+              className="text-xs text-brand-600 hover:text-brand-700 font-medium underline underline-offset-2 disabled:opacity-60"
+            >
+              {managingBilling ? 'Loading…' : 'Manage Billing'}
+            </button>
+          </div>
+        )}
+
         {/* Footer */}
         <div className="px-5 pb-4 text-center border-t pt-3">
           <p className="text-[10px] text-gray-400">
-            No payment gateway active yet · Pricing subject to change ·{' '}
-            <span className="text-brand-600">Interested in early access? Fill the form above.</span>
+            {stripeConfigured
+              ? 'Secure payments via Stripe · Cancel anytime · GST may apply'
+              : 'Payment gateway not configured yet · Contact admin to enable payments'}
           </p>
         </div>
       </div>

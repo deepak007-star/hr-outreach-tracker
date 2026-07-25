@@ -527,6 +527,60 @@ async function initialize() {
   const insSetting = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING');
   for (const [key, value] of Object.entries(SCRAPE_DEFAULTS)) await insSetting.run(key, value);
 
+  // ── Payment subscriptions
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS subscriptions (
+      id                      TEXT PRIMARY KEY,
+      user_id                 TEXT UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      stripe_customer_id      TEXT,
+      stripe_subscription_id  TEXT,
+      plan                    TEXT NOT NULL DEFAULT 'demo',
+      status                  TEXT NOT NULL DEFAULT 'active',
+      current_period_end      TEXT,
+      created_at              TEXT NOT NULL DEFAULT (${NOW_EXPR}),
+      updated_at              TEXT NOT NULL DEFAULT (${NOW_EXPR})
+    );
+
+    CREATE TABLE IF NOT EXISTS chat_sessions (
+      id         TEXT PRIMARY KEY,
+      user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL DEFAULT (${NOW_EXPR}),
+      ended_at   TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id         TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+      role       TEXT NOT NULL,
+      content    TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (${NOW_EXPR})
+    );
+
+    CREATE TABLE IF NOT EXISTS chat_feedback (
+      id         TEXT PRIMARY KEY,
+      user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      session_id TEXT,
+      message_id TEXT,
+      rating     INTEGER NOT NULL,
+      summary    TEXT,
+      created_at TEXT NOT NULL DEFAULT (${NOW_EXPR})
+    );
+
+    CREATE TABLE IF NOT EXISTS chatbot_knowledge (
+      id         TEXT PRIMARY KEY,
+      category   TEXT NOT NULL DEFAULT 'general',
+      question   TEXT NOT NULL,
+      answer     TEXT NOT NULL,
+      is_active  INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (${NOW_EXPR}),
+      updated_at TEXT NOT NULL DEFAULT (${NOW_EXPR})
+    );
+  `);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_chat_sessions_user ON chat_sessions (user_id)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages (session_id, created_at)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_chat_feedback_rating ON chat_feedback (rating, created_at)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_subscriptions_user ON subscriptions (user_id)`);
+
   // ── Promote first registered user to admin if no admin exists
   const adminExists = await db.prepare('SELECT id FROM users WHERE role = ?').get('admin');
   if (!adminExists) {

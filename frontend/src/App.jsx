@@ -31,6 +31,7 @@ import UnsavedChangesModal from './components/UnsavedChangesModal.jsx';
 import AskReferral        from './components/AskReferral.jsx';
 import ResumeVault        from './components/ResumeVault.jsx';
 import LandingPage        from './components/LandingPage.jsx';
+import Chatbot            from './components/Chatbot.jsx';
 import ConfirmDialog from './components/ConfirmDialog.jsx';
 import { confirm }   from './utils/confirm.js';
 import { clearDraft } from './hooks/useDraft.js';
@@ -134,6 +135,22 @@ export default function App() {
       params.delete('oauth_error');
       const rest = params.toString();
       window.history.replaceState({}, '', window.location.pathname + (rest ? `?${rest}` : ''));
+    }
+
+    // Stripe payment callback
+    const payment = params.get('payment');
+    const plan    = params.get('plan');
+    if (payment === 'success') {
+      toast.success(`Payment successful! Your ${plan || ''} plan is now active.`, { duration: 6000 });
+      params.delete('payment');
+      params.delete('plan');
+      const rest2 = params.toString();
+      window.history.replaceState({}, '', window.location.pathname + (rest2 ? `?${rest2}` : ''));
+    } else if (payment === 'cancelled') {
+      toast('Payment cancelled. Your plan was not changed.', { icon: 'ℹ️' });
+      params.delete('payment');
+      const rest2 = params.toString();
+      window.history.replaceState({}, '', window.location.pathname + (rest2 ? `?${rest2}` : ''));
     }
   }, []);
 
@@ -335,6 +352,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-stone-50">
       <ConfirmDialog />
+      <Chatbot />
       <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
       <EarlyAccessBanner />
       <Header onLoginClick={() => setShowAuthModal(true)} />

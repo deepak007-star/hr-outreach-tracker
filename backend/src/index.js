@@ -65,6 +65,8 @@ async function main() {
   const resumeVersionsRouter = require('./routes/resume-versions');
   const linkedinFeedRouter   = require('./routes/linkedin-feed');
   const deliveryRouter       = require('./routes/delivery');
+  const paymentsRouter       = require('./routes/payments');
+  const chatbotRouter        = require('./routes/chatbot');
   const { getSettings } = require('./routes/apify');
   const { sendReminderEmail } = require('./routes/reminder');
 
@@ -108,7 +110,13 @@ async function main() {
   }));
 
   app.use(cookieParser());
-  app.use(express.json({ limit: '2mb' }));
+  // Preserve raw body for Stripe webhook signature verification
+  app.use(express.json({
+    limit: '2mb',
+    verify: (req, _res, buf) => {
+      if (req.originalUrl === '/api/payments/webhook') req.rawBody = buf;
+    },
+  }));
   app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
   // ── Global API rate limiter + XSS body sanitizer ──────────────────────────
@@ -141,6 +149,8 @@ async function main() {
   app.use('/api/resume-versions',  resumeVersionsRouter);
   app.use('/api/linkedin-feed',    linkedinFeedRouter);
   app.use('/api/delivery',        deliveryRouter);
+  app.use('/api/payments',        paymentsRouter);
+  app.use('/api/chatbot',         chatbotRouter);
   app.get('/api/health', (_, res) =>
     res.json({ status: 'ok', timestamp: new Date().toISOString() })
   );

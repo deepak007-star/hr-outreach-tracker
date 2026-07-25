@@ -22,6 +22,7 @@
     "express-slow-down": "^3.1.0",
     "google-auth-library": "^10.9.0",
     "googleapis": "^144.0.0",
+    "groq-sdk": "^1.4.0",
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
     "mammoth": "^1.12.0",
@@ -30,7 +31,8 @@
     "pdf-parse": "^1.1.1",
     "pg": "^8.22.0",
     "playwright": "^1.61.1",
-    "sanitize-html": "^2.17.6"
+    "sanitize-html": "^2.17.6",
+    "stripe": "^22.3.2"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"
