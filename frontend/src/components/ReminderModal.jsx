@@ -244,8 +244,8 @@ export default function ReminderModal({ onClose }) {
                   </div>
 
                   {/* Browser notification */}
-                  <div className="border rounded-xl">
-                    <div className="flex items-start gap-3 p-3 cursor-pointer hover:bg-gray-50 rounded-xl" onClick={() => setDeliveryBrowser(v => !v)}>
+                  <div className="border rounded-md">
+                    <div className="flex items-start gap-3 p-3 cursor-pointer hover:bg-gray-50 rounded-md" onClick={() => setDeliveryBrowser(v => !v)}>
                       <input type="checkbox" checked={deliveryBrowser} readOnly className="mt-0.5 pointer-events-none" />
                       <div className="flex-1">
                         <p className="text-sm font-medium text-gray-700">Browser / OS notification</p>

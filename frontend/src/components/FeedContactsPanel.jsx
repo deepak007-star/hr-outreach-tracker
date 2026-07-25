@@ -177,7 +177,7 @@ export default function FeedContactsPanel() {
   if (loading) {
     return (
       <div className="space-y-2 py-4">
-        {[1, 2, 3].map(i => <div key={i} className="h-14 bg-gray-100 animate-pulse rounded-xl" />)}
+        {[1, 2, 3].map(i => <div key={i} className="h-14 bg-gray-100 animate-pulse rounded-md" />)}
       </div>
     );
   }
