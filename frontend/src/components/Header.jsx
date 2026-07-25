@@ -1,13 +1,13 @@
 import { useAuth } from '../contexts/AuthContext.jsx';
 import NotificationPanel from './NotificationPanel.jsx';
 import Logo from './Logo.jsx';
-import { Radio } from 'lucide-react';
+import { Radio, Crown } from 'lucide-react';
 
 function initials(name) {
   return (name || 'U').split(' ').filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'U';
 }
 
-export default function Header({ onLoginClick }) {
+export default function Header({ onLoginClick, onPlansClick, planName }) {
   const { user, logout } = useAuth();
 
   return (
@@ -38,6 +38,25 @@ export default function Header({ onLoginClick }) {
 
           {user ? (
             <div className="flex items-center gap-2">
+              {/* Upgrade / Plans button */}
+              {planName !== 'Advanced' && (
+                <button
+                  onClick={onPlansClick}
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-violet-600 to-purple-600 text-white rounded-sm text-xs font-semibold hover:from-violet-700 hover:to-purple-700 transition shadow-sm"
+                >
+                  <Crown size={12} />
+                  Upgrade
+                </button>
+              )}
+              {planName === 'Advanced' && (
+                <button
+                  onClick={onPlansClick}
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 border border-violet-200 text-violet-600 rounded-sm text-xs font-medium hover:bg-violet-50 transition"
+                >
+                  <Crown size={12} />
+                  Plans
+                </button>
+              )}
               {/* Avatar */}
               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center text-white text-xs font-bold shrink-0">
                 {initials(user.name)}
@@ -62,12 +81,21 @@ export default function Header({ onLoginClick }) {
               </button>
             </div>
           ) : (
-            <button
-              onClick={onLoginClick}
-              className="px-4 py-1.5 bg-brand-600 text-white rounded-sm text-xs font-semibold hover:bg-brand-700 transition"
-            >
-              Sign In
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={onPlansClick}
+                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 border border-violet-300 text-violet-600 rounded-sm text-xs font-medium hover:bg-violet-50 transition"
+              >
+                <Crown size={12} />
+                Plans
+              </button>
+              <button
+                onClick={onLoginClick}
+                className="px-4 py-1.5 bg-brand-600 text-white rounded-sm text-xs font-semibold hover:bg-brand-700 transition"
+              >
+                Sign In
+              </button>
+            </div>
           )}
         </div>
       </div>

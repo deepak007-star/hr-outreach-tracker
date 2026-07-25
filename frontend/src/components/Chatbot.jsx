@@ -48,13 +48,36 @@ function StarRating({ value, onChange }) {
   );
 }
 
-function MessageBubble({ msg, onRate, onFeedback }) {
+function MessageBubble({ msg, onRate, onLoginRequest }) {
   const [rating, setRating]       = useState(0);
   const [submitted, setSubmitted] = useState(false);
   const [showForm, setShowForm]   = useState(false);
   const [comment, setComment]     = useState('');
 
   const isBot = msg.role === 'assistant';
+
+  // Guest sign-in prompt card
+  if (isBot && msg.content === '__LOGIN_PROMPT__') {
+    return (
+      <div className="flex justify-start mb-3">
+        <div className="max-w-[85%]">
+          <div className="flex items-center gap-1.5 mb-1">
+            <span className="w-5 h-5 rounded-full bg-brand-600 flex items-center justify-center text-white text-[10px] font-bold">V</span>
+            <span className="text-[10px] text-gray-400 font-medium">VartaBot</span>
+          </div>
+          <div className="px-4 py-3 bg-white border border-gray-200 rounded-lg rounded-tl-none shadow-sm text-sm">
+            <p className="text-gray-700 mb-2">I'd love to help! Please sign in first so I can give you personalised guidance and save your chat history.</p>
+            <button
+              onClick={onLoginRequest}
+              className="w-full py-1.5 bg-brand-600 text-white text-xs font-semibold rounded hover:bg-brand-700 transition"
+            >
+              Sign In to Chat →
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   function handleRate(star) {
     setRating(star);
@@ -153,7 +176,7 @@ function TypingIndicator() {
   );
 }
 
-export default function Chatbot() {
+export default function Chatbot({ onLoginRequest }) {
   const { user } = useAuth();
   const [open,        setOpen]        = useState(false);
   const [messages,    setMessages]    = useState([WELCOME_MESSAGE]);
@@ -191,6 +214,16 @@ export default function Chatbot() {
   const sendMessage = useCallback(async (text) => {
     const msg = (text || input).trim();
     if (!msg || loading) return;
+
+    // Guest mode: prompt sign-in instead of calling API
+    if (!user) {
+      setInput('');
+      setMessages(prev => [...prev,
+        { id: `user-${Date.now()}`, role: 'user', content: msg, created_at: new Date().toISOString() },
+        { id: `bot-${Date.now()}`,  role: 'assistant', content: '__LOGIN_PROMPT__', created_at: new Date().toISOString() },
+      ]);
+      return;
+    }
 
     setInput('');
     setError(null);
@@ -247,8 +280,6 @@ export default function Chatbot() {
     setSessionId(null);
     setHistoryLoaded(false);
   }
-
-  if (!user) return null;
 
   return (
     <>
@@ -312,11 +343,19 @@ export default function Chatbot() {
           {/* Messages */}
           <div className="flex-1 overflow-y-auto px-3 pt-3 bg-gray-50">
             {messages.map(msg => (
-              <MessageBubble key={msg.id} msg={msg} onRate={handleRate} />
+              <MessageBubble key={msg.id} msg={msg} onRate={handleRate} onLoginRequest={onLoginRequest} />
             ))}
             {loading && <TypingIndicator />}
             <div ref={bottomRef} />
           </div>
+
+          {/* Guest sign-in nudge */}
+          {!user && (
+            <div className="px-3 py-2 bg-amber-50 border-t border-amber-100 flex items-center justify-between gap-2 flex-shrink-0">
+              <p className="text-[10px] text-amber-700">Sign in for full AI chat & history</p>
+              <button onClick={onLoginRequest} className="text-[10px] font-semibold text-brand-600 hover:underline whitespace-nowrap">Sign In →</button>
+            </div>
+          )}
 
           {/* Quick questions — show when only welcome message */}
           {messages.length === 1 && (

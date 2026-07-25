@@ -310,11 +310,19 @@ export default function App() {
     return (
       <>
         <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
+        <Chatbot onLoginRequest={() => setShowAuthModal(true)} />
         <LandingPage
           onGetStarted={() => setShowAuthModal(true)}
           onSignIn={() => setShowAuthModal(true)}
+          onPlansClick={() => setShowPlans(true)}
         />
         {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
+        {showPlans && (
+          <PlansModal
+            onClose={() => setShowPlans(false)}
+            onSignupClick={() => { setShowPlans(false); setShowAuthModal(true); }}
+          />
+        )}
       </>
     );
   }
@@ -338,42 +346,50 @@ export default function App() {
   return (
     <div className="min-h-screen bg-stone-50">
       <ConfirmDialog />
-      <Chatbot />
+      <Chatbot onLoginRequest={() => setShowAuthModal(true)} />
       <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
       <EarlyAccessBanner />
-      <Header onLoginClick={() => setShowAuthModal(true)} />
+      <Header
+        onLoginClick={() => setShowAuthModal(true)}
+        onPlansClick={() => setShowPlans(true)}
+        planName={planName}
+      />
 
       {/* ── Tab navigation ──────────────────────────────────────── */}
       <div className="bg-white border-b border-gray-200 sticky top-[57px] z-30 shadow-sm">
-        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 flex overflow-x-auto">
-          {NAV_ITEMS.map(tab => {
-            const locked = tab.requiresAuth && !user;
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => navigateTo(tab.id, tab.requiresAuth)}
-                title={tab.sub}
-                className={`group flex items-center gap-2 px-4 py-3.5 border-b-2 text-sm font-medium transition-all duration-150 whitespace-nowrap ${
-                  isActive
-                    ? 'border-brand-600 text-brand-700'
-                    : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'
-                } ${locked ? 'opacity-40' : ''}`}
-              >
-                <span className={isActive ? 'text-brand-600' : 'text-gray-400 group-hover:text-gray-500'}>
-                  {locked ? <Lock size={14} /> : tab.icon}
-                </span>
-                {tab.label}
-              </button>
-            );
-          })}
-          {/* Plans — upgrade CTA */}
+        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 flex items-stretch">
+          {/* Scrollable nav tabs */}
+          <div className="flex overflow-x-auto flex-1" style={{ scrollbarWidth: 'none' }}>
+            {NAV_ITEMS.map(tab => {
+              const locked = tab.requiresAuth && !user;
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => navigateTo(tab.id, tab.requiresAuth)}
+                  title={tab.sub}
+                  className={`group flex items-center gap-2 px-4 py-3.5 border-b-2 text-sm font-medium transition-all duration-150 whitespace-nowrap ${
+                    isActive
+                      ? 'border-brand-600 text-brand-700'
+                      : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'
+                  } ${locked ? 'opacity-40' : ''}`}
+                >
+                  <span className={isActive ? 'text-brand-600' : 'text-gray-400 group-hover:text-gray-500'}>
+                    {locked ? <Lock size={14} /> : tab.icon}
+                  </span>
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+          {/* Plans — always visible, pinned to the right */}
           <button
             onClick={() => setShowPlans(true)}
-            className="flex items-center gap-2 px-4 py-3.5 border-b-2 border-transparent text-sm font-medium text-violet-600 hover:text-violet-800 hover:border-violet-300 transition-all duration-150 whitespace-nowrap ml-auto"
+            title="View plans & upgrade"
+            className="flex items-center gap-1.5 px-4 border-b-2 border-transparent text-sm font-semibold text-violet-600 hover:text-violet-800 hover:border-violet-400 hover:bg-violet-50 transition-all duration-150 whitespace-nowrap shrink-0 border-l border-gray-100"
           >
-            <Crown size={14} className="text-violet-400" />
-            Upgrade
+            <Crown size={14} className="text-violet-500" />
+            {planName === 'Advanced' ? 'Plans' : 'Upgrade'}
           </button>
         </div>
       </div>

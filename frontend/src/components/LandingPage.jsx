@@ -2,7 +2,7 @@ import { useState } from 'react';
 import {
   Target, Zap, Mail, Rss, Archive, Users,
   CheckCircle, BarChart2, Radio, ArrowRight,
-  ChevronDown, ChevronUp,
+  ChevronDown, ChevronUp, Crown,
 } from 'lucide-react';
 import Logo from './Logo.jsx';
 
@@ -269,7 +269,7 @@ function FaqItem({ q, a }) {
 
 // ─── Main component ────────────────────────────────────────────────────────────
 
-export default function LandingPage({ onGetStarted, onSignIn }) {
+export default function LandingPage({ onGetStarted, onSignIn, onPlansClick }) {
   return (
     <div className="bg-stone-50 text-gray-800 min-h-screen font-sans">
 
@@ -285,6 +285,13 @@ export default function LandingPage({ onGetStarted, onSignIn }) {
             <NavLink href="#product-tour">Product tour</NavLink>
             <NavLink href="#how-it-works">How it works</NavLink>
             <NavLink href="#faq">FAQ</NavLink>
+            <button
+              onClick={onPlansClick}
+              className="flex items-center gap-1 text-sm font-semibold text-violet-600 hover:text-violet-800 transition-colors"
+            >
+              <Crown size={13} />
+              Pricing
+            </button>
           </nav>
           <button
             onClick={onSignIn}
