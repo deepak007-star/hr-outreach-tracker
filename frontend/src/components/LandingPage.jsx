@@ -561,7 +561,7 @@ export default function LandingPage({ onGetStarted, onSignIn }) {
               Contact CRM, cold email automation, LinkedIn scraping, and AI-assisted job matching — all in one place.
             </p>
             <p className="text-xs text-brand-600 font-medium mt-3 italic">
-              "Every email is a new door."
+              "Har email ek naya darwaaza hai."
             </p>
           </div>
           <div>

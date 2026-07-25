@@ -69,15 +69,15 @@ export default function EarlyAccessBanner() {
       <div className="bg-gradient-to-r from-purple-700 via-indigo-700 to-blue-700 text-white">
         <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 py-2.5 flex flex-wrap items-center gap-3 justify-between">
           <div className="flex items-center gap-3 min-w-0">
-            <span className="text-lg">🚀</span>
+            <span className="text-lg">🚧</span>
             <p className="text-sm font-medium truncate">
-              <strong>HR Outreach Tracker</strong> is in early access — register your interest for priority access &amp; updates!
+              <strong>Early Access</strong> — Full features (Gmail OAuth, bulk apply, LinkedIn scraper) are live. Leave your details to get notified about plan launches &amp; new features.
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <button onClick={openModal}
               className="bg-white text-purple-700 text-xs font-bold px-4 py-1.5 rounded-full hover:bg-purple-50 transition whitespace-nowrap">
-              Register Interest →
+              Stay Updated
             </button>
             <button onClick={dismiss} className="text-white/60 hover:text-white text-lg leading-none" aria-label="Dismiss">×</button>
           </div>

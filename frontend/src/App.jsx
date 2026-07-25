@@ -320,15 +320,15 @@ export default function App() {
   // Creative labels (Section 2.6) + always-visible subtitles.
   // Sidebar label must match page <h1> exactly — enforced by using NAV_ITEMS as source of truth.
   const NAV_ITEMS = [
-    { id: 'home',        icon: <Home         size={16} />, label: 'Basecamp',    sub: 'Your outreach at a glance'                    },
-    { id: 'contacts',    icon: <Users        size={16} />, label: 'Roster',      sub: 'Every HR contact you\'ve tracked'             },
-    { id: 'templates',   icon: <FileText     size={16} />, label: 'Arsenal',     sub: 'Email & resume templates'                     },
-    { id: 'jobs',        icon: <Target       size={16} />, label: 'The Mirror',  sub: 'See your resume-to-job fit'                   },
-    { id: 'bulk',        icon: <ListChecks   size={16} />, label: 'Volley',      sub: 'Apply to many jobs at once'                   },
-    { id: 'resume-vault',icon: <FolderOpen   size={16} />, label: 'The Vault',   sub: 'Your saved resume versions',  requiresAuth: true },
-    { id: 'referrals',   icon: <UserPlus     size={16} />, label: 'Warm Intros', sub: 'Ask the community for referrals', requiresAuth: true },
-    { id: 'profile',     icon: <User         size={16} />, label: 'Your Story',  sub: 'Your profile & skills',       requiresAuth: true },
-    ...(user?.role === 'admin' ? [{ id: 'admin', icon: <ShieldCheck size={16} />, label: 'Control Room', sub: 'Manage users, leads & permissions', requiresAuth: true }] : []),
+    { id: 'home',        icon: <Home         size={16} />, label: 'Home',         sub: 'Your outreach at a glance'           },
+    { id: 'contacts',    icon: <Users        size={16} />, label: 'Contacts',     sub: 'HR contacts & email outreach'        },
+    { id: 'templates',   icon: <FileText     size={16} />, label: 'Templates',    sub: 'Email & resume templates'            },
+    { id: 'jobs',        icon: <Target       size={16} />, label: 'Job Match',    sub: 'ATS score & resume fit check'        },
+    { id: 'bulk',        icon: <ListChecks   size={16} />, label: 'Bulk Apply',   sub: 'Apply to multiple jobs at once'      },
+    { id: 'resume-vault',icon: <FolderOpen   size={16} />, label: 'Resume Vault', sub: 'Your saved resume versions', requiresAuth: true },
+    { id: 'referrals',   icon: <UserPlus     size={16} />, label: 'Sifarish',     sub: 'Get referred at top companies', requiresAuth: true },
+    { id: 'profile',     icon: <User         size={16} />, label: 'Profile',      sub: 'Your skills & resume data',  requiresAuth: true },
+    ...(user?.role === 'admin' ? [{ id: 'admin', icon: <ShieldCheck size={16} />, label: 'Admin', sub: 'User & system management', requiresAuth: true }] : []),
   ];
 
   return (
@@ -368,7 +368,7 @@ export default function App() {
             className="flex items-center gap-2 px-4 py-3.5 border-b-2 border-transparent text-sm font-medium text-violet-600 hover:text-violet-800 hover:border-violet-300 transition-all duration-150 whitespace-nowrap ml-auto"
           >
             <Crown size={14} className="text-violet-400" />
-            Level Up
+            Upgrade
           </button>
         </div>
       </div>
