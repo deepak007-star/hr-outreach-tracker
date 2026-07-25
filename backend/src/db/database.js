@@ -450,10 +450,6 @@ async function initialize() {
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_email_log_delivery      ON email_log (delivery_status)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_email_log_user_id       ON email_log (user_id)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_contacts_deliverable    ON contacts (email_deliverable)`);
-  // Razorpay payment gateway columns (replacing Stripe)
-  await addCol('subscriptions', 'razorpay_subscription_id', `TEXT`);
-  await addCol('subscriptions', 'razorpay_payment_id',      `TEXT`);
-
   // ── RBAC seed ────────────────────────────────────────────────────────────────
   const PERMISSIONS = [
     // Contacts
@@ -583,6 +579,9 @@ async function initialize() {
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages (session_id, created_at)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_chat_feedback_rating ON chat_feedback (rating, created_at)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_subscriptions_user ON subscriptions (user_id)`);
+  // Razorpay payment gateway columns (added after subscriptions table is guaranteed to exist)
+  await addCol('subscriptions', 'razorpay_subscription_id', `TEXT`);
+  await addCol('subscriptions', 'razorpay_payment_id',      `TEXT`);
 
   // ── Promote first registered user to admin if no admin exists
   const adminExists = await db.prepare('SELECT id FROM users WHERE role = ?').get('admin');
