@@ -9,8 +9,8 @@ export default function Logo({ size = 32, rounded = 'rounded-xl' }) {
     >
       <defs>
         <linearGradient id="hrot-logo-bg" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#10b981" />
-          <stop offset="100%" stopColor="#047857" />
+          <stop offset="0%" stopColor="#f97316" />
+          <stop offset="100%" stopColor="#c2410c" />
         </linearGradient>
       </defs>
       <rect width="100" height="100" rx="22" fill="url(#hrot-logo-bg)" />

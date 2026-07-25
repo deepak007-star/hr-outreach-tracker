@@ -3,20 +3,20 @@ export default {
   content: ['./index.html', './src/**/*.{js,jsx}'],
   theme: {
     extend: {
-      // ── Brand token: deep teal (The Signal identity) ────────────────────────
+      // ── Brand token: warm orange (Indian market — Naukri/Internshala palette) ─
       colors: {
         brand: {
-          50:  '#f0fdfa',
-          100: '#ccfbf1',
-          200: '#99f6e4',
-          300: '#5eead4',
-          400: '#2dd4bf',
-          500: '#14b8a6',
-          600: '#0d9488',  // primary CTA · active nav · focus rings
-          700: '#0f766e',  // hover state
-          800: '#115e59',
-          900: '#134e4a',
-          950: '#042f2e',
+          50:  '#fff7ed',
+          100: '#ffedd5',
+          200: '#fed7aa',
+          300: '#fdba74',
+          400: '#fb923c',
+          500: '#f97316',
+          600: '#ea580c',  // primary CTA · active nav · focus rings
+          700: '#c2410c',  // hover state
+          800: '#9a3412',
+          900: '#7c2d12',
+          950: '#431407',
         },
       },
       // ── Radius scale: sm=6px / md=10px / lg=16px ────────────────────────────
@@ -27,7 +27,7 @@ export default {
       },
       // ── Shadow: two elevations only ─────────────────────────────────────────
       boxShadow: {
-        card:  '0 1px 2px rgba(0,0,0,.05), 0 0 0 1px rgba(15,118,110,.08)',
+        card:  '0 1px 2px rgba(0,0,0,.05), 0 0 0 1px rgba(234,88,12,.08)',
         modal: '0 8px 32px rgba(0,0,0,.12), 0 0 0 1px rgba(0,0,0,.06)',
       },
       // ── Typography ──────────────────────────────────────────────────────────
