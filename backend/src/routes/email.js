@@ -43,20 +43,63 @@ router.use(requireAuth);
 // that alone (looking like a broken mail-merge) is enough to get flagged
 // as spam, unlike the plain hand-typed text referrals.js sends.
 function renderTemplate(tpl, contact, profile) {
-  const p = profile || {};
-  return tpl
-    .replace(/\{\{name\}\}/gi,    contact.name    || '')
-    .replace(/\{\{company\}\}/gi, contact.company || '')
-    .replace(/\{\{title\}\}/gi,   contact.title   || '')
-    .replace(/\{\{email\}\}/gi,   contact.email   || '')
-    .replace(/\{\{your_name\}\}/gi,     p.full_name        || '')
-    .replace(/\{\{current_title\}\}/gi, p.current_title    || '')
-    .replace(/\{\{experience\}\}/gi,    p.total_experience || '')
-    .replace(/\{\{notice_period\}\}/gi, p.notice_period    || '')
-    .replace(/\{\{location\}\}/gi,      p.location         || '')
-    .replace(/\{\{linkedin_url\}\}/gi,  p.linkedin_url      || '')
-    .replace(/\{\{phone\}\}/gi,         p.phone            || '')
-    .replace(/\{\{\s*[\w.]+\s*\}\}/g, '');
+  const p          = profile || {};
+  const firstName  = (contact.name || '').split(' ')[0];
+  const skillsStr  = Array.isArray(p.skills) ? p.skills.join(', ') : (p.skills || '');
+
+  // Helper: replace many regex patterns with the same value in one pass
+  function sub(text, patterns, value) {
+    let r = text;
+    for (const pat of patterns) r = r.replace(pat, value);
+    return r;
+  }
+
+  let result = tpl;
+
+  // ── Contact / recipient vars ──────────────────────────────────────────────
+  // Supports: {{name}}, {name}, [name], {{HR_Name}}, {HR_Name}, {hr_name}, etc.
+  result = sub(result, [
+    /\{\{name\}\}/gi, /\{name\}/gi, /\[name\]/gi,
+    /\{\{HR_?[Nn]ame\}\}/g, /\{HR_?[Nn]ame\}/g,
+    /\{\{[Hh]iring_?[Mm]anager\}\}/g,
+    /\{\{[Rr]ecipient_?[Nn]ame\}\}/g, /\{[Rr]ecipient_?[Nn]ame\}/g,
+    /\{\{[Ff]ull_?[Nn]ame\}\}/g,
+  ], contact.name || '');
+
+  result = sub(result, [
+    /\{\{[Ff]irst_?[Nn]ame\}\}/g, /\{[Ff]irst_?[Nn]ame\}/g,
+  ], firstName);
+
+  result = sub(result, [
+    /\{\{company\}\}/gi, /\{company\}/gi, /\[company\]/gi,
+    /\{\{[Cc]ompany_?[Nn]ame\}\}/g, /\{[Cc]ompany_?[Nn]ame\}/g,
+  ], contact.company || '');
+
+  result = sub(result, [
+    /\{\{title\}\}/gi, /\{title\}/gi,
+    /\{\{role\}\}/gi,  /\{role\}/gi,
+    /\{\{[Pp]osition\}\}/gi,
+  ], contact.title || '');
+
+  result = sub(result, [
+    /\{\{email\}\}/gi, /\{email\}/gi,
+  ], contact.email || '');
+
+  // ── Sender / profile vars ─────────────────────────────────────────────────
+  result = sub(result, [/\{\{your_name\}\}/gi, /\{your_name\}/gi],         p.full_name        || '');
+  result = sub(result, [/\{\{current_title\}\}/gi, /\{current_title\}/gi], p.current_title    || '');
+  result = sub(result, [/\{\{experience\}\}/gi, /\{experience\}/gi],       p.total_experience || '');
+  result = sub(result, [/\{\{notice_period\}\}/gi, /\{notice_period\}/gi], p.notice_period    || '');
+  result = sub(result, [/\{\{location\}\}/gi, /\{location\}/gi],           p.location         || '');
+  result = sub(result, [/\{\{linkedin_url\}\}/gi, /\{linkedin_url\}/gi],   p.linkedin_url     || '');
+  result = sub(result, [/\{\{phone\}\}/gi, /\{phone\}/gi],                 p.phone            || '');
+  result = sub(result, [/\{\{skills\}\}/gi, /\{skills\}/gi],               skillsStr);
+
+  // Strip any remaining unresolved tokens ({{...}}, {...}, [...])
+  result = result.replace(/\{\{[\s\S]*?\}\}/g, '');
+  result = result.replace(/\{[A-Za-z_]\w*\}/g, '');
+
+  return result;
 }
 
 function getDriveFileId(url) {

@@ -205,11 +205,28 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
     if (!form.name.trim()) return toast.error('Template name is required');
     setSaving(true);
     try {
-      // Don't persist local-file attachments (too large / device-specific)
-      const attachToSave = selectAttachment?.type && selectAttachment.type !== 'local' ? selectAttachment : null;
-      if (selectAttachment?.type === 'local') {
-        toast('Local file attachment not saved with template — re-attach before sending', { icon: 'ℹ️' });
+      let attachToSave = selectAttachment?.type && selectAttachment.type !== 'local' ? selectAttachment : null;
+
+      // Auto-upload local file to vault so it's saved with the template
+      if (selectAttachment?.type === 'local' && selectAttachment.data) {
+        try {
+          const raw = selectAttachment.data.includes(',')
+            ? selectAttachment.data.split(',')[1]
+            : selectAttachment.data;
+          const bytes = Uint8Array.from(atob(raw), c => c.charCodeAt(0));
+          const blob  = new Blob([bytes], { type: selectAttachment.mimeType || 'application/octet-stream' });
+          const fd    = new FormData();
+          fd.append('resume', blob, selectAttachment.label || 'resume.pdf');
+          fd.append('label',  selectAttachment.label || 'Uploaded Resume');
+          const result = await api.post('/resume-versions/upload', fd);
+          attachToSave = { type: 'vault', vaultId: result.id, label: result.label || selectAttachment.label };
+          setSelectAttachment(attachToSave);
+          toast.success('File saved to vault and linked to template');
+        } catch {
+          toast.error('Could not save file to vault — template saved without attachment');
+        }
       }
+
       if (selected?._new) {
         const created = await api.post('/email-templates', { ...form, category: 'general', attachment_json: attachToSave });
         const withAtt = { ...created, attachment_json: attachToSave };
@@ -514,7 +531,7 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
                       <div className="flex items-center gap-2 flex-1 min-w-0">
                         <span className="text-xs text-brand-700 bg-brand-50 border border-brand-200 rounded px-2 py-0.5 truncate flex-1">
                           {selectAttachment.label}
-                          {selectAttachment.type === 'local' && ' (not saved)'}
+                          {selectAttachment.type === 'local' && <span className="text-amber-600"> (will be saved to vault on save)</span>}
                         </span>
                         <button onClick={() => setSelectAttachment(null)} className="text-xs text-red-400 hover:text-red-600 shrink-0">✕</button>
                       </div>

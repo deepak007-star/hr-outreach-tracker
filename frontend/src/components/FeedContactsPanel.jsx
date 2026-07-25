@@ -6,6 +6,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'react-hot-toast';
 import { api } from '../api/client.js';
+import EmailTemplatesModal from './EmailTemplatesModal.jsx';
+import RichEditor from './RichEditor.jsx';
+import AttachmentPicker from './AttachmentPicker.jsx';
 
 const SINCE_OPTS = [
   { value: '7d',  label: 'Last 7 days'  },
@@ -14,29 +17,235 @@ const SINCE_OPTS = [
   { value: '90d', label: 'Last 90 days' },
 ];
 
-// ─── Compose modal ────────────────────────────────────────────────────────────
+const RECIPIENT_VARS = [
+  { label: '{{name}}',    hint: 'Contact full name' },
+  { label: '{{company}}', hint: 'Company' },
+  { label: '{{title}}',   hint: 'Job title' },
+  { label: '{{email}}',   hint: 'Email address' },
+];
 
-function ComposeModal({ contacts, onClose, onSent }) {
-  const [subject, setSubject] = useState('Job Application — Saw Your LinkedIn Post');
-  const [body,    setBody]    = useState(
-    `Hi,\n\nI came across your recent LinkedIn post about job openings and I'm very interested in the opportunity.\n\nI'd love to connect and share my profile for your consideration.\n\n[Your Profile/Resume Link]\n\nThank you for your time!\n\nBest regards,\n[Your Name]`
+const PROFILE_VARS = [
+  { label: '{{your_name}}',     hint: 'Your name' },
+  { label: '{{current_title}}', hint: 'Your title' },
+  { label: '{{experience}}',    hint: 'Years of experience' },
+  { label: '{{notice_period}}', hint: 'Notice period' },
+  { label: '{{location}}',      hint: 'Your location' },
+  { label: '{{linkedin_url}}',  hint: 'LinkedIn URL' },
+  { label: '{{phone}}',         hint: 'Your phone' },
+  { label: '{{skills}}',        hint: 'Your skills' },
+];
+
+const DEFAULT_SUBJECT = 'Hi {{name}}, saw your LinkedIn post about openings at {{company}}';
+const DEFAULT_BODY =
+`Hi {{name}},
+
+I came across your recent LinkedIn post about job openings at {{company}} and I'm very interested in the opportunity.
+
+I'm a {{current_title}} with {{experience}} of experience, specialising in {{skills}}.
+
+I'd love a quick 15-minute chat to explore if there's a fit.
+
+Thanks,
+{{your_name}}
+{{phone}} | {{linkedin_url}}`;
+
+function buildProfileBody(profile) {
+  if (!profile) return DEFAULT_BODY;
+  const title  = profile.current_title    || 'professional';
+  const exp    = profile.total_experience || '';
+  const skills = Array.isArray(profile.skills) && profile.skills.length
+    ? profile.skills.slice(0, 4).join(', ')
+    : '';
+  const name   = profile.full_name    || '{{your_name}}';
+  const phone  = profile.phone        ? `\n${profile.phone}` : '';
+  const li     = profile.linkedin_url ? `\n${profile.linkedin_url}` : '';
+
+  return `Hi {{name}},
+
+I came across your recent LinkedIn post about job openings at {{company}} and I'm very interested in the opportunity.
+
+I'm a ${title}${exp ? ` with ${exp} of experience` : ''}${skills ? `, specialising in ${skills}` : ''}.
+
+I'd love a quick 15-minute chat to explore if there's a fit.
+
+Thanks,
+${name}${phone}${li}`;
+}
+
+// ─── Client-side template renderer (mirrors backend renderFeedTemplate) ────────
+function renderPreview(tpl, contact, profile) {
+  if (!tpl) return '';
+  const p = profile || {};
+  const firstName = (contact.name || '').split(' ')[0];
+  const skillsStr = Array.isArray(p.skills) ? p.skills.join(', ') : (p.skills || '');
+
+  function sub(text, patterns, value) {
+    let r = text;
+    for (const pat of patterns) r = r.replace(pat, value);
+    return r;
+  }
+
+  let r = tpl;
+  r = sub(r, [/\{\{name\}\}/gi, /\{name\}/gi, /\{\{HR_?[Nn]ame\}\}/g, /\{HR_?[Nn]ame\}/g,
+    /\{\{[Hh]iring_?[Mm]anager\}\}/g, /\{\{[Rr]ecipient_?[Nn]ame\}\}/g,
+    /\{\{[Ff]ull_?[Nn]ame\}\}/g], contact.name || '');
+  r = sub(r, [/\{\{[Ff]irst_?[Nn]ame\}\}/g], firstName);
+  r = sub(r, [/\{\{company\}\}/gi, /\{company\}/gi, /\{\{[Cc]ompany_?[Nn]ame\}\}/g], contact.company || '');
+  r = sub(r, [/\{\{title\}\}/gi, /\{title\}/gi, /\{\{role\}\}/gi, /\{\{[Pp]osition\}\}/gi], contact.title || '');
+  r = sub(r, [/\{\{email\}\}/gi, /\{email\}/gi], contact.email || '');
+  r = sub(r, [/\{\{your_name\}\}/gi, /\{your_name\}/gi], p.full_name || '');
+  r = sub(r, [/\{\{current_title\}\}/gi, /\{current_title\}/gi], p.current_title || '');
+  r = sub(r, [/\{\{experience\}\}/gi, /\{experience\}/gi], p.total_experience || '');
+  r = sub(r, [/\{\{notice_period\}\}/gi, /\{notice_period\}/gi], p.notice_period || '');
+  r = sub(r, [/\{\{location\}\}/gi, /\{location\}/gi], p.location || '');
+  r = sub(r, [/\{\{linkedin_url\}\}/gi, /\{linkedin_url\}/gi], p.linkedin_url || '');
+  r = sub(r, [/\{\{phone\}\}/gi, /\{phone\}/gi], p.phone || '');
+  r = sub(r, [/\{\{skills\}\}/gi, /\{skills\}/gi], skillsStr);
+  r = r.replace(/\{\{[\s\S]*?\}\}/g, '').replace(/\{[A-Za-z_]\w*\}/g, '');
+  return r;
+}
+
+// ─── Sub-components ────────────────────────────────────────────────────────────
+
+function VarChip({ label, hint, onInsert }) {
+  return (
+    <button type="button" onMouseDown={e => { e.preventDefault(); onInsert(label); }} title={hint}
+      className="px-2 py-0.5 text-xs font-mono bg-brand-50 text-brand-700 border border-brand-200 rounded-sm hover:bg-brand-100 transition">
+      {label}
+    </button>
   );
-  const [sending, setSending] = useState(false);
+}
+
+function PreviewCard({ p, index }) {
+  const [expanded, setExpanded] = useState(false);
+  const isHtml = /<[a-zA-Z]/.test(p.body);
+  return (
+    <div className="border rounded-md overflow-hidden text-sm bg-white border-gray-200 shadow-sm">
+      <div className="flex items-center justify-between px-4 py-3 cursor-pointer" onClick={() => setExpanded(e => !e)}>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-gray-400 text-xs font-mono shrink-0">#{index + 1}</span>
+          <span className="font-medium truncate text-gray-800">{p.name || p.email}</span>
+          <span className="text-xs truncate text-gray-500">&lt;{p.email}&gt;</span>
+        </div>
+        <div className="flex items-center gap-2 shrink-0 ml-2">
+          <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✓ Ready</span>
+          <span className="text-gray-400 text-xs">{expanded ? '▲' : '▼'}</span>
+        </div>
+      </div>
+      {expanded && (
+        <div className="border-t px-4 pb-4 pt-3 space-y-2">
+          <div>
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Subject</span>
+            <p className="mt-0.5 text-gray-800 text-sm">{p.subject}</p>
+          </div>
+          <div>
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Body</span>
+            {isHtml
+              ? <div className="mt-0.5 text-gray-700 text-xs leading-relaxed" dangerouslySetInnerHTML={{ __html: p.body }} />
+              : <pre className="mt-0.5 text-gray-700 text-xs leading-relaxed whitespace-pre-wrap font-sans">{p.body}</pre>
+            }
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Full-featured compose modal for feed contacts ─────────────────────────────
+
+function FeedComposeModal({ contacts, onClose, onSent }) {
+  const [step,             setStep]             = useState('compose');
+  const [subject,          setSubject]          = useState(DEFAULT_SUBJECT);
+  const [body,             setBody]             = useState(DEFAULT_BODY);
+  const [subjectError,     setSubjectError]     = useState(false);
+  const [bodyError,        setBodyError]        = useState(false);
+  const [previews,         setPreviews]         = useState([]);
+  const [loading,          setLoading]          = useState(false);
+  const [sending,          setSending]          = useState(false);
+  const [focused,          setFocused]          = useState('body');
+  const [showTemplates,    setShowTemplates]    = useState(false);
+  const [quickTpls,        setQuickTpls]        = useState([]);
+  const [attachment,       setAttachment]       = useState(null);
+  const [showAttachPicker, setShowAttachPicker] = useState(false);
+  const [profile,          setProfile]          = useState(null);
+
+  const subjRef      = useRef(null);
+  const bodyEditorRef = useRef(null);
+
+  useEffect(() => {
+    api.get('/email-templates').then(data => setQuickTpls(data.slice(0, 4))).catch(() => {});
+    api.get('/profile').then(p => {
+      const prof = p?.user_id ? p : null;
+      setProfile(prof);
+      if (prof) setBody(prev => prev === DEFAULT_BODY ? buildProfileBody(prof) : prev);
+    }).catch(() => {});
+  }, []);
+
+  function applyTemplate(t) {
+    setSubject(t.subject || DEFAULT_SUBJECT);
+    setBody(t.body || DEFAULT_BODY);
+    if (t.attachment) setAttachment(t.attachment);
+    toast.success(`Template applied: "${t.name}"`);
+  }
+
+  const insertVar = (v) => {
+    if (focused === 'subject') {
+      const el = subjRef.current;
+      if (!el) return;
+      const s = el.selectionStart ?? subject.length;
+      const e = el.selectionEnd   ?? subject.length;
+      setSubject(subject.slice(0, s) + v + subject.slice(e));
+      setTimeout(() => { el.selectionStart = el.selectionEnd = s + v.length; el.focus(); }, 0);
+    } else {
+      bodyEditorRef.current?.insertText(v);
+    }
+  };
+
+  const handlePreview = () => {
+    const subjEmpty = !subject.trim();
+    const bodyText  = body.trim().replace(/<[^>]+>/g, '').trim();
+    const bodyEmpty = !bodyText;
+    setSubjectError(subjEmpty);
+    setBodyError(bodyEmpty);
+    if (subjEmpty) { toast.error('Subject is required'); return; }
+    if (bodyEmpty) { toast.error('Body is required');    return; }
+
+    setLoading(true);
+    // Build client-side previews — mirrors backend renderFeedTemplate
+    const built = contacts.map(c => ({
+      email:   c.contact_email,
+      name:    c.contact_name || '',
+      subject: renderPreview(subject, { name: c.contact_name || '', company: c.company || '', title: c.title || '', email: c.contact_email }, profile),
+      body:    renderPreview(body,    { name: c.contact_name || '', company: c.company || '', title: c.title || '', email: c.contact_email }, profile),
+    }));
+    setPreviews(built);
+    setStep('preview');
+    setLoading(false);
+  };
 
   const handleSend = async () => {
-    if (!subject.trim() || !body.trim()) return;
     setSending(true);
     try {
-      const result = await api.post('/scraped-jobs/send-feed-emails', {
-        subject: subject.trim(),
-        body:    body.trim(),
+      const payload = {
+        template_subject: subject,
+        template_body:    body,
         contacts: contacts.map(c => ({
           email:   c.contact_email,
           name:    c.contact_name || '',
           company: c.company      || '',
           title:   c.title        || '',
         })),
-      });
+      };
+      if (attachment) {
+        payload.attachment = {
+          type:     attachment.type,
+          vaultId:  attachment.vaultId  || null,
+          filename: attachment.label    || null,
+          data:     attachment.data     || null,
+          mimeType: attachment.mimeType || null,
+        };
+      }
+      const result = await api.post('/scraped-jobs/send-feed-emails', payload);
       toast.success(`${result.sent}/${result.total} emails sent!`);
       onSent(contacts.map(c => c.contact_email));
       onClose();
@@ -48,52 +257,195 @@ function ComposeModal({ contacts, onClose, onSent }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-         onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="bg-white rounded-md shadow-modal w-full max-w-2xl max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between px-6 py-4 border-b">
+    <>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+      <div className="bg-white rounded-md shadow-modal w-full max-w-2xl max-h-[92vh] flex flex-col">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b shrink-0">
           <div>
-            <h2 className="font-semibold text-gray-900">✉ Compose Emails</h2>
-            <p className="text-sm text-gray-500">
-              {contacts.length} separate email{contacts.length !== 1 ? 's' : ''} — one per contact
+            <h2 className="text-base font-bold">
+              {step === 'compose'
+                ? `Compose — ${contacts.length} recipient${contacts.length !== 1 ? 's' : ''}`
+                : 'Preview Before Sending'}
+            </h2>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {step === 'compose'
+                ? 'One separate email per contact — variables auto-replaced per recipient'
+                : `${previews.length} email${previews.length !== 1 ? 's' : ''} ready to send`}
             </p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl p-1">✕</button>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">To</p>
-            <div className="flex flex-wrap gap-1.5 bg-gray-50 rounded-sm border p-2 max-h-20 overflow-y-auto">
-              {contacts.map(c => (
-                <span key={c.contact_email} className="text-xs bg-brand-100 text-brand-800 px-2 py-0.5 rounded-full">
-                  {c.contact_email}
-                </span>
-              ))}
+        {/* Compose step */}
+        {step === 'compose' && (
+          <div className="flex-1 overflow-y-auto">
+
+            {/* Template quick-pick */}
+            <div className="mx-5 mt-5 bg-brand-50 border border-brand-200 rounded-md p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <p className="text-sm font-bold text-brand-800">Start with a Template</p>
+                  <p className="text-xs text-brand-500">Pick one below or browse all templates</p>
+                </div>
+                <button onClick={() => setShowTemplates(true)}
+                  className="text-xs px-3 py-1.5 bg-brand-600 text-white rounded-sm hover:bg-brand-700 font-semibold transition whitespace-nowrap">
+                  Browse All →
+                </button>
+              </div>
+              {quickTpls.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {quickTpls.map(t => (
+                    <button key={t.id} onClick={() => applyTemplate(t)}
+                      className="text-xs px-3 py-2 bg-white border border-brand-200 text-brand-700 rounded-sm hover:bg-brand-600 hover:text-white hover:border-brand-600 font-medium transition-all shadow-sm">
+                      {t.name}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-brand-400">No templates yet — click "Browse All" to create one.</p>
+              )}
+            </div>
+
+            {/* Editor area */}
+            <div className="p-5 space-y-4">
+              {/* Variable chips */}
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide shrink-0">Recipient:</span>
+                  {RECIPIENT_VARS.map(v => <VarChip key={v.label} label={v.label} hint={v.hint} onInsert={insertVar} />)}
+                </div>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide shrink-0">Your profile:</span>
+                  {PROFILE_VARS.map(v => <VarChip key={v.label} label={v.label} hint={v.hint} onInsert={insertVar} />)}
+                </div>
+              </div>
+
+              {/* To — recipient list */}
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">To</p>
+                <div className="flex flex-wrap gap-1.5 bg-gray-50 rounded-sm border p-2 max-h-20 overflow-y-auto">
+                  {contacts.map(c => (
+                    <span key={c.contact_email} className="text-xs bg-brand-100 text-brand-800 px-2 py-0.5 rounded-full">
+                      {c.contact_name ? `${c.contact_name} <${c.contact_email}>` : c.contact_email}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Subject */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">
+                  Subject *{subjectError && <span className="ml-2 text-red-500 font-normal text-[11px]">Subject is required</span>}
+                </label>
+                <input
+                  ref={subjRef}
+                  value={subject}
+                  onChange={e => { setSubject(e.target.value); setSubjectError(false); }}
+                  onFocus={() => setFocused('subject')}
+                  className={`w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 outline-none ${subjectError ? 'border-red-400 focus:ring-red-200 bg-red-50' : 'focus:ring-brand-300'}`}
+                />
+              </div>
+
+              {/* Body */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">
+                  Body *{bodyError && <span className="ml-2 text-red-500 font-normal text-[11px]">Body is required</span>}
+                </label>
+                <div onFocus={() => { setFocused('body'); setBodyError(false); }}
+                  className={bodyError ? 'ring-2 ring-red-300 rounded-sm' : ''}>
+                  <RichEditor
+                    ref={bodyEditorRef}
+                    value={body}
+                    onChange={v => { setBody(v); setBodyError(false); }}
+                    minRows={11}
+                  />
+                </div>
+              </div>
+
+              {/* Attach Resume */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Attach Resume (optional)</label>
+                {attachment ? (
+                  <div className="flex items-center gap-2 px-3 py-2 bg-brand-50 border border-brand-200 rounded-sm text-sm">
+                    <span className="text-brand-700 flex-1 truncate text-xs">{attachment.label}</span>
+                    <button onClick={() => setAttachment(null)}
+                      className="text-xs text-red-400 hover:text-red-600 shrink-0 font-medium">Remove</button>
+                  </div>
+                ) : (
+                  <button onClick={() => setShowAttachPicker(true)}
+                    className="w-full px-3 py-2 border border-dashed border-gray-300 rounded-sm text-xs text-gray-500 hover:border-brand-400 hover:text-brand-600 transition text-left">
+                    + Attach resume — from profile, vault, or device
+                  </button>
+                )}
+              </div>
+
+              <div className="bg-amber-50 border border-amber-200 rounded-sm p-3 text-xs text-amber-800">
+                Each recipient gets their own individual email — not CC/BCC. Variables like <code className="font-mono">{'{{name}}'}</code> are replaced automatically per contact.
+              </div>
             </div>
           </div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Subject</label>
-            <input value={subject} onChange={e => setSubject(e.target.value)}
-                   className="w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none" />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Message</label>
-            <textarea value={body} onChange={e => setBody(e.target.value)} rows={10}
-                      className="w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none resize-none font-mono leading-relaxed" />
-          </div>
-          <p className="text-xs text-gray-400">Each recipient gets their own individual email — not CC/BCC.</p>
-        </div>
+        )}
 
-        <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50 rounded-b-md">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 border rounded-sm hover:bg-gray-100 transition-colors">Cancel</button>
-          <button onClick={handleSend} disabled={sending || !subject.trim() || !body.trim()}
-                  className="px-5 py-2 text-sm font-semibold bg-brand-600 text-white rounded-sm hover:bg-brand-700 disabled:opacity-50 transition-colors">
-            {sending ? 'Sending…' : `✉ Send ${contacts.length} Email${contacts.length !== 1 ? 's' : ''}`}
-          </button>
+        {/* Preview step */}
+        {step === 'preview' && (
+          <div className="flex-1 overflow-y-auto p-4 space-y-2">
+            {attachment && (
+              <div className="px-3 py-2 bg-brand-50 border border-brand-200 rounded-sm text-xs text-brand-700">
+                Attachment: <strong>{attachment.label}</strong>
+              </div>
+            )}
+            {previews.length === 0 && <p className="text-center py-16 text-gray-400">No previews</p>}
+            {previews.map((p, i) => <PreviewCard key={p.email} p={p} index={i} />)}
+          </div>
+        )}
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t shrink-0 flex gap-3">
+          {step === 'compose' && (
+            <>
+              <button onClick={handlePreview} disabled={loading}
+                className="flex-1 bg-brand-600 text-white rounded-sm py-2.5 text-sm font-semibold hover:bg-brand-700 disabled:opacity-50 transition">
+                {loading ? 'Building previews…' : `Preview ${contacts.length} Email${contacts.length !== 1 ? 's' : ''} →`}
+              </button>
+              <button onClick={onClose} className="border rounded-sm px-5 py-2.5 text-sm font-medium hover:bg-gray-50 transition">Cancel</button>
+            </>
+          )}
+          {step === 'preview' && (
+            <>
+              <button onClick={() => setStep('compose')} className="border rounded-sm px-5 py-2.5 text-sm font-medium hover:bg-gray-50 transition">← Back</button>
+              <button onClick={handleSend} disabled={sending || previews.length === 0}
+                className="flex-1 bg-green-600 text-white rounded-sm py-2.5 text-sm font-semibold hover:bg-green-700 disabled:opacity-50 transition">
+                {sending ? 'Sending…' : `Confirm & Send ${previews.length} Email${previews.length !== 1 ? 's' : ''}`}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
+
+    {showTemplates && (
+      <EmailTemplatesModal
+        mode="select"
+        onClose={() => setShowTemplates(false)}
+        onSelect={({ subject: s, body: b, attachment: a }) => {
+          setSubject(s);
+          setBody(b);
+          if (a) setAttachment(a);
+          setShowTemplates(false);
+        }}
+      />
+    )}
+
+    {showAttachPicker && (
+      <AttachmentPicker
+        profile={profile}
+        onSelect={a => { setAttachment(a); setShowAttachPicker(false); }}
+        onClose={() => setShowAttachPicker(false)}
+      />
+    )}
+    </>
   );
 }
 
@@ -126,7 +478,6 @@ export default function FeedContactsPanel() {
 
   useEffect(() => {
     fetchContacts();
-    // auto-refresh every 60s
     intervalRef.current = setInterval(() => fetchContacts(true), 60_000);
     return () => clearInterval(intervalRef.current);
   }, [fetchContacts]);
@@ -270,9 +621,7 @@ export default function FeedContactsPanel() {
                 className="rounded accent-blue-600 shrink-0 cursor-pointer"
               />
             )}
-            {c.already_emailed && (
-              <div className="w-4 h-4 shrink-0" />
-            )}
+            {c.already_emailed && <div className="w-4 h-4 shrink-0" />}
 
             {/* Avatar */}
             <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-sm font-bold text-brand-700 shrink-0">
@@ -281,7 +630,10 @@ export default function FeedContactsPanel() {
 
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-medium text-gray-900 truncate">{c.contact_email}</span>
+                {c.contact_name && (
+                  <span className="text-sm font-medium text-gray-900 truncate">{c.contact_name}</span>
+                )}
+                <span className="text-sm text-gray-600 truncate">{c.contact_email}</span>
                 {c.company && <span className="text-xs text-gray-500 truncate">{c.company}</span>}
                 {c.title   && <span className="text-xs text-gray-400 truncate">{c.title}</span>}
               </div>
@@ -303,7 +655,7 @@ export default function FeedContactsPanel() {
                   onClick={() => setComposeTo([c])}
                   className="px-3 py-1.5 bg-brand-600 text-white text-xs font-semibold rounded-sm hover:bg-brand-700 transition"
                 >
-                  Email
+                  ✉ Email
                 </button>
               )}
               {c.link && (
@@ -318,7 +670,7 @@ export default function FeedContactsPanel() {
       </div>
 
       {composeTo && (
-        <ComposeModal
+        <FeedComposeModal
           contacts={composeTo}
           onClose={() => setComposeTo(null)}
           onSent={handleSent}

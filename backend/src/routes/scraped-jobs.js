@@ -2,9 +2,91 @@
 
 const express  = require('express');
 const crypto   = require('crypto');
+const fs       = require('fs');
+const https    = require('https');
+const http     = require('http');
 const db       = require('../db/database');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { getTransportForUser } = require('../services/mailTransport');
+const sanitizeHtml = require('sanitize-html');
+
+// Shared HTML-safe subset (same as email.js)
+const EMAIL_HTML_OPTS = {
+  allowedTags: ['b','i','u','s','strong','em','del','ins','br','hr','p','div','span','ul','ol','li','blockquote','h1','h2','h3','a'],
+  allowedAttributes: { '*': ['style','class'], 'a': ['href','target','rel'] },
+  allowedSchemes: ['http','https','mailto'],
+  disallowedTagsMode: 'discard',
+};
+
+// Per-contact variable substitution supporting many common formats
+function renderFeedTemplate(tpl, contact, profile) {
+  const p = profile || {};
+  const firstName = (contact.name || '').split(' ')[0];
+  const skillsStr = Array.isArray(p.skills) ? p.skills.join(', ') : (p.skills || '');
+
+  function sub(text, patterns, value) {
+    let r = text;
+    for (const pat of patterns) r = r.replace(pat, value || '');
+    return r;
+  }
+
+  let result = tpl;
+  // Contact vars
+  result = sub(result, [
+    /\{\{name\}\}/gi, /\{name\}/gi, /\[name\]/gi,
+    /\{\{HR_?[Nn]ame\}\}/g, /\{HR_?[Nn]ame\}/g,
+    /\{\{[Hh]iring_?[Mm]anager\}\}/g, /\{\{[Rr]ecipient_?[Nn]ame\}\}/g,
+    /\{\{[Ff]ull_?[Nn]ame\}\}/g,
+  ], contact.name || '');
+  result = sub(result, [/\{\{[Ff]irst_?[Nn]ame\}\}/g, /\{[Ff]irst_?[Nn]ame\}/g], firstName);
+  result = sub(result, [
+    /\{\{company\}\}/gi, /\{company\}/gi, /\[company\]/gi,
+    /\{\{[Cc]ompany_?[Nn]ame\}\}/g,
+  ], contact.company || '');
+  result = sub(result, [/\{\{title\}\}/gi, /\{title\}/gi, /\{\{role\}\}/gi, /\{role\}/gi], contact.title || '');
+  result = sub(result, [/\{\{email\}\}/gi, /\{email\}/gi], contact.email || '');
+  // Profile vars
+  result = sub(result, [/\{\{your_name\}\}/gi, /\{your_name\}/gi],         p.full_name        || '');
+  result = sub(result, [/\{\{current_title\}\}/gi],                         p.current_title    || '');
+  result = sub(result, [/\{\{experience\}\}/gi],                            p.total_experience || '');
+  result = sub(result, [/\{\{notice_period\}\}/gi],                         p.notice_period    || '');
+  result = sub(result, [/\{\{location\}\}/gi],                              p.location         || '');
+  result = sub(result, [/\{\{linkedin_url\}\}/gi],                          p.linkedin_url     || '');
+  result = sub(result, [/\{\{phone\}\}/gi],                                 p.phone            || '');
+  result = sub(result, [/\{\{skills\}\}/gi],                                skillsStr);
+  // Strip remaining tokens
+  result = result.replace(/\{\{[\s\S]*?\}\}/g, '');
+  result = result.replace(/\{[A-Za-z_]\w*\}/g, '');
+  return result;
+}
+
+// Resolve attachment (mirrors email.js resolveAttachment, no google-drive dep here)
+async function resolveFeedAttachment(attachment, userId) {
+  if (!attachment?.type) return [];
+  try {
+    if (attachment.type === 'profile') {
+      const profile = await db.prepare(
+        'SELECT resume_file_path, resume_mime_type, resume_filename FROM profiles WHERE user_id = ?'
+      ).get(userId);
+      if (profile?.resume_file_path && fs.existsSync(profile.resume_file_path)) {
+        return [{ filename: profile.resume_filename || 'resume', path: profile.resume_file_path, contentType: profile.resume_mime_type || 'application/octet-stream' }];
+      }
+    } else if (attachment.type === 'vault' && attachment.vaultId) {
+      const version = await db.prepare(
+        'SELECT file_path, mime_type, label FROM resume_versions WHERE id = ? AND user_id = ?'
+      ).get(attachment.vaultId, userId);
+      if (version?.file_path && fs.existsSync(version.file_path)) {
+        const ext = version.mime_type?.includes('pdf') ? '.pdf' : version.mime_type?.includes('word') ? '.docx' : '';
+        return [{ filename: (version.label || 'resume') + ext, path: version.file_path, contentType: version.mime_type || 'application/octet-stream' }];
+      }
+    } else if (attachment.type === 'local' && attachment.data) {
+      return [{ filename: attachment.filename || 'resume', content: Buffer.from(attachment.data, 'base64'), contentType: attachment.mimeType || 'application/octet-stream' }];
+    }
+  } catch (e) {
+    console.warn('[feed-email] resolveAttachment failed (non-fatal):', e.message);
+  }
+  return [];
+}
 
 async function getSentToday(userId) {
   const today = new Date().toISOString().slice(0, 10);
@@ -260,10 +342,20 @@ router.get('/feed-contacts', requireAuth, async (req, res) => {
 
 router.post('/send-feed-emails', requireAuth, async (req, res) => {
   try {
-    const { subject, body, contacts } = req.body;
+    // Accept both new format (template_subject/template_body with {{vars}}) and
+    // legacy format (subject/body sent verbatim). New format does per-contact substitution.
+    const {
+      template_subject, template_body,
+      subject: legacySubject, body: legacyBody,
+      contacts, attachment,
+    } = req.body;
+
+    const subjectTpl = (template_subject || legacySubject || '').trim();
+    const bodyTpl    = (template_body    || legacyBody    || '').trim();
+
     if (!Array.isArray(contacts) || !contacts.length)
       return res.status(400).json({ error: 'contacts[] required' });
-    if (!subject?.trim() || !body?.trim())
+    if (!subjectTpl || !bodyTpl)
       return res.status(400).json({ error: 'subject and body required' });
 
     const cap = await getDailyCap();
@@ -279,36 +371,54 @@ router.post('/send-feed-emails', requireAuth, async (req, res) => {
 
     const { transport, fromEmail } = mail;
     const fromName = sanitizeHeaderValue(mail.fromName);
-    let remaining = cap - sentToday;
-    const now     = new Date().toISOString().replace('T', ' ').slice(0, 19);
-    const results = [];
-    const htmlBody = body.trim()
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/\n/g, '<br>');
+    let remaining  = cap - sentToday;
+    const now      = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const results  = [];
+
+    // Fetch sender profile for profile-var substitution
+    const profile = await db.prepare('SELECT * FROM profiles WHERE user_id = ?').get(req.user.userId).catch(() => null);
+
+    // Resolve attachment once for all contacts
+    const attachments = await resolveFeedAttachment(attachment || null, req.user.userId);
 
     for (const contact of contacts) {
-      const { email, name = '', company = '' } = contact;
+      const { email, name = '', company = '', title = '' } = contact;
       if (!email) { results.push({ email, ok: false, error: 'Missing email' }); continue; }
+      if (remaining <= 0) { results.push({ email, ok: false, error: 'Daily cap reached' }); continue; }
 
-      if (remaining <= 0) {
-        results.push({ email, ok: false, error: 'Daily cap reached' }); continue;
-      }
+      // Per-contact variable substitution
+      const contactObj = { name, company, title, email };
+      const renderedSubject = renderFeedTemplate(subjectTpl, contactObj, profile);
+      const renderedBody    = renderFeedTemplate(bodyTpl,    contactObj, profile);
+
+      const isHtml   = /<[a-zA-Z]/.test(renderedBody);
+      const safeBody = isHtml ? sanitizeHtml(renderedBody, EMAIL_HTML_OPTS) : renderedBody;
+      const textBody = isHtml
+        ? safeBody.replace(/<[^>]+>/g, '').replace(/\n{3,}/g, '\n\n').trim()
+        : renderedBody;
+      const htmlBody = isHtml
+        ? `<div style="font-family:sans-serif;font-size:14px;line-height:1.7">${safeBody}</div>`
+        : `<div style="font-family:sans-serif;font-size:14px;line-height:1.7">${
+            renderedBody.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
+          }</div>`;
 
       const safeName = sanitizeHeaderValue(name);
       try {
         await transport.sendMail({
           from:    fromName ? `"${fromName}" <${fromEmail}>` : fromEmail,
           to:      safeName ? `"${safeName}" <${email}>` : email,
-          subject: subject.trim(),
-          text:    body.trim(),
-          html:    `<div style="font-family:sans-serif;font-size:14px;line-height:1.7">${htmlBody}</div>`,
+          subject: renderedSubject,
+          text:    textBody,
+          html:    htmlBody,
+          ...(attachments.length > 0 ? { attachments } : {}),
         });
 
-        // Record in email_log so cap accounting stays accurate
+        // Record for daily cap tracking — look up contact row if it exists
+        const cRow = await db.prepare('SELECT id FROM contacts WHERE LOWER(email) = LOWER(?) LIMIT 1').get(email);
         await db.prepare(`
           INSERT INTO email_log (id, contact_id, user_id, subject, body_snapshot, delivery_status)
-          SELECT ?, c.id, ?, ?, ?, 'sent' FROM contacts c WHERE LOWER(c.email) = LOWER(?) LIMIT 1
-        `).run(crypto.randomUUID(), req.user.userId, subject.trim(), body.trim().slice(0, 500), email);
+          VALUES (?, ?, ?, ?, ?, 'sent')
+        `).run(crypto.randomUUID(), cRow?.id || null, req.user.userId, renderedSubject, textBody.slice(0, 500));
 
         await db.prepare(`
           INSERT INTO gmail_tracked_emails
@@ -318,13 +428,18 @@ router.post('/send-feed-emails', requireAuth, async (req, res) => {
         `).run(
           crypto.randomUUID(), req.user.userId,
           email, safeName,
-          subject.trim(), body.trim().slice(0, 200), body.trim(), now
+          renderedSubject, textBody.slice(0, 200), textBody, now
         );
 
         remaining--;
         results.push({ email, ok: true });
       } catch (e) {
         results.push({ email, ok: false, error: e.message });
+      }
+
+      // 2s gap between sends in a batch
+      if (contacts.indexOf(contact) < contacts.length - 1) {
+        await new Promise(r => setTimeout(r, 2000));
       }
     }
 
