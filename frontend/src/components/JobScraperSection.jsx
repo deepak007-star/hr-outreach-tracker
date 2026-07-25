@@ -57,6 +57,7 @@ export default function JobScraperSection() {
   const [total,       setTotal]       = useState(0);
   const [pages,       setPages]       = useState(1);
   const [profile,     setProfile]     = useState(null);
+  const [suppressProfileFilter, setSuppressProfileFilter] = useState(false);
   const logsEndRef = useRef(null);
 
   const cat = CATEGORIES.find(c => c.id === activeCat) || CATEGORIES[0];
@@ -64,16 +65,18 @@ export default function JobScraperSection() {
   // Load user profile for preference-based defaults
   useEffect(() => {
     if (!user) return;
-    api.get('/profile').then(p => setProfile(p)).catch(() => {});
+    api.get('/profile').then(p => { setProfile(p); setSuppressProfileFilter(false); }).catch(() => {});
   }, [user]);
 
-  // Fetch stored jobs
+  // Fetch stored jobs — when no manual search, auto-filter by user's profile title
   const fetchJobs = useCallback(async () => {
     if (cat.comingSoon) { setJobs([]); setLoading(false); return; }
     setLoading(true);
     try {
       const params = { category: cat.dbCat, since, limit, page };
-      if (search) params.search = search;
+      const profileTitle = !suppressProfileFilter && profile && [profile.job_title_1, profile.job_title_2, profile.job_title_3, profile.current_title].filter(Boolean)[0];
+      const effectiveSearch = search || profileTitle || '';
+      if (effectiveSearch) params.search = effectiveSearch;
       const data = await api.get('/scraped-jobs', { params });
       setJobs(data.jobs || []);
       setTotal(data.total || 0);
@@ -83,10 +86,10 @@ export default function JobScraperSection() {
     } finally {
       setLoading(false);
     }
-  }, [activeCat, since, limit, page, search]);
+  }, [activeCat, since, limit, page, search, profile, suppressProfileFilter]);
 
   useEffect(() => { fetchJobs(); }, [fetchJobs]);
-  useEffect(() => { setPage(1); }, [activeCat, since, limit, search]);
+  useEffect(() => { setPage(1); }, [activeCat, since, limit, search, suppressProfileFilter]);
 
   // Auto-scroll logs
   useEffect(() => {
@@ -264,16 +267,34 @@ export default function JobScraperSection() {
       </div>
 
       {/* Profile preferences hint */}
-      {profile && !search && (
-        <div className="flex items-center gap-2 text-xs text-gray-500 bg-brand-50 border border-brand-100 rounded-sm px-3 py-2">
-          <span>💡</span>
-          <span>
-            Showing jobs matching your profile preferences:{' '}
-            <strong>{buildTitlesFromProfile(profile, '').join(', ')}</strong>
-            {profile.preferred_city && <> · <strong>{profile.preferred_city}</strong></>}
-          </span>
-        </div>
-      )}
+      {(() => {
+        const profileTitles = profile ? [profile.job_title_1, profile.job_title_2, profile.job_title_3, profile.current_title].filter(Boolean) : [];
+        const isProfileFiltering = profile && !search && !suppressProfileFilter && profileTitles.length > 0;
+        const isShowingAll = profile && !search && suppressProfileFilter && profileTitles.length > 0;
+        if (isProfileFiltering) return (
+          <div className="flex items-center gap-2 text-xs text-gray-500 bg-brand-50 border border-brand-100 rounded-sm px-3 py-2">
+            <span>🎯</span>
+            <span className="flex-1">
+              Showing jobs for your profile:{' '}
+              <strong>{profileTitles.slice(0, 3).join(', ')}</strong>
+              {profile.preferred_city && <> · <strong>{profile.preferred_city}</strong></>}
+            </span>
+            <button onClick={() => setSuppressProfileFilter(true)} className="ml-auto text-gray-400 hover:text-gray-700 underline whitespace-nowrap">
+              Show all jobs →
+            </button>
+          </div>
+        );
+        if (isShowingAll) return (
+          <div className="flex items-center gap-2 text-xs text-gray-500 bg-amber-50 border border-amber-100 rounded-sm px-3 py-2">
+            <span>📋</span>
+            <span className="flex-1">Showing all jobs (profile filter paused).</span>
+            <button onClick={() => setSuppressProfileFilter(false)} className="ml-auto text-brand-600 hover:text-brand-800 underline whitespace-nowrap">
+              ← Filter by profile
+            </button>
+          </div>
+        );
+        return null;
+      })()}
 
       {/* Scraper logs */}
       {showLogs && (

@@ -63,6 +63,24 @@ class TabErrorBoundary extends Component {
 const PLAN_LIMITS = { guest: 5, demo: 10, basic: 100, advanced: 999999 };
 const PLAN_NAMES  = { guest: 'Guest', demo: 'Demo', basic: 'Basic', advanced: 'Advanced' };
 
+const TAB_PATHS = {
+  home:           '/',
+  contacts:       '/contacts',
+  templates:      '/templates',
+  jobs:           '/analyzer',
+  bulk:           '/bulk-apply',
+  profile:        '/profile',
+  'job-scraper':  '/jobs',
+  'resume-vault': '/vault',
+  referrals:      '/referrals',
+  admin:          '/admin',
+};
+
+function getTabFromPath(pathname) {
+  const reverse = Object.fromEntries(Object.entries(TAB_PATHS).map(([t, p]) => [p, t]));
+  return reverse[pathname] || 'home';
+}
+
 const STATUSES = ['New','Drafted','Sent','Opened','Replied','Interview','Rejected','Do Not Contact'];
 
 export default function App() {
@@ -80,7 +98,7 @@ export default function App() {
   const [showReminder,     setShowReminder]     = useState(false);
   const [emailStats,       setEmailStats]       = useState(null);
   const [activityKey,      setActivityKey]      = useState(0);
-  const [activeTab,        setActiveTab]        = useState('home'); // 'home' | 'contacts' | 'templates' | 'jobs' | 'bulk' | 'profile'
+  const [activeTab,        setActiveTab]        = useState(() => getTabFromPath(window.location.pathname));
   const [showAuthModal,    setShowAuthModal]    = useState(false);
   const [showPlans,        setShowPlans]        = useState(false);
   // contacts section sub-tabs: 'my' | 'cold-email' | 'job-links'
@@ -92,6 +110,12 @@ export default function App() {
   const [showUnsavedModal, setShowUnsavedModal] = useState(false);
   const pendingTabRef      = useRef(null);
 
+  // Low-level navigate: updates state + pushes URL
+  const goTo = useCallback((tabId) => {
+    setActiveTab(tabId);
+    window.history.pushState({ tabId }, '', TAB_PATHS[tabId] || '/');
+  }, []);
+
   // Intercept tab navigation — show modal if ProfilePage has unsaved changes
   const navigateTo = useCallback((tabId, requiresAuth) => {
     if (requiresAuth && !user) { setShowAuthModal(true); return; }
@@ -100,8 +124,8 @@ export default function App() {
       setShowUnsavedModal(true);
       return;
     }
-    setActiveTab(tabId);
-  }, [activeTab, user]);
+    goTo(tabId);
+  }, [activeTab, user, goTo]);
 
   const visibleLimit = PLAN_LIMITS[user?.plan] ?? PLAN_LIMITS.guest;
   const planName     = PLAN_NAMES[user?.plan]  ?? PLAN_NAMES.guest;
@@ -152,6 +176,16 @@ export default function App() {
     };
     window.addEventListener('hr-session-expired', onExpired);
     return () => window.removeEventListener('hr-session-expired', onExpired);
+  }, []);
+
+  // Sync active tab on browser back/forward
+  useEffect(() => {
+    const onPop = (e) => {
+      const tab = e.state?.tabId || getTabFromPath(window.location.pathname) || 'home';
+      setActiveTab(tab);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
   }, []);
 
   // Listen for login requests dispatched from child components (e.g. JobAnalyzer)
@@ -401,9 +435,9 @@ export default function App() {
           <Dashboard
             contacts={contacts}
             emailStats={emailStats}
-            onAddContact={() => { setActiveTab('contacts'); setContactSubTab('my'); openAdd(); }}
+            onAddContact={() => { goTo('contacts'); setContactSubTab('my'); openAdd(); }}
             onCompose={() => { if (!user) { setShowAuthModal(true); return; } setComposeContacts(contacts.filter(c => c.status === 'New').slice(0, 1)); setShowCompose(true); }}
-            onGoToContacts={() => { setActiveTab('contacts'); setContactSubTab('my'); }}
+            onGoToContacts={() => { goTo('contacts'); setContactSubTab('my'); }}
           />
         )}
 
@@ -665,14 +699,14 @@ export default function App() {
             // Draft is already auto-saved by useDraft; just proceed with navigation
             setShowUnsavedModal(false);
             profileDirtyRef.current = false;
-            if (pendingTabRef.current) { setActiveTab(pendingTabRef.current); pendingTabRef.current = null; }
+            if (pendingTabRef.current) { goTo(pendingTabRef.current); pendingTabRef.current = null; }
           }}
           onLeave={() => {
             // Discard all profile drafts and navigate
             ['profile:overview', 'profile:links', 'profile:hero'].forEach(k => clearDraft(k));
             setShowUnsavedModal(false);
             profileDirtyRef.current = false;
-            if (pendingTabRef.current) { setActiveTab(pendingTabRef.current); pendingTabRef.current = null; }
+            if (pendingTabRef.current) { goTo(pendingTabRef.current); pendingTabRef.current = null; }
           }}
           onStay={() => {
             setShowUnsavedModal(false);
