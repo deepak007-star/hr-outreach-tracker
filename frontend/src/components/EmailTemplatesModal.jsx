@@ -215,9 +215,18 @@ export default function EmailTemplatesModal({ mode = 'manage', onClose, onSelect
             : selectAttachment.data;
           const bytes = Uint8Array.from(atob(raw), c => c.charCodeAt(0));
           const blob  = new Blob([bytes], { type: selectAttachment.mimeType || 'application/octet-stream' });
+          const rawLabel = selectAttachment.label || 'resume';
+          const hasExt   = /\.[a-zA-Z]{2,5}$/.test(rawLabel);
+          const extGuess = !hasExt
+            ? (selectAttachment.mimeType?.includes('pdf')  ? '.pdf'
+              : selectAttachment.mimeType?.includes('word') ? '.docx'
+              : selectAttachment.mimeType?.includes('text') ? '.txt'
+              : '.pdf')
+            : '';
+          const uploadName = rawLabel + extGuess;
           const fd    = new FormData();
-          fd.append('resume', blob, selectAttachment.label || 'resume.pdf');
-          fd.append('label',  selectAttachment.label || 'Uploaded Resume');
+          fd.append('resume', blob, uploadName);
+          fd.append('label',  rawLabel);
           const result = await api.post('/resume-versions/upload', fd);
           attachToSave = { type: 'vault', vaultId: result.id, label: result.label || selectAttachment.label };
           setSelectAttachment(attachToSave);

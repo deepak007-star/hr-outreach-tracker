@@ -261,5 +261,7 @@ router.put('/admin/plan/:userId', requireAuth, requireAdmin, async (req, res) =>
   }
 });
 
-router.webhookHandler = webhookHandler;
+// POST /api/payments/webhook — must be mounted on raw body (index.js preserves rawBody)
+router.post('/webhook', webhookHandler);
+
 module.exports = router;

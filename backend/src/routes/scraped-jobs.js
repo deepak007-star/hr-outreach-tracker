@@ -297,6 +297,7 @@ router.get('/feed-contacts', requireAuth, async (req, res) => {
             description:      post.description,
             link:             post.link      || '',
             contact_email:    email,
+            contact_name:     post.author_name || '',
             contact_phone:    null,
             google_form_link: null,
             whatsapp_link:    null,
