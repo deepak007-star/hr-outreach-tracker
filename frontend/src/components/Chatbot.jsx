@@ -246,14 +246,21 @@ export default function Chatbot({ onLoginRequest }) {
       }]);
       if (!open) setUnread(n => n + 1);
     } catch (e) {
-      const errMsg = e?.response?.data?.error || 'Failed to get response. Please try again.';
-      setError(errMsg);
+      const status  = e?.response?.status;
+      const errMsg  = e?.response?.data?.error || 'Failed to get response. Please try again.';
+      const display = status === 503
+        ? 'VartaBot is temporarily unavailable. Please try again in a moment.'
+        : status === 429
+          ? 'Too many messages — please wait a moment and try again.'
+          : 'Something went wrong. Please try again.';
+      setError(display);
       setMessages(prev => [...prev, {
         id:         `err-${Date.now()}`,
         role:       'assistant',
-        content:    `Sorry, I ran into an issue: ${errMsg}`,
+        content:    display,
         created_at: new Date().toISOString(),
       }]);
+      console.error('[VartaBot]', errMsg);
     } finally {
       setLoading(false);
     }

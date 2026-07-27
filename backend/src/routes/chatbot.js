@@ -169,7 +169,8 @@ router.post('/message', requireAuth, async (req, res) => {
   if (!message?.trim()) return res.status(400).json({ error: 'Message is required' });
 
   if (!process.env.GROQ_API_KEY) {
-    return res.status(503).json({ error: 'AI service not configured. Please set GROQ_API_KEY.' });
+    console.error('[Chatbot] GROQ_API_KEY is not set — VartaBot cannot respond');
+    return res.status(503).json({ error: 'VartaBot is temporarily unavailable. Please try again later or contact support.' });
   }
 
   try {
