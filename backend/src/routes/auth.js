@@ -106,6 +106,28 @@ router.get('/me', requireAuth, async (req, res) => {
   const user = await db.prepare('SELECT id, name, email, plan, role, token_version, created_at FROM users WHERE id = ?').get(req.user.userId);
   if (!user) return res.status(404).json({ error: 'User not found.' });
 
+  // Auto-downgrade if paid subscription has expired
+  if (user.plan === 'basic' || user.plan === 'advanced') {
+    try {
+      const sub = await db.prepare(
+        "SELECT current_period_end FROM subscriptions WHERE user_id = ? AND status = 'active'"
+      ).get(req.user.userId);
+      if (sub?.current_period_end) {
+        const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+        if (sub.current_period_end < now) {
+          await db.prepare(
+            "UPDATE subscriptions SET status = 'expired', updated_at = ? WHERE user_id = ?"
+          ).run(now, req.user.userId);
+          await db.prepare("UPDATE users SET plan = 'demo' WHERE id = ?").run(req.user.userId);
+          user.plan = 'demo';
+          console.log(`[Auth] Subscription expired — downgraded user ${req.user.userId} to demo`);
+        }
+      }
+    } catch (e) {
+      console.error('[Auth] Subscription expiry check failed:', e.message);
+    }
+  }
+
   // Roll a fresh token — extends the session on every successful /me call
   const freshToken = jwt.sign(
     { userId: user.id, plan: user.plan, role: user.role, tokenVersion: user.token_version ?? 0 },

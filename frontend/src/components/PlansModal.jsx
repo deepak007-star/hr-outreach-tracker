@@ -169,7 +169,14 @@ export default function PlansModal({ onClose, onSignupClick }) {
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b sticky top-0 bg-white z-10">
           <div>
-            <h2 className="text-lg font-extrabold text-gray-900">Choose Your Plan</h2>
+            <h2 className="text-lg font-extrabold text-gray-900 flex items-center gap-2">
+              Choose Your Plan
+              {isConfigured && config?.keyId?.startsWith('rzp_test_') && (
+                <span className="text-[9px] font-semibold bg-yellow-100 text-yellow-700 border border-yellow-300 px-1.5 py-0.5 rounded-full">
+                  TEST MODE
+                </span>
+              )}
+            </h2>
             <p className="text-xs text-gray-500 mt-0.5">Unlock more contacts &amp; send more emails</p>
           </div>
           <button
@@ -254,23 +261,33 @@ export default function PlansModal({ onClose, onSignupClick }) {
           })}
         </div>
 
-        {/* Active subscription management */}
-        {subscription && subscription.status === 'active' && ['basic', 'advanced'].includes(currentId) && (
-          <div className="mx-5 mb-3 p-3 bg-gray-50 border border-gray-200 rounded-md flex items-center justify-between">
+        {/* Active / cancelled subscription management */}
+        {subscription && ['active', 'cancelled'].includes(subscription.status) && ['basic', 'advanced'].includes(currentId) && (
+          <div className={`mx-5 mb-3 p-3 border rounded-md flex items-center justify-between ${
+            subscription.status === 'cancelled' ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-200'
+          }`}>
             <div>
-              <p className="text-xs font-semibold text-gray-700">Active Subscription</p>
+              <p className="text-xs font-semibold text-gray-700">
+                {subscription.status === 'cancelled' ? 'Subscription Cancelled' : 'Active Subscription'}
+              </p>
               <p className="text-[10px] text-gray-500 mt-0.5">
                 {subscription.plan?.charAt(0).toUpperCase() + subscription.plan?.slice(1)} plan
-                {subscription.current_period_end && ` · Renews ${new Date(subscription.current_period_end).toLocaleDateString('en-IN')}`}
+                {subscription.current_period_end && (
+                  subscription.status === 'cancelled'
+                    ? ` · Access until ${new Date(subscription.current_period_end).toLocaleDateString('en-IN')}`
+                    : ` · Renews ${new Date(subscription.current_period_end).toLocaleDateString('en-IN')}`
+                )}
               </p>
             </div>
-            <button
-              onClick={handleCancel}
-              disabled={cancelling}
-              className="text-xs text-red-500 hover:text-red-700 font-medium underline underline-offset-2 disabled:opacity-60"
-            >
-              {cancelling ? 'Cancelling…' : 'Cancel Plan'}
-            </button>
+            {subscription.status === 'active' && (
+              <button
+                onClick={handleCancel}
+                disabled={cancelling}
+                className="text-xs text-red-500 hover:text-red-700 font-medium underline underline-offset-2 disabled:opacity-60"
+              >
+                {cancelling ? 'Cancelling…' : 'Cancel Plan'}
+              </button>
+            )}
           </div>
         )}
 

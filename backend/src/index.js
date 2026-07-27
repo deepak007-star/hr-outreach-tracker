@@ -386,6 +386,28 @@ async function main() {
   // Run purge once at startup (after 30s) then every 24h
   setTimeout(runDailyPurgeAndBackup, 30_000);
   setInterval(runDailyPurgeAndBackup, 24 * 3_600_000);
+
+  // ── Subscription expiry downgrade (startup + daily) ───────────────────────
+  async function downgradeExpiredSubscriptions() {
+    try {
+      const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+      const expired = await database.prepare(
+        "SELECT user_id FROM subscriptions WHERE status = 'active' AND current_period_end < ?"
+      ).all(now);
+      for (const { user_id } of expired) {
+        await database.prepare(
+          "UPDATE subscriptions SET status = 'expired', updated_at = ? WHERE user_id = ?"
+        ).run(now, user_id);
+        await database.prepare("UPDATE users SET plan = 'demo' WHERE id = ?").run(user_id);
+        console.log(`[Subscriptions] Expired plan downgraded for user ${user_id}`);
+      }
+      if (expired.length > 0) console.log(`[Subscriptions] Downgraded ${expired.length} expired subscription(s)`);
+    } catch (e) {
+      console.error('[Subscriptions] Expiry check error:', e.message);
+    }
+  }
+  setTimeout(downgradeExpiredSubscriptions, 20_000);
+  setInterval(downgradeExpiredSubscriptions, 24 * 3_600_000);
 }
 
 main().catch(err => { console.error('Startup failed:', err); process.exit(1); });
