@@ -8,11 +8,20 @@ const db     = require('../db/database');
  * from two different sources deduplicates correctly.
  */
 function fingerprint(job) {
-  const key = [
-    (job.title   || '').toLowerCase().replace(/\s+/g, ' ').trim(),
-    (job.company || '').toLowerCase().replace(/\s+/g, ' ').trim(),
-    (job.posted_at || '').slice(0, 7), // YYYY-MM only
-  ].join('||');
+  // Internal DB sources (linkedin-posts, scraped:*) are already unique per post ID.
+  // Use source+external_id so different HRs posting the same job title from the same
+  // company don't collapse into one row (they may have different recruiter emails).
+  if (job.source === 'linkedin-posts' || job.source.startsWith('scraped:')) {
+    return crypto.createHash('sha256')
+      .update(`${job.source}||${job.external_id}`)
+      .digest('hex').slice(0, 32);
+  }
+
+  // For external API sources: semantic dedup by title+company+month so the same job
+  // listed on both Arbeitnow and Remotive doesn't get stored twice.
+  const title   = (job.title   || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const company = (job.company || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const key     = [title, company, (job.posted_at || '').slice(0, 7)].join('||');
   return crypto.createHash('sha256').update(key).digest('hex').slice(0, 32);
 }
 

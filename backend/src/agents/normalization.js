@@ -12,7 +12,7 @@ function normalize(raw) {
   const location    = (raw.location    || '').replace(STRIP_HTML, '').trim();
   const description = (raw.description || '').replace(STRIP_HTML, '').trim().slice(0, 3000);
   const apply_url   = (raw.apply_url   || '').trim();
-  const external_id = String(raw.external_id || raw.apply_url || title).slice(0, 512);
+  const external_id = String(raw.external_id || raw.apply_url || title || raw.source).slice(0, 512);
 
   let posted_at = '';
   if (raw.posted_at) {
@@ -27,6 +27,14 @@ function normalize(raw) {
     company_domain = u.hostname.replace(/^www\./, '');
   } catch (_) {}
 
+  // Pass through private `_*` fields used by internal DB sources
+  // (pre-extracted contacts, author info). They are NOT stored in the DB —
+  // only used during the in-memory pipeline run for faster extraction.
+  const privateFields = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (k.startsWith('_')) privateFields[k] = v;
+  }
+
   return {
     source:         raw.source   || 'unknown',
     external_id,
@@ -37,11 +45,14 @@ function normalize(raw) {
     description,
     apply_url,
     posted_at:      posted_at || null,
+    ...privateFields,
   };
 }
 
 function normalizeAll(raws) {
-  return raws.map(normalize).filter(j => j.title && j.source);
+  // Require source but NOT title — LinkedIn posts often have blank titles
+  // and we still want to extract their HR contact emails.
+  return raws.map(normalize).filter(j => j.source && j.source !== 'unknown');
 }
 
 module.exports = { normalize, normalizeAll };

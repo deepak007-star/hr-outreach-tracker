@@ -21,8 +21,9 @@ const DEFAULT_CONFIG = {
   adzuna_app_id:        '',
   adzuna_key:           '',
   jooble_key:           '',
-  classify:             true,
+  classify:             false, // disabled by default — contact extraction doesn't need job relevance scoring
   min_confidence:       0.5,
+  internal_lookback_days: 60,  // how many days back to read from scraped_jobs / linkedin_posts
 };
 
 async function getConfig() {
@@ -82,8 +83,10 @@ async function runPipeline(triggeredBy = 'scheduler') {
     totalDupes = duplicateCount;
     console.log(`[Pipeline] Dedup: ${unique.length} unique, ${duplicateCount} duplicates`);
 
-    // ── 4. Extract → only proceed with classify/store if email found ──────
-    const classEnabled = cfg.classify !== false;
+    // ── 4. Extract → store if email found (classification disabled for contacts pipeline) ─
+    // Classification (job relevance scoring) is skipped here — this pipeline's goal is
+    // extracting HR contact emails, not ranking job fit. Enable via cfg.classify if needed.
+    const classEnabled = cfg.classify === true; // explicit opt-in only
     let llmCalls = 0, scanned = 0;
     for (const job of unique) {
       try {
@@ -96,14 +99,18 @@ async function runPipeline(triggeredBy = 'scheduler') {
         try { emails = JSON.parse(job.extracted_emails || '[]'); } catch {}
         if (!emails.length) continue; // no contact found — skip classify/store
 
-        // Classification only for rows that have a contact (saves LLM cost)
+        // Classification (optional, off by default — wastes LLM budget on contact-only pipeline)
         let classResult = null;
         if (classEnabled) {
-          classResult = await classifyJob(job, cfg);
-          if (classResult) {
-            Object.assign(job, classResult);
-            llmCalls++;
-            if (llmCalls % 10 === 0) await new Promise(r => setTimeout(r, 1000));
+          try {
+            classResult = await classifyJob(job, cfg);
+            if (classResult) {
+              Object.assign(job, classResult);
+              llmCalls++;
+              if (llmCalls % 10 === 0) await new Promise(r => setTimeout(r, 1000));
+            }
+          } catch (e) {
+            // Classification failures are non-fatal — proceed without scoring
           }
         }
 

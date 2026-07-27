@@ -1,17 +1,23 @@
 'use strict';
-const fetchArbeitnow  = require('./arbeitnow');
-const fetchRemotive   = require('./remotive');
-const fetchRemoteOK   = require('./remoteok');
-const fetchWWR        = require('./wwr');
-const fetchGreenhouse = require('./greenhouse');
-const fetchLever      = require('./lever');
-const fetchAdzuna     = require('./adzuna');
-const fetchJooble     = require('./jooble');
+const fetchArbeitnow        = require('./arbeitnow');
+const fetchRemotive         = require('./remotive');
+const fetchRemoteOK         = require('./remoteok');
+const fetchWWR              = require('./wwr');
+const fetchGreenhouse       = require('./greenhouse');
+const fetchLever            = require('./lever');
+const fetchAdzuna           = require('./adzuna');
+const fetchJooble           = require('./jooble');
+const fetchLinkedinPostsDB  = require('./db-linkedin-posts');
+const fetchScrapedJobsDB    = require('./db-scraped');
 
 /**
  * Run all enabled ingestion agents in parallel batches.
  * cfg: the parsed job_intel_config settings object.
  * Returns { raw: [...], sourceStats: { source: count } }
+ *
+ * Internal DB sources (db-linkedin-posts, db-scraped) run first —
+ * they are fast (local DB query) and provide the most HR emails.
+ * External API sources supplement with additional signal but rarely have emails.
  */
 async function ingestAll(cfg) {
   const keywords    = Array.isArray(cfg.keywords) && cfg.keywords.length
@@ -23,6 +29,10 @@ async function ingestAll(cfg) {
   const joobleOpts  = { key: cfg.jooble_key, location: cfg.jooble_location || 'India' };
 
   const tasks = [
+    // ── Internal DB sources (fast, high email yield) ──────────────────────────
+    { name: 'linkedin-posts-db', fn: () => fetchLinkedinPostsDB(cfg) },
+    { name: 'scraped-db',        fn: () => fetchScrapedJobsDB(cfg)   },
+    // ── External API sources (slower, low email yield but good for discovery) ─
     { name: 'arbeitnow',  fn: () => fetchArbeitnow() },
     { name: 'remotive',   fn: () => fetchRemotive(keywords) },
     { name: 'remoteok',   fn: () => fetchRemoteOK() },

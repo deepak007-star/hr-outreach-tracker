@@ -4,19 +4,36 @@ import { toast } from 'react-hot-toast';
 import { api } from '../api/client.js';
 
 const SOURCE_COLORS = {
-  arbeitnow:  { bg: 'bg-emerald-100', text: 'text-emerald-700', label: 'Arbeitnow'       },
-  remotive:   { bg: 'bg-sky-100',     text: 'text-sky-700',     label: 'Remotive'        },
-  remoteok:   { bg: 'bg-violet-100',  text: 'text-violet-700',  label: 'RemoteOK'        },
-  wwr:        { bg: 'bg-orange-100',  text: 'text-orange-700',  label: 'We Work Remotely'},
-  adzuna:     { bg: 'bg-rose-100',    text: 'text-rose-700',    label: 'Adzuna'          },
-  jooble:     { bg: 'bg-amber-100',   text: 'text-amber-700',   label: 'Jooble'          },
+  // Internal DB sources (most HR emails come from here)
+  'linkedin-posts':          { bg: 'bg-blue-100',    text: 'text-blue-700',    label: 'LinkedIn Posts'    },
+  'linkedin-posts-db':       { bg: 'bg-blue-100',    text: 'text-blue-700',    label: 'LinkedIn Posts'    },
+  'scraped:naukri':          { bg: 'bg-red-100',     text: 'text-red-700',     label: 'Naukri'            },
+  'scraped:linkedin-feed':   { bg: 'bg-blue-50',     text: 'text-blue-600',    label: 'LinkedIn Feed'     },
+  'scraped:linkedin-jobs':   { bg: 'bg-blue-50',     text: 'text-blue-600',    label: 'LinkedIn Jobs'     },
+  'scraped:instahyre':       { bg: 'bg-purple-100',  text: 'text-purple-700',  label: 'Instahyre'         },
+  'scraped:internshala':     { bg: 'bg-green-100',   text: 'text-green-700',   label: 'Internshala'       },
+  'scraped:foundit':         { bg: 'bg-teal-100',    text: 'text-teal-700',    label: 'Foundit'           },
+  'scraped:jora':            { bg: 'bg-cyan-100',    text: 'text-cyan-700',    label: 'Jora'              },
+  'scraped:general':         { bg: 'bg-slate-100',   text: 'text-slate-600',   label: 'Jobs'              },
+  'scraped-db':              { bg: 'bg-slate-100',   text: 'text-slate-600',   label: 'Scraped Jobs'      },
+  // External API sources
+  arbeitnow:                 { bg: 'bg-emerald-100', text: 'text-emerald-700', label: 'Arbeitnow'         },
+  remotive:                  { bg: 'bg-sky-100',     text: 'text-sky-700',     label: 'Remotive'          },
+  remoteok:                  { bg: 'bg-violet-100',  text: 'text-violet-700',  label: 'RemoteOK'          },
+  wwr:                       { bg: 'bg-orange-100',  text: 'text-orange-700',  label: 'We Work Remotely'  },
+  adzuna:                    { bg: 'bg-rose-100',    text: 'text-rose-700',    label: 'Adzuna'            },
+  jooble:                    { bg: 'bg-amber-100',   text: 'text-amber-700',   label: 'Jooble'            },
 };
 
 function sourceLabel(source = '') {
+  // Exact match first
+  if (SOURCE_COLORS[source]) return SOURCE_COLORS[source];
+  // Prefix match (handles scraped:unknown, greenhouse:company, lever:company, etc.)
   const key = Object.keys(SOURCE_COLORS).find(k => source.startsWith(k));
-  if (key)                         return { ...SOURCE_COLORS[key] };
+  if (key) return { ...SOURCE_COLORS[key] };
   if (source.startsWith('greenhouse:')) return { bg: 'bg-green-100',  text: 'text-green-700',  label: `Greenhouse · ${source.split(':')[1]}` };
   if (source.startsWith('lever:'))      return { bg: 'bg-indigo-100', text: 'text-indigo-700', label: `Lever · ${source.split(':')[1]}` };
+  if (source.startsWith('scraped:'))    return { bg: 'bg-slate-100',  text: 'text-slate-600',  label: source.replace('scraped:', '') };
   return { bg: 'bg-gray-100', text: 'text-gray-600', label: source };
 }
 
