@@ -37,6 +37,7 @@ const {
   saveRawCache, buildSuffix, saveCSV, saveHTML,
   TODAY, RUN_STAMP,
 } = require('../lib/common');
+const { extractContacts } = require('../lib/contactExtract');
 
 const OUTPUT_DIR    = path.join(__dirname, '..', 'output', 'naukri');
 const SCRAPER_TITLE = 'Naukri.com Jobs';
@@ -88,20 +89,26 @@ function parseApiJob(job, keyword) {
   const link     = jdURL ? (jdURL.startsWith('http') ? jdURL : `https://www.naukri.com${jdURL}`) : '';
   const postedAt = createdDate ? new Date(createdDate).toISOString().split('T')[0] : '';
 
+  const descFull = stripHtml(jobDescription);
+  const { contactEmail, contactPhone, allContacts } = extractContacts(descFull);
+
   return {
-    source:      'naukri',
-    title:       jobTitle,
-    company:     companyName,
+    source:       'naukri',
+    title:        jobTitle,
+    company:      companyName,
     location,
-    jobType:     Array.isArray(jobType) ? jobType.join(', ') : String(jobType),
-    salary:      sal,
-    experience:  exp,
-    tags:        tagsAndSkills || keyword,
-    description: stripHtml(jobDescription).slice(0, 600),
+    jobType:      Array.isArray(jobType) ? jobType.join(', ') : String(jobType),
+    salary:       sal,
+    experience:   exp,
+    tags:         tagsAndSkills || keyword,
+    description:  descFull.slice(0, 2000),
     link,
-    applyLink:   link,
+    applyLink:    link,
     postedAt,
-    scrapedAt:   new Date().toISOString(),
+    scrapedAt:    new Date().toISOString(),
+    contactEmail,
+    contactPhone,
+    allContacts,
   };
 }
 

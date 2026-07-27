@@ -9,6 +9,7 @@ const db       = require('../db/database');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { getTransportForUser } = require('../services/mailTransport');
 const sanitizeHtml = require('sanitize-html');
+const { extractContacts } = require('../lib/contactExtract');
 
 // Shared HTML-safe subset (same as email.js)
 const EMAIL_HTML_OPTS = {
@@ -232,27 +233,17 @@ router.post('/purge', requireAdmin, async (req, res) => {
 });
 
 // ─── GET /api/scraped-jobs/feed-contacts ──────────────────────────────────────
-// Email contacts for cold outreach, sourced from two places:
-//   1. scraped_jobs (Playwright scraper) — has explicit contact_email fields
-//   2. linkedin_posts (Apify) — emails extracted from description text via regex
-// The Playwright linkedin-feed scraper is unreliable (search engines don't index
-// LinkedIn posts), so Apify descriptions are the primary real source of contacts.
-// Query params: since (7d|14d|30d|90d), limit, page, search
-
-const CONTACT_EMAIL_RE = /\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b/g;
-const CONTACT_SPAM     = ['noreply','no-reply','example.','donotreply','linkedin.com',
-                          'sentry.io','google.com','amazonaws','@2x','@3x',
-                          'privacy@','legal@','support@linkedin','jobs@linkedin'];
-
-function extractFirstEmail(text) {
-  const emails = (text.match(CONTACT_EMAIL_RE) || [])
-    .filter(e => !CONTACT_SPAM.some(s => e.toLowerCase().includes(s)));
-  return emails[0] || null;
-}
+// HR email/phone contacts for cold outreach from three sources:
+//   1. scraped_jobs scraper_type='linkedin-feed' — explicit contact_email
+//   2. linkedin_posts (Apify)  — emails extracted live from description
+//   3. scraped_jobs scraper_type='naukri' — contacts extracted at scrape-time
+//      OR re-extracted live from descriptions for pre-existing rows
+//
+// Query params: since (7d|14d|30d|90d), limit, page, search, source (all|linkedin|naukri)
 
 router.get('/feed-contacts', requireAuth, async (req, res) => {
   try {
-    const { since = '30d', limit = '200', page = '1', search } = req.query;
+    const { since = '30d', limit = '200', page = '1', search, source = 'all' } = req.query;
     const limitNum = Math.min(parseInt(limit) || 100, 500);
     const pageNum  = Math.max(parseInt(page)  || 1,   1);
     const offset   = (pageNum - 1) * limitNum;
@@ -261,73 +252,140 @@ router.get('/feed-contacts', requireAuth, async (req, res) => {
     const cutoff  = new Date(Date.now() - (daysMap[since] || 30) * 86_400_000)
       .toISOString().replace('T', ' ').slice(0, 19);
 
-    // ── 1. Playwright scraper contacts (explicit contact_email field) ─────────
-    const scParams = [cutoff];
-    let scQ = `SELECT id, title, company, location, description, link,
-                      contact_email, contact_phone, google_form_link, whatsapp_link,
-                      created_at, scraped_at, 'scraper' as source
-               FROM scraped_jobs
-               WHERE scraper_type = 'linkedin-feed'
-                 AND contact_email IS NOT NULL AND contact_email != ''
-                 AND scraped_at >= ?`;
-    if (search) {
-      scQ += ` AND (title ILIKE ? OR company ILIKE ? OR contact_email ILIKE ? OR description ILIKE ?)`;
-      const s = `%${search}%`; scParams.push(s, s, s, s);
-    }
-    scQ += ' ORDER BY created_at DESC LIMIT 2000';
-    const scraperContacts = await db.prepare(scQ).all(...scParams);
+    let linkedinContacts = [];
+    let apifyContacts    = [];
+    let naukriContacts   = [];
 
-    // ── 2. Apify posts — extract emails from description text ─────────────────
-    // linkedin_posts.description often contains "email: hr@company.com" or similar.
-    // PostgreSQL's ~* operator filters to rows that likely have an email address;
-    // we then extract the first non-spam email in JS.
-    const apParams = [cutoff];
-    let apQ = `SELECT id::text as id, title, company_name as company, location,
-                      description, post_url as link, author_name,
-                      scraped_at as created_at, scraped_at
-               FROM linkedin_posts
-               WHERE description ~* '[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}'
-                 AND scraped_at >= ?`;
-    if (search) {
-      apQ += ` AND (title ILIKE ? OR company_name ILIKE ? OR description ILIKE ?)`;
-      const s = `%${search}%`; apParams.push(s, s, s);
-    }
-    apQ += ' ORDER BY scraped_at DESC LIMIT 2000';
+    // ── 1. LinkedIn-feed Playwright scraper (explicit contact_email) ──────────
+    if (source === 'all' || source === 'linkedin') {
+      const scParams = [cutoff];
+      let scQ = `SELECT id, title, company, location, description, link,
+                        contact_email, contact_phone, google_form_link, whatsapp_link,
+                        created_at, scraped_at, 'linkedin' as source
+                 FROM scraped_jobs
+                 WHERE scraper_type = 'linkedin-feed'
+                   AND contact_email IS NOT NULL AND contact_email != ''
+                   AND scraped_at >= ?`;
+      if (search) {
+        scQ += ` AND (title ILIKE ? OR company ILIKE ? OR contact_email ILIKE ? OR description ILIKE ?)`;
+        const s = `%${search}%`; scParams.push(s, s, s, s);
+      }
+      scQ += ' ORDER BY created_at DESC LIMIT 2000';
+      linkedinContacts = await db.prepare(scQ).all(...scParams);
 
-    let apifyContacts = [];
-    try {
-      const apifyRaw = await db.prepare(apQ).all(...apParams);
-      for (const post of apifyRaw) {
-        const email = extractFirstEmail(post.description || '');
-        if (email) {
-          apifyContacts.push({
-            id:               `apify_${post.id}`,
-            title:            post.title     || '',
-            company:          post.company   || post.author_name || '',
-            location:         post.location  || '',
-            description:      post.description,
-            link:             post.link      || '',
+      // ── 2. Apify linkedin_posts — extract emails from description live ──────
+      try {
+        const apParams = [cutoff];
+        let apQ = `SELECT id::text as id, title, company_name as company, location,
+                          description, post_url as link, author_name,
+                          scraped_at as created_at, scraped_at
+                   FROM linkedin_posts
+                   WHERE description ~* '[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}'
+                     AND scraped_at >= ?`;
+        if (search) {
+          apQ += ` AND (title ILIKE ? OR company_name ILIKE ? OR description ILIKE ?)`;
+          const s = `%${search}%`; apParams.push(s, s, s);
+        }
+        apQ += ' ORDER BY scraped_at DESC LIMIT 2000';
+        const apifyRaw = await db.prepare(apQ).all(...apParams);
+        for (const post of apifyRaw) {
+          const { contactEmail, contactPhone } = extractContacts(post.description || '');
+          if (contactEmail) {
+            apifyContacts.push({
+              id:               `apify_${post.id}`,
+              title:            post.title   || '',
+              company:          post.company || post.author_name || '',
+              location:         post.location || '',
+              description:      post.description,
+              link:             post.link    || '',
+              contact_email:    contactEmail,
+              contact_name:     post.author_name || '',
+              contact_phone:    contactPhone,
+              google_form_link: null,
+              whatsapp_link:    null,
+              created_at:       post.created_at,
+              scraped_at:       post.scraped_at,
+              source:           'linkedin',
+            });
+          }
+        }
+      } catch (e) {
+        console.error('[feed-contacts] apify extraction failed:', e.message);
+      }
+    }
+
+    // ── 3. Naukri scraped_jobs ────────────────────────────────────────────────
+    // Rows where contact was extracted at scrape-time come back directly.
+    // Older rows without contacts are re-processed live from description text.
+    if (source === 'all' || source === 'naukri') {
+      try {
+        const nkParams = [cutoff];
+        // First: rows that already have contact_email stored
+        let nkQ = `SELECT id, title, company, location, description, link, apply_link,
+                          contact_email, contact_phone, all_contacts,
+                          google_form_link, whatsapp_link,
+                          created_at, scraped_at, 'naukri' as source
+                   FROM scraped_jobs
+                   WHERE scraper_type = 'naukri'
+                     AND scraped_at >= ?
+                     AND (
+                       (contact_email IS NOT NULL AND contact_email != '')
+                       OR (contact_phone IS NOT NULL AND contact_phone != '')
+                       OR description ~* '[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}'
+                       OR description ~* '(?:\\+91|91|0)?[6-9][0-9]{9}'
+                     )`;
+        if (search) {
+          nkQ += ` AND (title ILIKE ? OR company ILIKE ? OR description ILIKE ?)`;
+          const s = `%${search}%`; nkParams.push(s, s, s);
+        }
+        nkQ += ' ORDER BY scraped_at DESC LIMIT 2000';
+        const naukriRaw = await db.prepare(nkQ).all(...nkParams);
+
+        for (const row of naukriRaw) {
+          let email = row.contact_email || null;
+          let phone = row.contact_phone || null;
+
+          // Re-extract from description if the stored fields are empty
+          if (!email && !phone) {
+            const extracted = extractContacts(row.description || '');
+            email = extracted.contactEmail;
+            phone = extracted.contactPhone;
+          }
+          if (!email && !phone) continue;
+
+          naukriContacts.push({
+            id:               `naukri_${row.id}`,
+            title:            row.title    || '',
+            company:          row.company  || '',
+            location:         row.location || '',
+            description:      row.description,
+            link:             row.apply_link || row.link || '',
             contact_email:    email,
-            contact_name:     post.author_name || '',
-            contact_phone:    null,
-            google_form_link: null,
-            whatsapp_link:    null,
-            created_at:       post.created_at,
-            scraped_at:       post.scraped_at,
-            source:           'apify',
+            contact_name:     '',
+            contact_phone:    phone,
+            google_form_link: row.google_form_link || null,
+            whatsapp_link:    row.whatsapp_link    || null,
+            created_at:       row.created_at,
+            scraped_at:       row.scraped_at,
+            source:           'naukri',
           });
         }
+      } catch (e) {
+        console.error('[feed-contacts] naukri extraction failed:', e.message);
       }
-    } catch (e) {
-      console.error('[feed-contacts] apify email extraction failed:', e.message);
     }
 
-    // ── 3. Merge: scraper wins on duplicate emails, Apify fills the rest ──────
-    const seenEmails = new Set(scraperContacts.map(c => c.contact_email?.toLowerCase()));
-    const merged = [
-      ...scraperContacts,
-      ...apifyContacts.filter(c => !seenEmails.has(c.contact_email?.toLowerCase())),
-    ].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+    // ── Merge: deduplicate on email, sort newest first ────────────────────────
+    const seenEmails = new Set();
+    const allSources = [...linkedinContacts, ...apifyContacts, ...naukriContacts];
+    const merged = [];
+    for (const c of allSources) {
+      const key = c.contact_email?.toLowerCase();
+      if (key && seenEmails.has(key)) continue;
+      if (key) seenEmails.add(key);
+      merged.push(c);
+    }
+    merged.sort((a, b) => (b.created_at || b.scraped_at || '').localeCompare(a.created_at || a.scraped_at || ''));
 
     const contacts = merged.slice(offset, offset + limitNum);
 
@@ -342,7 +400,16 @@ router.get('/feed-contacts', requireAuth, async (req, res) => {
       contacts.forEach(c => { c.already_emailed = emailedSet.has(c.contact_email) ? 1 : 0; });
     }
 
-    res.json({ contacts, page: pageNum, limit: limitNum, total: merged.length });
+    res.json({
+      contacts,
+      page:     pageNum,
+      limit:    limitNum,
+      total:    merged.length,
+      counts: {
+        linkedin: linkedinContacts.length + apifyContacts.length,
+        naukri:   naukriContacts.length,
+      },
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -1,7 +1,7 @@
 /**
- * Auto-synced LinkedIn Feed email contacts for the Gmail Tracking tab.
- * Reads directly from scraped_jobs (scraper_type='linkedin-feed', has email).
- * No manual import needed — refreshes every 60 s or on mount.
+ * Auto-synced HR email/phone contacts for the Gmail Tracking tab.
+ * Sources: LinkedIn Feed (Playwright + Apify) and Naukri job posts with contact info.
+ * Refreshes every 60 s. Filter by source, status, date range, or search.
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'react-hot-toast';
@@ -35,7 +35,13 @@ const PROFILE_VARS = [
   { label: '{{skills}}',        hint: 'Your skills' },
 ];
 
-const DEFAULT_SUBJECT = 'Hi {{name}}, saw your LinkedIn post about openings at {{company}}';
+const SOURCE_TABS = [
+  { id: 'all',      label: 'All Sources' },
+  { id: 'linkedin', label: 'LinkedIn'    },
+  { id: 'naukri',   label: 'Naukri'     },
+];
+
+const DEFAULT_SUBJECT = 'Hi {{name}}, saw your post about openings at {{company}}';
 const DEFAULT_BODY =
 `Hi {{name}},
 
@@ -486,29 +492,32 @@ function FeedComposeModal({ contacts, onClose, onSent }) {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function FeedContactsPanel() {
-  const [contacts,  setContacts]  = useState([]);
-  const [loading,   setLoading]   = useState(true);
-  const [since,     setSince]     = useState('30d');
-  const [search,    setSearch]    = useState('');
-  const [selected,  setSelected]  = useState(new Set()); // set of contact_email strings
-  const [composeTo, setComposeTo] = useState(null);
-  const [lastSync,  setLastSync]  = useState(null);
-  const intervalRef = useRef(null);
+  const [contacts,   setContacts]   = useState([]);
+  const [counts,     setCounts]     = useState({ linkedin: 0, naukri: 0 });
+  const [loading,    setLoading]    = useState(true);
+  const [since,      setSince]      = useState('30d');
+  const [search,     setSearch]     = useState('');
+  const [sourceTab,  setSourceTab]  = useState('all');
+  const [selected,   setSelected]   = useState(new Set());
+  const [composeTo,  setComposeTo]  = useState(null);
+  const [lastSync,   setLastSync]   = useState(null);
+  const intervalRef  = useRef(null);
 
   const fetchContacts = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const params = { since, limit: 200 };
+      const params = { since, limit: 200, source: sourceTab };
       if (search) params.search = search;
       const data = await api.get('/scraped-jobs/feed-contacts', { params });
       setContacts(data.contacts || []);
+      if (data.counts) setCounts(data.counts);
       setLastSync(new Date());
     } catch {
       if (!silent) toast.error('Failed to load feed contacts');
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [since, search]);
+  }, [since, search, sourceTab]);
 
   useEffect(() => {
     fetchContacts();
@@ -595,9 +604,10 @@ export default function FeedContactsPanel() {
     return (
       <div className="text-center py-8 text-gray-400 space-y-2">
         <p className="text-2xl">📭</p>
-        <p className="text-sm font-medium">No LinkedIn Feed email contacts yet</p>
+        <p className="text-sm font-medium">No HR contacts with email/phone found yet</p>
         <p className="text-xs">
-          Use the <span className="font-semibold">LinkedIn Feed</span> tab to scrape HR posts — email contacts found there appear here automatically.
+          Contacts appear here from <span className="font-semibold">LinkedIn Feed</span> posts and <span className="font-semibold">Naukri</span> job posts where HRs shared their email or phone number.
+          {sourceTab !== 'all' && <span> Try switching to <strong>All Sources</strong>.</span>}
         </p>
       </div>
     );
@@ -605,6 +615,35 @@ export default function FeedContactsPanel() {
 
   return (
     <div className="space-y-3">
+      {/* Source tabs */}
+      <div className="flex items-center gap-1 flex-wrap">
+        {SOURCE_TABS.map(t => {
+          const cnt = t.id === 'all'
+            ? contacts.length
+            : t.id === 'linkedin' ? counts.linkedin
+            : counts.naukri;
+          return (
+            <button key={t.id}
+              onClick={() => { setSourceTab(t.id); setSelected(new Set()); }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition border ${
+                sourceTab === t.id
+                  ? t.id === 'naukri'
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-brand-600 text-white border-brand-600'
+                  : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+              }`}>
+              {t.id === 'linkedin' && <span className="text-[10px]">💼</span>}
+              {t.id === 'naukri'   && <span className="text-[10px]">🔍</span>}
+              {t.label}
+              <span className={`text-[10px] px-1 py-0.5 rounded-full ${
+                sourceTab === t.id ? 'bg-white/20' : 'bg-gray-100'
+              }`}>{cnt}</span>
+            </button>
+          );
+        })}
+        {timeSince && <span className="text-xs text-gray-400 ml-2">Synced {timeSince}</span>}
+      </div>
+
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
@@ -625,7 +664,6 @@ export default function FeedContactsPanel() {
               </button>
             ))}
           </div>
-          {timeSince && <span className="text-xs text-gray-400">Synced {timeSince}</span>}
         </div>
 
         <div className="flex items-center gap-2">
@@ -687,6 +725,15 @@ export default function FeedContactsPanel() {
               />
             )}
             {c.already_emailed && <div className="w-4 h-4 shrink-0" />}
+
+            {/* Source badge */}
+            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${
+              c.source === 'naukri'
+                ? 'bg-blue-100 text-blue-700'
+                : 'bg-brand-100 text-brand-700'
+            }`}>
+              {c.source === 'naukri' ? 'Naukri' : 'LinkedIn'}
+            </span>
 
             {/* Avatar */}
             <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-sm font-bold text-brand-700 shrink-0">

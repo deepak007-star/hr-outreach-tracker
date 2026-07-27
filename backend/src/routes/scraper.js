@@ -109,13 +109,13 @@ async function storeScrapedJobs(scraperType, category, outDir) {
         id, scraperType, category,
         job.title || '', job.company || '', job.location || '',
         job.jobType || '', job.salary || '', job.experience || '',
-        job.tags || '', (job.description || '').slice(0, 600),
+        job.tags || '', (job.description || '').slice(0, 2000),
         job.link || '', job.applyLink || job.link || '',
         job.postedAt || '', scrapedAt,
         /remote|worldwide|anywhere|global|work from home|wfh/i.test(job.location || '') ? 1 : 0,
-        job.contactEmail || null, job.contactPhone || null,
+        job.contactEmail  || null, job.contactPhone  || null,
         job.googleFormLink || null, job.whatsappLink || null,
-        job.allContacts || null, now
+        job.allContacts   || null, now
       );
       stored++;
     } catch { /* ignore individual dup errors */ }
