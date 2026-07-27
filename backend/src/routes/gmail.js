@@ -276,16 +276,16 @@ router.post('/emails/:id/add-contact', requireAuth, async (req, res) => {
     ).get(req.params.id, req.user.userId);
     if (!row) return res.status(404).json({ error: 'Tracked email not found' });
 
-    const existing = await db.prepare('SELECT id FROM contacts WHERE email = ?').get(row.contact_email);
+    const existing = await db.prepare('SELECT id FROM contacts WHERE email = ? AND user_id = ?').get(row.contact_email, req.user.userId);
     if (existing) return res.json({ ok: true, added: false, reason: 'already in Contacts' });
 
     const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
     await db.prepare(`
-      INSERT INTO contacts (id, name, email, email_source, status, date_added, date_last_contacted, notes)
-      VALUES (?, ?, ?, 'gmail', ?, ?, ?, ?)
-      ON CONFLICT (email) DO NOTHING
+      INSERT INTO contacts (id, user_id, name, email, email_source, status, date_added, date_last_contacted, notes)
+      VALUES (?, ?, ?, ?, 'gmail', ?, ?, ?, ?)
+      ON CONFLICT (email, user_id) DO NOTHING
     `).run(
-      crypto.randomUUID(), row.contact_name || row.contact_email, row.contact_email,
+      crypto.randomUUID(), req.user.userId, row.contact_name || row.contact_email, row.contact_email,
       row.email_status === 'replied' ? 'Replied' : 'Sent',
       now, row.replied_at || row.sent_at, `Imported from Gmail Sync — last subject: "${row.subject}"`
     );
@@ -311,14 +311,14 @@ router.post('/add-all-contacts', requireAuth, async (req, res) => {
     const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
     let added = 0, skipped = 0;
     for (const row of rows) {
-      const existing = await db.prepare('SELECT id FROM contacts WHERE email = ?').get(row.contact_email);
+      const existing = await db.prepare('SELECT id FROM contacts WHERE email = ? AND user_id = ?').get(row.contact_email, req.user.userId);
       if (existing) { skipped++; continue; }
       await db.prepare(`
-        INSERT INTO contacts (id, name, email, email_source, status, date_added, date_last_contacted, notes)
-        VALUES (?, ?, ?, 'gmail', ?, ?, ?, ?)
-        ON CONFLICT (email) DO NOTHING
+        INSERT INTO contacts (id, user_id, name, email, email_source, status, date_added, date_last_contacted, notes)
+        VALUES (?, ?, ?, ?, 'gmail', ?, ?, ?, ?)
+        ON CONFLICT (email, user_id) DO NOTHING
       `).run(
-        crypto.randomUUID(), row.contact_name || row.contact_email, row.contact_email,
+        crypto.randomUUID(), req.user.userId, row.contact_name || row.contact_email, row.contact_email,
         row.email_status === 'replied' ? 'Replied' : 'Sent',
         now, row.replied_at || row.sent_at, `Imported from Gmail Sync — last subject: "${row.subject}"`
       );

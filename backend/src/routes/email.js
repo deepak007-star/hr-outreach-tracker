@@ -269,7 +269,7 @@ router.post('/preview', async (req, res) => {
   let budgetLeft  = Math.max(0, cap - sentToday);
 
   for (const id of contactIds) {
-    const contact = await db.prepare('SELECT * FROM contacts WHERE id = ?').get(id);
+    const contact = await db.prepare('SELECT * FROM contacts WHERE id = ? AND user_id = ?').get(id, req.user.userId);
     if (!contact) continue;
 
     let blocked = false, blockReason = null, blockType = null;
@@ -341,7 +341,7 @@ router.post('/send', rlMiddleware('email'), async (req, res) => {
     const contactId    = sends[i].contactId;
     const subject      = sends[i].subject.replace(/\{\{\s*[\w.]+\s*\}\}/g, '');
     const body         = sends[i].body.replace(/\{\{\s*[\w.]+\s*\}\}/g, '');
-    const contact = await db.prepare('SELECT * FROM contacts WHERE id = ?').get(contactId);
+    const contact = await db.prepare('SELECT * FROM contacts WHERE id = ? AND user_id = ?').get(contactId, req.user.userId);
     if (!contact) { results.push({ contactId, ok: false, error: 'Contact not found' }); continue; }
 
     if (contact.status === 'Do Not Contact') {
@@ -583,10 +583,10 @@ router.get('/stats', async (req, res) => {
     WHERE user_id = ? AND billing_month = ?
   `).get(req.user.userId, month);
 
-  // Contact deliverability summary
+  // Contact deliverability summary — scoped to this user's contacts only
   const deliverabilityRows = await db.prepare(
-    `SELECT email_deliverable, COUNT(*) as c FROM contacts GROUP BY email_deliverable`
-  ).all();
+    `SELECT email_deliverable, COUNT(*) as c FROM contacts WHERE user_id = ? GROUP BY email_deliverable`
+  ).all(req.user.userId);
   const deliverability = {};
   for (const r of deliverabilityRows) deliverability[r.email_deliverable || 'unknown'] = parseInt(r.c);
 

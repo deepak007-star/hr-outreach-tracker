@@ -467,7 +467,7 @@ router.post('/send-feed-emails', requireAuth, async (req, res) => {
 
       // Resolve name: use provided → contacts table → email-prefix extraction
       // Also fetch contact id for email_log (reuse the same row)
-      const cRow = await db.prepare('SELECT id, name FROM contacts WHERE LOWER(email) = LOWER(?) LIMIT 1').get(email);
+      const cRow = await db.prepare('SELECT id, name FROM contacts WHERE LOWER(email) = LOWER(?) AND user_id = ? LIMIT 1').get(email, req.user.userId);
       let name = rawName.trim() || (cRow?.name || '').trim() || guessNameFromEmail(email);
 
       // Per-contact variable substitution

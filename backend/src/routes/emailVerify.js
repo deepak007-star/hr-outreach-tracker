@@ -1,6 +1,7 @@
 const express = require('express');
 const dns     = require('dns').promises;
 const db      = require('../db/database');
+const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -36,9 +37,9 @@ router.post('/batch', async (req, res) => {
   res.json({ updated });
 });
 
-// POST /api/email-verify/:id  — verify a single contact
-router.post('/:id', async (req, res) => {
-  const contact = await db.prepare('SELECT id, email FROM contacts WHERE id = ?').get(req.params.id);
+// POST /api/email-verify/:id  — verify a single contact (must belong to requesting user)
+router.post('/:id', requireAuth, async (req, res) => {
+  const contact = await db.prepare('SELECT id, email FROM contacts WHERE id = ? AND user_id = ?').get(req.params.id, req.user.userId);
   if (!contact) return res.status(404).json({ error: 'Contact not found' });
   const status = await checkEmailDomain(contact.email);
   const checkedAt = new Date().toISOString().replace('T', ' ').slice(0, 19);

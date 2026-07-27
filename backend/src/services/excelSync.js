@@ -22,7 +22,13 @@ const STATUS_FONT = {
   'Do Not Contact': { color: { argb: 'FFB0BEC5' }, strike: true },
 };
 
-async function syncExcel() {
+// contacts: optional pre-fetched array. When provided (e.g. from an
+// authenticated export endpoint), only those rows are written — enabling
+// per-user exports. When omitted, all contacts are written (admin/legacy use).
+async function syncExcel(contacts) {
+  if (!contacts) {
+    contacts = await db.prepare('SELECT * FROM contacts ORDER BY date_added DESC').all();
+  }
   const wb = new ExcelJS.Workbook();
   wb.creator = 'HR Outreach Tracker';
   wb.lastModifiedBy = 'HR Outreach Tracker';
@@ -58,8 +64,6 @@ async function syncExcel() {
     cell.alignment = { vertical: 'middle', horizontal: 'left' };
     cell.border = { bottom: { style: 'medium', color: { argb: 'FF0D2137' } } };
   });
-
-  const contacts = await db.prepare('SELECT * FROM contacts ORDER BY date_added DESC').all();
 
   for (const c of contacts) {
     const row = ws.addRow({

@@ -450,6 +450,21 @@ async function initialize() {
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_email_log_delivery      ON email_log (delivery_status)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_email_log_user_id       ON email_log (user_id)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_contacts_deliverable    ON contacts (email_deliverable)`);
+  // ── User-scoped contacts migration ──────────────────────────────────────────
+  // contacts.user_id: each contact belongs to one user; existing rows get
+  // assigned to the first admin so no data is lost.
+  await addCol('contacts', 'user_id', `TEXT REFERENCES users(id)`);
+  // Assign orphan contacts (no user yet) to the earliest-registered admin
+  await db.exec(`
+    UPDATE contacts
+    SET    user_id = (SELECT id FROM users WHERE role = 'admin' ORDER BY created_at ASC LIMIT 1)
+    WHERE  user_id IS NULL
+  `).catch(() => {});
+  // Drop old global email uniqueness; replace with per-user uniqueness so
+  // different users can independently track the same HR email address.
+  await db.exec(`ALTER TABLE contacts DROP CONSTRAINT IF EXISTS contacts_email_key`).catch(() => {});
+  await db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_email_user ON contacts (email, user_id)`).catch(() => {});
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_contacts_user_id ON contacts (user_id)`).catch(() => {});
   // ── RBAC seed ────────────────────────────────────────────────────────────────
   const PERMISSIONS = [
     // Contacts

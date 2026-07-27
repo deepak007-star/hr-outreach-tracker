@@ -1,25 +1,29 @@
 const express = require('express');
 const db      = require('../db/database');
+const { requireAuth } = require('../middleware/auth');
+
 const router  = express.Router();
+router.use(requireAuth);
 
 // GET /api/stats/activity?days=365
 router.get('/activity', async (req, res) => {
-  const days = Math.min(parseInt(req.query.days || '365'), 730);
-  const since = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+  const userId = req.user.userId;
+  const days   = Math.min(parseInt(req.query.days || '365'), 730);
+  const since  = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
 
   const emailRows = await db.prepare(`
     SELECT LEFT(sent_at, 10) as date, COUNT(*) as emails_sent
     FROM email_log
-    WHERE LEFT(sent_at, 10) >= ?
+    WHERE user_id = ? AND LEFT(sent_at, 10) >= ?
     GROUP BY LEFT(sent_at, 10)
-  `).all(since);
+  `).all(userId, since);
 
   const contactRows = await db.prepare(`
     SELECT LEFT(date_added, 10) as date, COUNT(*) as contacts_added
     FROM contacts
-    WHERE LEFT(date_added, 10) >= ?
+    WHERE user_id = ? AND LEFT(date_added, 10) >= ?
     GROUP BY LEFT(date_added, 10)
-  `).all(since);
+  `).all(userId, since);
 
   const map = {};
 

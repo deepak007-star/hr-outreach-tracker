@@ -56,6 +56,14 @@ router.delete('/users/:id', async (req, res) => {
     await db.prepare('UPDATE email_log SET user_id = NULL WHERE user_id = ?').run(uid);
     await db.prepare('DELETE FROM notifications WHERE user_id = ?').run(uid);
     await db.prepare('DELETE FROM profiles WHERE user_id = ?').run(uid);
+    // Contacts belong to the user — nullify email_log FK first, then delete
+    const userContactIds = await db.prepare('SELECT id FROM contacts WHERE user_id = ?').all(uid);
+    if (userContactIds.length) {
+      const ph = userContactIds.map(() => '?').join(',');
+      const ids = userContactIds.map(r => r.id);
+      await db.prepare(`UPDATE email_log SET contact_id = NULL WHERE contact_id IN (${ph})`).run(...ids);
+      await db.prepare(`DELETE FROM contacts WHERE user_id = ?`).run(uid);
+    }
     await db.prepare('DELETE FROM users WHERE id = ?').run(uid);
     res.json({ ok: true });
   } catch (err) {
