@@ -110,7 +110,7 @@ router.get('/me', requireAuth, async (req, res) => {
   if (user.plan === 'basic' || user.plan === 'advanced') {
     try {
       const sub = await db.prepare(
-        "SELECT current_period_end FROM subscriptions WHERE user_id = ? AND status = 'active'"
+        "SELECT current_period_end FROM subscriptions WHERE user_id = ? AND status IN ('active','cancelled') ORDER BY current_period_end DESC LIMIT 1"
       ).get(req.user.userId);
       if (sub?.current_period_end) {
         const now = new Date().toISOString().replace('T', ' ').slice(0, 19);

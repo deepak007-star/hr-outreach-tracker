@@ -77,8 +77,12 @@ router.post('/create-order', requireAuth, async (req, res) => {
       prefill:     { name: user.name, email: user.email },
     });
   } catch (e) {
-    console.error('[Payments] Create order error:', e.message);
-    res.status(500).json({ error: e.message });
+    const msg = e.message || e.error?.description || 'Razorpay order creation failed';
+    console.error('[Payments] Create order error:', e.statusCode, msg);
+    if (e.statusCode === 401) {
+      return res.status(503).json({ error: 'Razorpay API key authentication failed. Please update RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in backend/.env.' });
+    }
+    res.status(500).json({ error: msg });
   }
 });
 
@@ -126,20 +130,25 @@ router.post('/verify', requireAuth, async (req, res) => {
     console.log(`[Payments] Plan activated: user=${userId} plan=${planName}`);
     res.json({ success: true, plan: planName });
   } catch (e) {
-    console.error('[Payments] Verify error:', e.message);
-    res.status(500).json({ error: e.message });
+    const msg = e.message || e.error?.description || 'Payment verification failed';
+    console.error('[Payments] Verify error:', msg);
+    res.status(500).json({ error: msg });
   }
 });
 
 // ── POST /api/payments/cancel ─────────────────────────────────────────────────
-// Downgrades the user to demo — no API call needed (one-time orders, not subscriptions)
+// Marks subscription cancelled but keeps the plan active until current_period_end.
+// The expiry downgrade job (index.js) or /auth/me check will drop plan to demo at expiry.
 router.post('/cancel', requireAuth, async (req, res) => {
   try {
     const now = new Date().toISOString().slice(0, 19);
-    await database.prepare(
-      "UPDATE subscriptions SET status = 'cancelled', updated_at = ? WHERE user_id = ?"
+    const result = await database.prepare(
+      "UPDATE subscriptions SET status = 'cancelled', updated_at = ? WHERE user_id = ? AND status = 'active'"
     ).run(now, req.user.userId);
-    await database.prepare("UPDATE users SET plan = 'demo' WHERE id = ?").run(req.user.userId);
+    if (result.changes === 0) {
+      return res.status(400).json({ error: 'No active subscription found to cancel.' });
+    }
+    // Do NOT downgrade plan here — user keeps access until current_period_end
     res.json({ success: true });
   } catch (e) {
     console.error('[Payments] Cancel error:', e.message);

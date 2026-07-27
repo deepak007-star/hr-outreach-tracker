@@ -392,11 +392,11 @@ async function main() {
     try {
       const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
       const expired = await database.prepare(
-        "SELECT user_id FROM subscriptions WHERE status = 'active' AND current_period_end < ?"
+        "SELECT user_id FROM subscriptions WHERE status IN ('active','cancelled') AND current_period_end < ?"
       ).all(now);
       for (const { user_id } of expired) {
         await database.prepare(
-          "UPDATE subscriptions SET status = 'expired', updated_at = ? WHERE user_id = ?"
+          "UPDATE subscriptions SET status = 'expired', updated_at = ? WHERE user_id = ? AND status IN ('active','cancelled')"
         ).run(now, user_id);
         await database.prepare("UPDATE users SET plan = 'demo' WHERE id = ?").run(user_id);
         console.log(`[Subscriptions] Expired plan downgraded for user ${user_id}`);
