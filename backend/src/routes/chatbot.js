@@ -4,9 +4,18 @@ const { requireAuth, requireAdmin } = require('../middleware/auth');
 const database = require('../db/database');
 const { randomUUID } = require('crypto');
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || '' });
-
 const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+
+// Resolve API key: env var takes priority, then DB settings row (set via Admin Panel)
+async function getGroqKey() {
+  if (process.env.GROQ_API_KEY) return process.env.GROQ_API_KEY;
+  const row = await database.prepare("SELECT value FROM settings WHERE key = 'groq_api_key'").get().catch(() => null);
+  return row?.value || null;
+}
+
+function makeGroqClient(apiKey) {
+  return new Groq({ apiKey });
+}
 
 // Maximum recent messages to include in context
 const MAX_HISTORY = 12;
@@ -168,10 +177,12 @@ router.post('/message', requireAuth, async (req, res) => {
   const { message, sessionId } = req.body;
   if (!message?.trim()) return res.status(400).json({ error: 'Message is required' });
 
-  if (!process.env.GROQ_API_KEY) {
-    console.error('[Chatbot] GROQ_API_KEY is not set — VartaBot cannot respond');
+  const apiKey = await getGroqKey();
+  if (!apiKey) {
+    console.error('[Chatbot] No Groq API key found (env var or DB settings) — VartaBot cannot respond');
     return res.status(503).json({ error: 'VartaBot is temporarily unavailable. Please try again later or contact support.' });
   }
+  const groq = makeGroqClient(apiKey);
 
   try {
     // Get or create session
@@ -348,6 +359,72 @@ router.delete('/knowledge/:id', requireAuth, requireAdmin, async (req, res) => {
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// ── GET /api/chatbot/ai-config (admin) ───────────────────────────────────────
+// Returns whether a Groq key is configured (source + masked key) — never exposes raw key
+router.get('/ai-config', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const envKey = process.env.GROQ_API_KEY || null;
+    const dbRow  = await database.prepare("SELECT value FROM settings WHERE key = 'groq_api_key'").get().catch(() => null);
+    const dbKey  = dbRow?.value || null;
+    const active = envKey || dbKey;
+    res.json({
+      configured: !!active,
+      source:     envKey ? 'env' : (dbKey ? 'database' : 'none'),
+      maskedKey:  active ? active.slice(0, 8) + '…' + active.slice(-4) : null,
+      model:      GROQ_MODEL,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── PUT /api/chatbot/ai-config (admin) ───────────────────────────────────────
+// Saves or clears the Groq API key in the DB settings table
+router.put('/ai-config', requireAuth, requireAdmin, async (req, res) => {
+  const { apiKey } = req.body;
+  try {
+    if (!apiKey || !apiKey.trim()) {
+      await database.prepare("DELETE FROM settings WHERE key = 'groq_api_key'").run();
+      return res.json({ success: true, configured: false });
+    }
+    // Quick smoke-test: try listing models to validate the key before saving
+    const testClient = makeGroqClient(apiKey.trim());
+    try {
+      await testClient.models.list();
+    } catch (e) {
+      if (e.status === 401 || e.status === 403) {
+        return res.status(400).json({ error: 'Invalid Groq API key — authentication failed. Check the key at console.groq.com.' });
+      }
+    }
+    await database.prepare(
+      "INSERT INTO settings (key, value) VALUES ('groq_api_key', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
+    ).run(apiKey.trim());
+    res.json({ success: true, configured: true, maskedKey: apiKey.trim().slice(0, 8) + '…' + apiKey.trim().slice(-4) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── POST /api/chatbot/ai-config/test (admin) ─────────────────────────────────
+// Sends a quick ping to Groq with the saved key and returns the reply
+router.post('/ai-config/test', requireAuth, requireAdmin, async (req, res) => {
+  const apiKey = await getGroqKey();
+  if (!apiKey) return res.status(503).json({ error: 'No Groq API key configured.' });
+  try {
+    const client = makeGroqClient(apiKey);
+    const completion = await client.chat.completions.create({
+      model:      GROQ_MODEL,
+      messages:   [{ role: 'user', content: 'Reply with exactly: VartaBot OK' }],
+      max_tokens: 20,
+    });
+    const reply = completion.choices[0]?.message?.content || '(no reply)';
+    res.json({ success: true, reply, model: GROQ_MODEL });
+  } catch (e) {
+    const msg = e.message || e.error?.description || 'Groq call failed';
+    res.status(500).json({ error: msg });
   }
 });
 

@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext.jsx';
 import RolesPermissions from './RolesPermissions.jsx';
 import PasswordVault from './PasswordVault.jsx';
 import ApifySettingsModal from './ApifySettingsModal.jsx';
-import { Pencil, Trash2, Eye, EyeOff, Shield, Users, Lock, Search, Database, Settings, LayoutGrid, List, Handshake, Inbox, Copy } from 'lucide-react';
+import { Pencil, Trash2, Eye, EyeOff, Shield, Users, Lock, Search, Database, Settings, LayoutGrid, List, Handshake, Inbox, Copy, Bot } from 'lucide-react';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const PLANS  = ['guest', 'demo', 'basic', 'advanced'];
@@ -1229,6 +1229,130 @@ function ScraperSection() {
   );
 }
 
+// ── VartaBot AI Config Section ────────────────────────────────────────────
+function VartaBotSection() {
+  const [config,   setConfig]   = useState(null);
+  const [apiKey,   setApiKey]   = useState('');
+  const [saving,   setSaving]   = useState(false);
+  const [testing,  setTesting]  = useState(false);
+  const [testResult, setTestResult] = useState(null);
+  const [showKey,  setShowKey]  = useState(false);
+
+  useEffect(() => {
+    api.get('/chatbot/ai-config').then(setConfig).catch(() => {});
+  }, []);
+
+  async function saveKey() {
+    setSaving(true);
+    setTestResult(null);
+    try {
+      const res = await api.put('/chatbot/ai-config', { apiKey });
+      setConfig(c => ({ ...c, ...res }));
+      setApiKey('');
+      toast.success(res.configured ? `Groq key saved (${res.maskedKey})` : 'Groq key removed');
+    } catch (e) {
+      toast.error(e?.response?.data?.error || 'Failed to save key');
+    } finally { setSaving(false); }
+  }
+
+  async function testGroq() {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await api.post('/chatbot/ai-config/test');
+      setTestResult({ ok: true, msg: `${res.reply} (model: ${res.model})` });
+    } catch (e) {
+      setTestResult({ ok: false, msg: e?.response?.data?.error || 'Test failed' });
+    } finally { setTesting(false); }
+  }
+
+  return (
+    <div className="bg-white border rounded-md p-5 space-y-5">
+      <div>
+        <h3 className="font-bold text-gray-800 flex items-center gap-2"><Bot size={16} /> VartaBot AI Configuration</h3>
+        <p className="text-sm text-gray-500 mt-1">
+          Set the Groq API key that powers VartaBot. The environment variable <code className="bg-gray-100 px-1 rounded text-xs">GROQ_API_KEY</code> takes priority; this DB setting is the fallback used when the env var is absent.
+        </p>
+      </div>
+
+      {/* Status */}
+      <div className={`flex items-center gap-3 p-3 rounded-md border ${config?.configured ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+        <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${config?.configured ? 'bg-green-500' : 'bg-red-500'}`} />
+        <div className="flex-1 min-w-0">
+          <p className={`text-sm font-semibold ${config?.configured ? 'text-green-800' : 'text-red-800'}`}>
+            {config?.configured ? 'VartaBot is configured' : 'VartaBot is not configured'}
+          </p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            {config
+              ? config.configured
+                ? `Source: ${config.source === 'env' ? 'environment variable' : 'database'} · Key: ${config.maskedKey} · Model: ${config.model}`
+                : 'No Groq API key found in env or database'
+              : 'Loading…'}
+          </p>
+        </div>
+        {config?.configured && (
+          <button
+            onClick={testGroq}
+            disabled={testing}
+            className="px-3 py-1.5 text-xs font-semibold bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-60 transition"
+          >
+            {testing ? 'Testing…' : 'Test Now'}
+          </button>
+        )}
+      </div>
+
+      {testResult && (
+        <div className={`text-xs p-2.5 rounded border ${testResult.ok ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-700'}`}>
+          {testResult.ok ? '✓ ' : '✗ '}{testResult.msg}
+        </div>
+      )}
+
+      {/* Key input */}
+      <div className="space-y-2">
+        <label className="text-xs font-semibold text-gray-600 block">
+          {config?.source === 'env' ? 'Override with DB key (optional — env var is already active)' : 'Set Groq API Key'}
+        </label>
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <input
+              type={showKey ? 'text' : 'password'}
+              value={apiKey}
+              onChange={e => setApiKey(e.target.value)}
+              placeholder="gsk_…"
+              className="w-full border rounded-sm px-3 py-2 text-sm pr-10 focus:ring-2 focus:ring-brand-300 outline-none"
+            />
+            <button
+              type="button"
+              onClick={() => setShowKey(v => !v)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
+          </div>
+          <button
+            onClick={saveKey}
+            disabled={saving || !apiKey.trim()}
+            className="px-4 py-2 bg-brand-600 text-white text-sm font-semibold rounded-sm hover:bg-brand-700 disabled:opacity-60 transition"
+          >
+            {saving ? 'Saving…' : 'Save Key'}
+          </button>
+          {config?.source === 'database' && (
+            <button
+              onClick={() => { setApiKey(''); api.put('/chatbot/ai-config', { apiKey: '' }).then(() => setConfig(c => ({ ...c, configured: false, source: 'none', maskedKey: null }))); }}
+              className="px-3 py-2 text-xs text-red-500 hover:text-red-700 border border-red-200 rounded-sm transition"
+            >
+              Remove
+            </button>
+          )}
+        </div>
+        <p className="text-[11px] text-gray-400">
+          Get a free API key at <span className="font-medium text-gray-600">console.groq.com</span> → API Keys → Create new key
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ── Main AdminPanel ────────────────────────────────────────────────────────
 export default function AdminPanel() {
   const { user } = useAuth();
@@ -1249,6 +1373,7 @@ export default function AdminPanel() {
     { id: 'roles',     Icon: Shield,     label: 'Roles & Permissions'  },
     { id: 'passwords', Icon: Lock,       label: 'Password Vault'       },
     { id: 'scraper',   Icon: Search,     label: 'Job Scraper'          },
+    { id: 'vartabot',  Icon: Bot,        label: 'VartaBot AI'          },
     { id: 'referrals', Icon: Handshake,  label: 'Referrals'            },
     { id: 'data',      Icon: Database,   label: 'Data & Backup'        },
   ];
@@ -1307,9 +1432,10 @@ export default function AdminPanel() {
           <PasswordVault isAdmin={true} />
         </div>
       )}
-      {tab === 'scraper' && <ScraperSection />}
+      {tab === 'scraper'   && <ScraperSection />}
+      {tab === 'vartabot'  && <VartaBotSection />}
       {tab === 'referrals' && <ReferralsSection />}
-      {tab === 'data'  && <DataManagementSection />}
+      {tab === 'data'      && <DataManagementSection />}
     </div>
   );
 }
