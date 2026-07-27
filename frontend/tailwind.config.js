@@ -53,7 +53,7 @@ export default {
       },
       animation: {
         'signal-ping':   'signal-ping 1.8s cubic-bezier(0,0,.2,1) infinite',
-        'fade-slide-in': 'fade-slide-in 150ms ease-out both',
+        'fade-slide-in': 'fade-slide-in 150ms ease-out backwards',
         'skeleton-wave': 'skeleton-wave 1.6s linear infinite',
       },
     },

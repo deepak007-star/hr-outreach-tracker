@@ -428,6 +428,44 @@ export default function LinkedInPosts() {
     }
   };
 
+  // ── CSV export ───────────────────────────────────────────────────────────────
+  const exportCSV = () => {
+    const rows = filtered.filter(p => p.contact_email);
+    if (!rows.length) { toast.error('No email contacts to export in current view'); return; }
+
+    const headers = ['Name', 'Email', 'Company', 'Job Title'];
+    const escape  = v => `"${String(v || '').replace(/"/g, '""')}"`;
+    const lines   = [headers.join(',')];
+
+    for (const p of rows) {
+      let emails;
+      try {
+        const ac = JSON.parse(p.all_contacts || '{}');
+        emails = ac.emails?.length ? ac.emails : (p.contact_email ? [p.contact_email] : []);
+      } catch { emails = p.contact_email ? [p.contact_email] : []; }
+
+      for (const email of emails) {
+        lines.push([
+          escape(p.author_name || ''),
+          escape(email),
+          escape(p.company || ''),
+          escape(p.title   || ''),
+        ].join(','));
+      }
+    }
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `linkedin-feed-contacts-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${rows.length} contact${rows.length !== 1 ? 's' : ''} to CSV`);
+  };
+
   // ── Status change (Apify posts) ──────────────────────────────────────────────
   const handleStatusChange = async (postId, status) => {
     try {
@@ -512,6 +550,13 @@ export default function LinkedInPosts() {
                    title="Overrides your profile's target roles for this scrape only"
                    className="border rounded-sm px-2.5 py-1.5 text-xs w-52 focus:ring-2 focus:ring-brand-300 outline-none bg-white" />
           )}
+          <button
+            onClick={exportCSV}
+            title="Download visible email contacts as CSV (Name, Email, Company, Job Title)"
+            className="px-4 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-sm hover:bg-emerald-700 transition"
+          >
+            ⬇ Export CSV
+          </button>
           <button onClick={runScraper} disabled={scraping}
                   className="px-4 py-2 bg-brand-600 text-white text-sm font-semibold rounded-sm hover:bg-brand-700 disabled:opacity-50 transition">
             {scraping ? '⏳ Scraping…' : isAdmin ? '🔍 Scrape Now (admin)' : '🔍 Find My Matches'}
