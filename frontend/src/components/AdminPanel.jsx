@@ -1238,8 +1238,8 @@ function JobIntelConfigSection() {
   const [runMsg,  setRunMsg]  = useState('');
 
   useEffect(() => {
-    api.get('/job-intel/config').then(r => setCfg(r.data)).catch(() => {});
-    api.get('/job-intel/runs').then(r => setRuns(r.data || [])).catch(() => {});
+    api.get('/job-intel/config').then(r => setCfg(r)).catch(() => {});
+    api.get('/job-intel/runs').then(r => setRuns(Array.isArray(r) ? r : [])).catch(() => {});
   }, []);
 
   async function save() {
@@ -1259,7 +1259,7 @@ function JobIntelConfigSection() {
     try {
       await api.post('/job-intel/run');
       setRunMsg('Pipeline started — check run history below in ~1-2 min.');
-      setTimeout(() => api.get('/job-intel/runs').then(r => setRuns(r.data || [])).catch(() => {}), 5000);
+      setTimeout(() => api.get('/job-intel/runs').then(r => setRuns(Array.isArray(r) ? r : [])).catch(() => {}), 5000);
     } catch (e) {
       setRunMsg(e.response?.data?.error || 'Failed to start');
     } finally { setRunning(false); }

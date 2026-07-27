@@ -85,15 +85,16 @@ export default function JobIntelPanel() {
       const params = { limit: LIMIT, offset: off };
       Object.entries(filters).forEach(([k, v]) => { if (v) params[k] = v; });
 
+      // api interceptor already unwraps res.data, so these resolve directly to the payload
       const [jobsRes, statsRes, sourcesRes] = await Promise.all([
         api.get('/job-intel/postings', { params }),
         api.get('/job-intel/stats'),
         api.get('/job-intel/sources'),
       ]);
-      setJobs(jobsRes.data.jobs || []);
-      setTotal(jobsRes.data.total || 0);
-      setStats(statsRes.data);
-      setSources(sourcesRes.data || []);
+      setJobs(jobsRes.jobs || []);
+      setTotal(jobsRes.total || 0);
+      setStats(statsRes);
+      setSources(Array.isArray(sourcesRes) ? sourcesRes : []);
       setOffset(off);
     } catch (e) {
       console.error('[JobIntel] fetch error', e);
