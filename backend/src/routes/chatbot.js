@@ -226,9 +226,15 @@ router.post('/message', requireAuth, async (req, res) => {
 
     res.json({ reply, sessionId: session.id, messageId: assistantMsgId });
   } catch (e) {
-    console.error('[Chatbot] Message error:', e.message);
+    console.error('[Chatbot] Message error:', e.status, e.message);
     if (e.status === 429) {
       return res.status(429).json({ error: 'AI service is busy. Please wait a moment and try again.' });
+    }
+    if (e.status === 401 || e.status === 403) {
+      return res.status(503).json({ error: 'Groq API key is invalid or expired. Please update GROQ_API_KEY in backend/.env and restart the server.' });
+    }
+    if (e.status === 404) {
+      return res.status(503).json({ error: `AI model "${GROQ_MODEL}" is not available. Set GROQ_MODEL in backend/.env to a supported model (e.g. llama-3.3-70b-versatile).` });
     }
     res.status(500).json({ error: 'Failed to get AI response. Please try again.' });
   }
