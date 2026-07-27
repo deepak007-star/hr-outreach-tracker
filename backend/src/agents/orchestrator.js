@@ -82,16 +82,21 @@ async function runPipeline(triggeredBy = 'scheduler') {
     totalDupes = duplicateCount;
     console.log(`[Pipeline] Dedup: ${unique.length} unique, ${duplicateCount} duplicates`);
 
-    // ── 4. Extract + Classify + QA + Store (one-by-one with LLM throttle) ─
+    // ── 4. Extract → only proceed with classify/store if email found ──────
     const classEnabled = cfg.classify !== false;
-    let llmCalls = 0;
+    let llmCalls = 0, scanned = 0;
     for (const job of unique) {
       try {
-        // Extraction
+        scanned++;
+        // Extraction — primary gate: only continue if an email is found
         const extraction = await extractFromJob(job);
         Object.assign(job, extraction);
 
-        // Classification (LLM, throttle 1/sec to respect Groq rate limits)
+        let emails = [];
+        try { emails = JSON.parse(job.extracted_emails || '[]'); } catch {}
+        if (!emails.length) continue; // no contact found — skip classify/store
+
+        // Classification only for rows that have a contact (saves LLM cost)
         let classResult = null;
         if (classEnabled) {
           classResult = await classifyJob(job, cfg);
@@ -114,7 +119,7 @@ async function runPipeline(triggeredBy = 'scheduler') {
       }
     }
 
-    console.log(`[Pipeline] Stored ${totalNew} new postings (${llmCalls} LLM classification calls)`);
+    console.log(`[Pipeline] Scanned ${scanned} unique jobs — ${totalNew} HR contacts found (${llmCalls} LLM calls)`);
 
     // ── 5. Update run record ───────────────────────────────────────────────
     const finishedAt = new Date().toISOString().replace('T', ' ').slice(0, 19);
@@ -133,8 +138,8 @@ async function runPipeline(triggeredBy = 'scheduler') {
 
     // Notification
     await db.prepare(`INSERT INTO notifications (id, user_id, type, title, body) VALUES (?, ?, ?, ?, ?)`)
-      .run(randomUUID(), null, 'info', 'Job Intelligence pipeline completed',
-        `Fetched ${totalFetched} postings from ${Object.keys(sourceStats).join(', ')} — ${totalNew} new stored.`);
+      .run(randomUUID(), null, 'info', 'Job Intel: HR contacts extracted',
+        `Scanned ${totalFetched} job posts across ${Object.keys(sourceStats).join(', ')} — found ${totalNew} new HR contacts with email.`);
 
     const durationMs = Date.now() - new Date(startedAt.replace(' ', 'T') + 'Z').getTime();
     return { runId, fetched: totalFetched, new: totalNew, duplicates: totalDupes, errors, durationMs };

@@ -370,7 +370,7 @@ export default function App() {
     { id: 'home',        icon: <Home         size={16} />, label: 'Dashboard',               sub: 'Your outreach at a glance'           },
     { id: 'contacts',    icon: <Users        size={16} />, label: 'Cold Emailing & Contacts', sub: 'HR contacts & email outreach'        },
     { id: 'job-scraper', icon: <Briefcase    size={16} />, label: 'Jobs',                    sub: 'Scrape LinkedIn, Naukri & more'      },
-    { id: 'job-intel',   icon: <Zap         size={16} />, label: 'Job Intelligence',          sub: 'API-sourced jobs: Arbeitnow, Remotive, ATS boards & more' },
+    { id: 'job-intel',   icon: <Zap         size={16} />, label: 'Job Intel Contacts',        sub: 'HR emails extracted from job board APIs & ATS posts' },
     { id: 'templates',   icon: <FileText     size={16} />, label: 'Templates & Resumes',     sub: 'Email & resume templates'            },
     { id: 'jobs',        icon: <Target       size={16} />, label: 'Resume Analyzer & Maker', sub: 'ATS score & resume fit check'        },
     { id: 'bulk',        icon: <ListChecks   size={16} />, label: 'Generalize Resume',       sub: 'Tailor resume to any job description' },
@@ -501,11 +501,11 @@ export default function App() {
             <div className="max-w-screen-xl mx-auto px-4 py-6">
               <div className="mb-5">
                 <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                  <Zap size={20} className="text-brand-600" /> Job Intelligence
+                  <Zap size={20} className="text-brand-600" /> Job Intel Contacts
                 </h1>
                 <p className="text-sm text-gray-500 mt-0.5">
-                  Jobs from official APIs & ATS boards — Arbeitnow, Remotive, RemoteOK, We Work Remotely, Greenhouse, Lever + more.
-                  Configure sources in <span className="font-medium">Admin Panel → Job Intel</span>.
+                  HR emails extracted from job descriptions across Arbeitnow, Remotive, RemoteOK, We Work Remotely, Greenhouse, Lever & more.
+                  Configure in <span className="font-medium">Admin Panel → Job Intel Pipeline</span>.
                 </p>
               </div>
               <JobIntelPanel />

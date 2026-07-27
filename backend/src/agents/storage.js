@@ -4,10 +4,15 @@ const db = require('../db/database');
 
 /**
  * Write one fully-processed posting to job_postings.
- * Skips if source + external_id already exists.
- * Returns 'stored' | 'skipped'.
+ * Only persists rows where at least one email was extracted —
+ * the pipeline's goal is HR contacts, not a job board.
+ * Returns 'stored' | 'skipped' | 'no_contact'.
  */
 async function storeJob(job) {
+  // Gate: only keep rows that have a real extracted email
+  let emails = [];
+  try { emails = JSON.parse(job.extracted_emails || '[]'); } catch {}
+  if (!emails.length) return 'no_contact';
   const id = randomUUID();
   try {
     await db.prepare(`

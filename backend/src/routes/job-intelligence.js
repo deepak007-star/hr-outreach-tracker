@@ -6,6 +6,50 @@ const { runPipeline, getConfig, saveConfig } = require('../agents/orchestrator')
 
 const router = express.Router();
 
+// ── GET /api/job-intel/contacts ── HR contacts extracted from job postings ───
+// Always filtered to rows with at least one extracted email.
+router.get('/contacts', async (req, res) => {
+  try {
+    const { q, source, since, limit = 50, offset = 0 } = req.query;
+    const conditions = [`extracted_emails != '[]'`];
+    const params     = [];
+
+    if (q) {
+      conditions.push(`(title ILIKE ? OR company ILIKE ? OR extracted_emails ILIKE ? OR extracted_contact_name ILIKE ?)`);
+      params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
+    }
+    if (source) { conditions.push(`source = ?`); params.push(source); }
+    if (since) {
+      const days   = parseInt(since) || 30;
+      const cutoff = new Date(Date.now() - days * 86_400_000).toISOString().replace('T', ' ').slice(0, 19);
+      conditions.push(`fetched_at >= ?`);
+      params.push(cutoff);
+    }
+
+    const where  = `WHERE ${conditions.join(' AND ')}`;
+    const cap    = Math.min(parseInt(limit) || 50, 200);
+    const off    = parseInt(offset) || 0;
+
+    const [rows, countRow] = await Promise.all([
+      db.prepare(`SELECT * FROM job_postings ${where} ORDER BY fetched_at DESC LIMIT ? OFFSET ?`)
+        .all(...params, cap, off),
+      db.prepare(`SELECT COUNT(*) as n FROM job_postings ${where}`)
+        .get(...params),
+    ]);
+
+    // Parse emails array for each row
+    const contacts = rows.map(r => ({
+      ...r,
+      emails: (() => { try { return JSON.parse(r.extracted_emails); } catch { return []; } })(),
+    }));
+
+    res.json({ total: parseInt(countRow?.n) || 0, limit: cap, offset: off, contacts });
+  } catch (e) {
+    console.error('[Job Intel] /contacts error:', e.message);
+    res.status(500).json({ error: 'Failed to load contacts' });
+  }
+});
+
 // ── GET /api/job-intel/postings ── filterable job list ──────────────────────
 router.get('/postings', async (req, res) => {
   try {
@@ -59,22 +103,22 @@ router.get('/sources', async (req, res) => {
   }
 });
 
-// ── GET /api/job-intel/stats ── dashboard stats ──────────────────────────────
+// ── GET /api/job-intel/stats ── contact-centric dashboard stats ──────────────
 router.get('/stats', async (req, res) => {
   try {
-    const [total, withEmail, relevant, reviewNeeded, lastRun] = await Promise.all([
-      db.prepare(`SELECT COUNT(*) as n FROM job_postings`).get(),
+    const [total, today, week, lastRun] = await Promise.all([
       db.prepare(`SELECT COUNT(*) as n FROM job_postings WHERE extracted_emails != '[]'`).get(),
-      db.prepare(`SELECT COUNT(*) as n FROM job_postings WHERE is_relevant = 1`).get(),
-      db.prepare(`SELECT COUNT(*) as n FROM job_postings WHERE needs_review = 1`).get(),
+      db.prepare(`SELECT COUNT(*) as n FROM job_postings WHERE extracted_emails != '[]' AND fetched_at >= ?`)
+        .get(new Date(Date.now() - 86_400_000).toISOString().replace('T', ' ').slice(0, 19)),
+      db.prepare(`SELECT COUNT(*) as n FROM job_postings WHERE extracted_emails != '[]' AND fetched_at >= ?`)
+        .get(new Date(Date.now() - 7 * 86_400_000).toISOString().replace('T', ' ').slice(0, 19)),
       db.prepare(`SELECT started_at, finished_at, status, total_fetched, total_new FROM pipeline_runs ORDER BY started_at DESC LIMIT 1`).get(),
     ]);
     res.json({
-      total:        parseInt(total?.n) || 0,
-      with_email:   parseInt(withEmail?.n) || 0,
-      relevant:     parseInt(relevant?.n) || 0,
-      review_needed:parseInt(reviewNeeded?.n) || 0,
-      last_run:     lastRun || null,
+      total:    parseInt(total?.n)  || 0,
+      today:    parseInt(today?.n)  || 0,
+      this_week:parseInt(week?.n)   || 0,
+      last_run: lastRun || null,
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
