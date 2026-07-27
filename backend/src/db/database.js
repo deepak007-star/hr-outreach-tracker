@@ -526,6 +526,54 @@ async function initialize() {
   const insSetting = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING');
   for (const [key, value] of Object.entries(SCRAPE_DEFAULTS)) await insSetting.run(key, value);
 
+  // ── Multi-agent Job Intelligence Pipeline ─────────────────────────────────
+  await db.exec(`CREATE EXTENSION IF NOT EXISTS pg_trgm`).catch(() => {});
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS job_postings (
+      id              TEXT PRIMARY KEY,
+      source          TEXT NOT NULL,
+      external_id     TEXT,
+      title           TEXT NOT NULL DEFAULT '',
+      company         TEXT NOT NULL DEFAULT '',
+      company_domain  TEXT,
+      location        TEXT NOT NULL DEFAULT '',
+      description     TEXT NOT NULL DEFAULT '',
+      apply_url       TEXT NOT NULL DEFAULT '',
+      posted_at       TEXT,
+      fetched_at      TEXT NOT NULL DEFAULT (${NOW_EXPR}),
+      extracted_emails TEXT NOT NULL DEFAULT '[]',
+      extracted_contact_name TEXT,
+      extraction_method TEXT,
+      is_relevant     INTEGER,
+      seniority       TEXT,
+      classification_confidence REAL,
+      classification_reason TEXT,
+      fingerprint     TEXT,
+      duplicate_of    TEXT,
+      needs_review    INTEGER NOT NULL DEFAULT 0,
+      review_reason   TEXT,
+      created_at      TEXT NOT NULL DEFAULT (${NOW_EXPR}),
+      UNIQUE(source, external_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS pipeline_runs (
+      id              TEXT PRIMARY KEY,
+      started_at      TEXT NOT NULL DEFAULT (${NOW_EXPR}),
+      finished_at     TEXT,
+      status          TEXT NOT NULL DEFAULT 'running',
+      sources_run     TEXT NOT NULL DEFAULT '[]',
+      total_fetched   INTEGER NOT NULL DEFAULT 0,
+      total_new       INTEGER NOT NULL DEFAULT 0,
+      total_duplicates INTEGER NOT NULL DEFAULT 0,
+      errors          TEXT NOT NULL DEFAULT '{}'
+    );
+  `);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_job_postings_source      ON job_postings (source)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_job_postings_fingerprint ON job_postings (fingerprint)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_job_postings_fetched_at  ON job_postings (fetched_at DESC)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_job_postings_relevant    ON job_postings (is_relevant, fetched_at DESC)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_pipeline_runs_started    ON pipeline_runs (started_at DESC)`);
+
   // ── Payment subscriptions
   await db.exec(`
     CREATE TABLE IF NOT EXISTS subscriptions (

@@ -3,7 +3,7 @@ import { Toaster, toast } from 'react-hot-toast';
 import {
   Home, Users, FileText, Target, ListChecks,
   FolderOpen, UserPlus, User, ShieldCheck, Crown, Lock,
-  MailCheck, Briefcase, Mail, BarChart3, Bell,
+  MailCheck, Briefcase, Mail, BarChart3, Bell, Zap,
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './contexts/AuthContext.jsx';
 import Header            from './components/Header.jsx';
@@ -32,6 +32,7 @@ import AskReferral        from './components/AskReferral.jsx';
 import ResumeVault        from './components/ResumeVault.jsx';
 import LandingPage        from './components/LandingPage.jsx';
 import Chatbot            from './components/Chatbot.jsx';
+import JobIntelPanel      from './components/JobIntelPanel.jsx';
 import ConfirmDialog from './components/ConfirmDialog.jsx';
 import { confirm }   from './utils/confirm.js';
 import { clearDraft } from './hooks/useDraft.js';
@@ -71,6 +72,7 @@ const TAB_PATHS = {
   bulk:           '/bulk-apply',
   profile:        '/profile',
   'job-scraper':  '/jobs',
+  'job-intel':    '/job-intel',
   'resume-vault': '/vault',
   referrals:      '/referrals',
   admin:          '/admin',
@@ -368,6 +370,7 @@ export default function App() {
     { id: 'home',        icon: <Home         size={16} />, label: 'Dashboard',               sub: 'Your outreach at a glance'           },
     { id: 'contacts',    icon: <Users        size={16} />, label: 'Cold Emailing & Contacts', sub: 'HR contacts & email outreach'        },
     { id: 'job-scraper', icon: <Briefcase    size={16} />, label: 'Jobs',                    sub: 'Scrape LinkedIn, Naukri & more'      },
+    { id: 'job-intel',   icon: <Zap         size={16} />, label: 'Job Intelligence',          sub: 'API-sourced jobs: Arbeitnow, Remotive, ATS boards & more' },
     { id: 'templates',   icon: <FileText     size={16} />, label: 'Templates & Resumes',     sub: 'Email & resume templates'            },
     { id: 'jobs',        icon: <Target       size={16} />, label: 'Resume Analyzer & Maker', sub: 'ATS score & resume fit check'        },
     { id: 'bulk',        icon: <ListChecks   size={16} />, label: 'Generalize Resume',       sub: 'Tailor resume to any job description' },
@@ -489,6 +492,24 @@ export default function App() {
         {activeTab === 'job-scraper' && (
           <TabErrorBoundary>
             <JobScraperSection />
+          </TabErrorBoundary>
+        )}
+
+        {/* ── Job Intelligence tab (multi-agent pipeline) ───────── */}
+        {activeTab === 'job-intel' && (
+          <TabErrorBoundary>
+            <div className="max-w-screen-xl mx-auto px-4 py-6">
+              <div className="mb-5">
+                <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                  <Zap size={20} className="text-brand-600" /> Job Intelligence
+                </h1>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  Jobs from official APIs & ATS boards — Arbeitnow, Remotive, RemoteOK, We Work Remotely, Greenhouse, Lever + more.
+                  Configure sources in <span className="font-medium">Admin Panel → Job Intel</span>.
+                </p>
+              </div>
+              <JobIntelPanel />
+            </div>
           </TabErrorBoundary>
         )}
 

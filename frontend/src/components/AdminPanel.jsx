@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext.jsx';
 import RolesPermissions from './RolesPermissions.jsx';
 import PasswordVault from './PasswordVault.jsx';
 import ApifySettingsModal from './ApifySettingsModal.jsx';
-import { Pencil, Trash2, Eye, EyeOff, Shield, Users, Lock, Search, Database, Settings, LayoutGrid, List, Handshake, Inbox, Copy, Bot } from 'lucide-react';
+import { Pencil, Trash2, Eye, EyeOff, Shield, Users, Lock, Search, Database, Settings, LayoutGrid, List, Handshake, Inbox, Copy, Bot, Zap, Play, CheckCircle } from 'lucide-react';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const PLANS  = ['guest', 'demo', 'basic', 'advanced'];
@@ -1229,6 +1229,187 @@ function ScraperSection() {
   );
 }
 
+// ── Job Intel Pipeline Config Section ─────────────────────────────────────
+function JobIntelConfigSection() {
+  const [cfg,     setCfg]     = useState(null);
+  const [saving,  setSaving]  = useState(false);
+  const [running, setRunning] = useState(false);
+  const [runs,    setRuns]    = useState([]);
+  const [runMsg,  setRunMsg]  = useState('');
+
+  useEffect(() => {
+    api.get('/job-intel/config').then(r => setCfg(r.data)).catch(() => {});
+    api.get('/job-intel/runs').then(r => setRuns(r.data || [])).catch(() => {});
+  }, []);
+
+  async function save() {
+    if (!cfg) return;
+    setSaving(true);
+    try {
+      await api.put('/job-intel/config', cfg);
+      toast.success('Pipeline config saved');
+    } catch (e) {
+      toast.error(e.response?.data?.error || 'Save failed');
+    } finally { setSaving(false); }
+  }
+
+  async function triggerRun() {
+    setRunning(true);
+    setRunMsg('');
+    try {
+      await api.post('/job-intel/run');
+      setRunMsg('Pipeline started — check run history below in ~1-2 min.');
+      setTimeout(() => api.get('/job-intel/runs').then(r => setRuns(r.data || [])).catch(() => {}), 5000);
+    } catch (e) {
+      setRunMsg(e.response?.data?.error || 'Failed to start');
+    } finally { setRunning(false); }
+  }
+
+  function setField(key, val) {
+    setCfg(c => ({ ...c, [key]: val }));
+  }
+  function setListField(key, val) {
+    setCfg(c => ({ ...c, [key]: val.split('\n').map(s => s.trim()).filter(Boolean) }));
+  }
+
+  if (!cfg) return <div className="p-6 text-gray-400 text-sm">Loading…</div>;
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-md p-5 space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-bold text-gray-800 flex items-center gap-2"><Zap size={16} className="text-brand-600" /> Job Intelligence Pipeline</h3>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Pulls jobs from official APIs & ATS boards (Arbeitnow, Remotive, RemoteOK, We Work Remotely, Greenhouse, Lever, Adzuna, Jooble).
+            No LinkedIn scraping — all sources are public, ToS-clean APIs.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
+            cfg.enabled ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+          }`}>
+            {cfg.enabled ? <><CheckCircle size={11} /> Enabled</> : 'Disabled'}
+          </span>
+        </div>
+      </div>
+
+      {/* Enable + frequency */}
+      <div className="grid grid-cols-2 gap-4">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" checked={!!cfg.enabled} onChange={e => setField('enabled', e.target.checked)}
+            className="w-4 h-4 accent-brand-600" />
+          <span className="text-sm font-medium text-gray-700">Enable pipeline</span>
+        </label>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Run every (hours)</label>
+          <input type="number" min={1} max={24} value={cfg.run_every_hours || 6}
+            onChange={e => setField('run_every_hours', parseInt(e.target.value) || 6)}
+            className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500" />
+        </div>
+      </div>
+
+      {/* Keywords */}
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Job keywords / titles (one per line)</label>
+        <textarea rows={4} value={(cfg.keywords || []).join('\n')}
+          onChange={e => setListField('keywords', e.target.value)}
+          placeholder="Backend Developer&#10;Node.js Developer&#10;Java Developer&#10;React Developer"
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500 font-mono" />
+        <p className="text-[11px] text-gray-400 mt-1">Used for Adzuna/Jooble keyword searches + LLM classification target</p>
+      </div>
+
+      {/* Locations */}
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Target locations (one per line)</label>
+        <textarea rows={2} value={(cfg.locations || []).join('\n')}
+          onChange={e => setListField('locations', e.target.value)}
+          placeholder="India&#10;Remote"
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500 font-mono" />
+      </div>
+
+      {/* Greenhouse companies */}
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Greenhouse company slugs (one per line)</label>
+        <textarea rows={3} value={(cfg.greenhouse_companies || []).join('\n')}
+          onChange={e => setListField('greenhouse_companies', e.target.value)}
+          placeholder="google&#10;meta&#10;stripe&#10;airbnb"
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500 font-mono" />
+        <p className="text-[11px] text-gray-400 mt-1">From: boards-api.greenhouse.io/v1/boards/<strong>{'<slug>'}</strong>/jobs</p>
+      </div>
+
+      {/* Lever companies */}
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Lever company slugs (one per line)</label>
+        <textarea rows={3} value={(cfg.lever_companies || []).join('\n')}
+          onChange={e => setListField('lever_companies', e.target.value)}
+          placeholder="netflix&#10;shopify&#10;discord"
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500 font-mono" />
+        <p className="text-[11px] text-gray-400 mt-1">From: api.lever.co/v0/postings/<strong>{'<slug>'}</strong></p>
+      </div>
+
+      {/* Adzuna */}
+      <div className="border border-gray-100 rounded-md p-3 space-y-2">
+        <p className="text-xs font-medium text-gray-600">Adzuna API <span className="text-gray-400 font-normal">(optional — get free key at developer.adzuna.com)</span></p>
+        <div className="grid grid-cols-2 gap-2">
+          <input value={cfg.adzuna_app_id || ''} onChange={e => setField('adzuna_app_id', e.target.value)}
+            placeholder="App ID"
+            className="px-3 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500" />
+          <input value={cfg.adzuna_key || ''} onChange={e => setField('adzuna_key', e.target.value)}
+            placeholder="App Key"
+            className="px-3 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500" />
+        </div>
+      </div>
+
+      {/* Jooble */}
+      <div className="border border-gray-100 rounded-md p-3">
+        <p className="text-xs font-medium text-gray-600 mb-2">Jooble API <span className="text-gray-400 font-normal">(optional — free key at jooble.org/api/contacts)</span></p>
+        <input value={cfg.jooble_key || ''} onChange={e => setField('jooble_key', e.target.value)}
+          placeholder="Jooble API key"
+          className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500" />
+      </div>
+
+      {/* Classification */}
+      <label className="flex items-center gap-2 cursor-pointer">
+        <input type="checkbox" checked={cfg.classify !== false} onChange={e => setField('classify', e.target.checked)}
+          className="w-4 h-4 accent-brand-600" />
+        <div>
+          <span className="text-sm font-medium text-gray-700">Enable LLM classification</span>
+          <p className="text-[11px] text-gray-400">Uses Groq (same key as VartaBot) to score relevance. Requires VartaBot key to be set.</p>
+        </div>
+      </label>
+
+      {/* Buttons */}
+      <div className="flex gap-3 pt-2 border-t border-gray-100">
+        <button onClick={save} disabled={saving}
+          className="px-4 py-2 text-sm font-semibold bg-brand-600 text-white rounded-md hover:bg-brand-700 disabled:opacity-50">
+          {saving ? 'Saving…' : 'Save Config'}
+        </button>
+        <button onClick={triggerRun} disabled={running}
+          className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold border border-gray-200 rounded-md hover:bg-gray-50 disabled:opacity-50">
+          <Play size={13} /> {running ? 'Starting…' : 'Run Pipeline Now'}
+        </button>
+      </div>
+      {runMsg && <p className="text-xs text-brand-600 mt-1">{runMsg}</p>}
+
+      {/* Run history */}
+      {runs.length > 0 && (
+        <div>
+          <h4 className="text-xs font-semibold text-gray-600 mb-2">Recent Runs</h4>
+          <div className="space-y-1">
+            {runs.slice(0, 5).map(r => (
+              <div key={r.id} className="flex items-center gap-3 text-xs text-gray-600 bg-gray-50 px-3 py-2 rounded">
+                <span className={`font-medium ${r.status === 'success' ? 'text-green-600' : r.status === 'running' ? 'text-blue-600' : 'text-red-500'}`}>{r.status}</span>
+                <span>{r.started_at?.slice(0, 16)}</span>
+                <span className="text-gray-400">→ {r.total_new || 0} new / {r.total_fetched || 0} fetched</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── VartaBot AI Config Section ────────────────────────────────────────────
 function VartaBotSection() {
   const [config,   setConfig]   = useState(null);
@@ -1369,6 +1550,7 @@ export default function AdminPanel() {
 
   const TABS = [
     { id: 'leads',     Icon: Inbox,      label: 'Interest Leads'       },
+    { id: 'job-intel', Icon: Zap,        label: 'Job Intel Pipeline'   },
     { id: 'users',     Icon: Users,      label: 'User Management'      },
     { id: 'roles',     Icon: Shield,     label: 'Roles & Permissions'  },
     { id: 'passwords', Icon: Lock,       label: 'Password Vault'       },
@@ -1432,6 +1614,7 @@ export default function AdminPanel() {
           <PasswordVault isAdmin={true} />
         </div>
       )}
+      {tab === 'job-intel' && <JobIntelConfigSection />}
       {tab === 'scraper'   && <ScraperSection />}
       {tab === 'vartabot'  && <VartaBotSection />}
       {tab === 'referrals' && <ReferralsSection />}

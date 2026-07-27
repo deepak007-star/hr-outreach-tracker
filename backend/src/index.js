@@ -67,6 +67,8 @@ async function main() {
   const deliveryRouter       = require('./routes/delivery');
   const paymentsRouter       = require('./routes/payments');
   const chatbotRouter        = require('./routes/chatbot');
+  const jobIntelRouter       = require('./routes/job-intelligence');
+  const { schedulePipeline } = require('./agents/orchestrator');
   const { getSettings } = require('./routes/apify');
   const { sendReminderEmail } = require('./routes/reminder');
 
@@ -151,6 +153,7 @@ async function main() {
   app.use('/api/delivery',        deliveryRouter);
   app.use('/api/payments',        paymentsRouter);
   app.use('/api/chatbot',         chatbotRouter);
+  app.use('/api/job-intel',       jobIntelRouter);
   app.get('/api/health', (_, res) =>
     res.json({ status: 'ok', timestamp: new Date().toISOString() })
   );
@@ -382,6 +385,9 @@ async function main() {
       console.error('[Daily purge/backup]', e.message);
     }
   }
+
+  // ── Multi-agent Job Intelligence Pipeline scheduler ───────────────────────
+  schedulePipeline().catch(e => console.error('[Pipeline] Scheduler init failed:', e.message));
 
   // Run purge once at startup (after 30s) then every 24h
   setTimeout(runDailyPurgeAndBackup, 30_000);
