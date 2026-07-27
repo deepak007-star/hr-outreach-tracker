@@ -190,12 +190,25 @@ function FeedComposeModal({ contacts, onClose, onSent }) {
   const bodyEditorRef = useRef(null);
 
   useEffect(() => {
-    api.get('/email-templates').then(data => setQuickTpls(data.slice(0, 4))).catch(() => {});
-    api.get('/profile').then(p => {
+    Promise.all([
+      api.get('/email-templates').catch(() => []),
+      api.get('/profile').catch(() => null),
+    ]).then(([templates, p]) => {
+      const tpls = Array.isArray(templates) ? templates : [];
+      setQuickTpls(tpls.slice(0, 4));
+
       const prof = p?.user_id ? p : null;
       setProfile(prof);
-      if (prof) setBody(prev => prev === DEFAULT_BODY ? buildProfileBody(prof) : prev);
-    }).catch(() => {});
+
+      if (tpls.length > 0) {
+        // Always start with the user's first saved template — overrides hardcoded defaults
+        setSubject(tpls[0].subject || DEFAULT_SUBJECT);
+        setBody(tpls[0].body    || DEFAULT_BODY);
+      } else if (prof) {
+        // No templates yet — build body from profile as a fallback
+        setBody(prev => prev === DEFAULT_BODY ? buildProfileBody(prof) : prev);
+      }
+    });
   }, []);
 
   function applyTemplate(t) {

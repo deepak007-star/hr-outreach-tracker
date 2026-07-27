@@ -25,20 +25,43 @@ const STATUS_COLORS = {
 };
 
 // ─── Bulk email compose modal ─────────────────────────────────────────────────
+const BULK_DEFAULT_SUBJECT = 'Hi {{name}}, regarding the opening at {{company}}';
+const BULK_DEFAULT_BODY =
+`Hi {{name}},
+
+I came across your LinkedIn post about job openings at {{company}} and I'm very interested in the opportunity.
+
+I'd love a quick 15-minute chat to explore if there's a fit.
+
+Thanks,
+{{your_name}}
+{{phone}} | {{linkedin_url}}`;
+
 function BulkEmailModal({ contacts, onClose, onSent }) {
-  const [subject, setSubject] = useState('Job Application — Interested in Your Opening');
-  const [body,    setBody]    = useState(
-    `Hi,\n\nI came across your LinkedIn post about job openings and I'm very interested in the opportunity.\n\nI'd love to connect and discuss further.\n\n[Your Profile / Resume Link]\n\nBest regards,\n[Your Name]`
-  );
-  const [sending, setSending] = useState(false);
+  const [subject,  setSubject]  = useState(BULK_DEFAULT_SUBJECT);
+  const [body,     setBody]     = useState(BULK_DEFAULT_BODY);
+  const [sending,  setSending]  = useState(false);
+  const [tplLabel, setTplLabel] = useState('');
+
+  // Auto-load the user's first saved template on open
+  useEffect(() => {
+    api.get('/email-templates').then(data => {
+      if (Array.isArray(data) && data.length > 0) {
+        const t = data[0];
+        setSubject(t.subject || BULK_DEFAULT_SUBJECT);
+        setBody(t.body    || BULK_DEFAULT_BODY);
+        setTplLabel(t.name || '');
+      }
+    }).catch(() => {});
+  }, []);
 
   const handleSend = async () => {
     if (!subject.trim() || !body.trim()) return;
     setSending(true);
     try {
       const result = await api.post('/scraped-jobs/send-feed-emails', {
-        subject: subject.trim(),
-        body:    body.trim(),
+        template_subject: subject.trim(),
+        template_body:    body.trim(),
         contacts: contacts.map(c => ({
           email:   c.contact_email,
           name:    c.author_name   || '',
@@ -63,7 +86,10 @@ function BulkEmailModal({ contacts, onClose, onSent }) {
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <div>
             <h2 className="font-semibold text-gray-900">✉ Compose Emails</h2>
-            <p className="text-sm text-gray-500">{contacts.length} separate email{contacts.length !== 1 ? 's' : ''} — one per contact</p>
+            <p className="text-sm text-gray-500">
+              {contacts.length} separate email{contacts.length !== 1 ? 's' : ''} — one per contact
+              {tplLabel && <span className="ml-2 text-brand-600 font-medium">· Template: {tplLabel}</span>}
+            </p>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl p-1">✕</button>
         </div>
@@ -86,7 +112,9 @@ function BulkEmailModal({ contacts, onClose, onSent }) {
             <textarea value={body} onChange={e => setBody(e.target.value)} rows={10}
                       className="w-full border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none resize-none font-mono leading-relaxed" />
           </div>
-          <p className="text-xs text-gray-400">Each recipient gets their own individual email — not CC/BCC.</p>
+          <p className="text-xs text-gray-400">
+            Variables like <code className="font-mono">{'{{name}}'}</code> are replaced per recipient — each person gets their own personalised email.
+          </p>
         </div>
         <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50 rounded-b-md">
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 border rounded-sm hover:bg-gray-100">Cancel</button>
