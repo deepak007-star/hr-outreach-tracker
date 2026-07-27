@@ -529,6 +529,30 @@ export default function FeedContactsPanel() {
   const [filterTab, setFilterTab] = useState('all');
 
   const selectedContacts = contacts.filter(c => selected.has(c.contact_email));
+
+  const exportCSV = () => {
+    if (!filteredContacts.length) { toast.error('No contacts to export'); return; }
+    const escape = v => `"${String(v || '').replace(/"/g, '""')}"`;
+    const lines  = [['Name', 'Email', 'Company', 'Job Title'].join(',')];
+    for (const c of filteredContacts) {
+      lines.push([
+        escape(c.contact_name  || ''),
+        escape(c.contact_email || ''),
+        escape(c.company       || ''),
+        escape(c.title         || ''),
+      ].join(','));
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `feed-contacts-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${filteredContacts.length} contact${filteredContacts.length !== 1 ? 's' : ''}`);
+  };
   const pendingContacts  = contacts.filter(c => !c.already_emailed);
   const sentContacts     = contacts.filter(c =>  c.already_emailed);
   const filteredContacts = filterTab === 'pending' ? pendingContacts
@@ -600,6 +624,13 @@ export default function FeedContactsPanel() {
                  className="border rounded-sm px-3 py-1.5 text-xs w-40 focus:ring-2 focus:ring-brand-300 outline-none" />
           <button onClick={() => fetchContacts()} className="text-xs text-gray-500 border rounded-sm px-2 py-1.5 hover:bg-gray-50">
             ↻ Refresh
+          </button>
+          <button
+            onClick={exportCSV}
+            title="Download current search results as CSV (Name, Email, Company, Job Title)"
+            className="text-xs bg-emerald-600 text-white border border-emerald-600 rounded-sm px-2.5 py-1.5 hover:bg-emerald-700 font-semibold transition"
+          >
+            ⬇ Export CSV
           </button>
         </div>
       </div>
