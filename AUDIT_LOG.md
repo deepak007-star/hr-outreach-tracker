@@ -2,6 +2,28 @@
 
 ---
 
+## 2026-07-28 — Resume skill injection: group-by-domain, smart placement, expanded dictionary
+
+### BUG FIX — `resumeUtils.js` `modifyResume()` created one "Others:" row per unclassified skill
+
+- **Root cause 1 (main bug):** The inner loop processed each skill individually. When no matching line was found (`bestScore = 0`), it called `result.splice(…)` for **each** skill — so 3 unclassified skills produced 3 separate `"Others: skill"` rows instead of one.
+- **Root cause 2:** The `[ADDED-LINE]` prefix on freshly-inserted rows was not stripped before `scoreLineForSkill` / `getLineDomain` ran on them. The label regex `^([a-z][a-z…]+?)\s*[:|-]` requires the line to start with `[a-z]`, but `[ADDED-LINE]` starts with `[` — so already-inserted domain rows were invisible to subsequent iterations, causing duplicate domain rows.
+- **Root cause 3:** ~80 common skills (Node.js, REST, JWT, Microservices, Agile, Webpack, Vite, Tailwind, OAuth, etc.) were missing from `SKILL_DOMAIN`, falling through to "Others" even though they have a clear category.
+- **Root cause 4:** `getLineDomain` had no fallback when the line label didn't match any keyword (e.g. "Frameworks & Libraries:"). Now falls back to counting sibling skills already on the line and returning the dominant domain.
+
+- **Fix:**
+  - `modifyResume()` now groups `skillsToAdd` by domain **before** touching any lines (`byDomain` Map). One loop iteration per domain group, not per skill.
+  - For each domain group: append ALL skills to the best matching line (joined with detected separator), or insert ONE new domain-labeled line with all skills at once.
+  - For `'unclassified'` group: checks for an existing `Others/Misc/General` line first; if not found, inserts ONE `"Others: skill1, skill2, skill3"` line.
+  - `stripAddedMarker()` strips `[ADDED-LINE]` prefix before passing to scoring functions, so newly-inserted rows are found in subsequent domain-group iterations.
+  - `getSkillDomain()` exported (was private) for consumers that need to query domains.
+  - `inferDomainFromSiblings()` added — scans skills already present on a line to infer domain when label keywords don't match.
+  - `SKILL_DOMAIN` expanded from ~80 → ~160 entries (Node.js, Express, NestJS, REST, JWT, OAuth, Microservices, Agile, Scrum, Webpack, Vite, Tailwind (shorthand), Material UI, Ant Design, Swagger, Jira, Confluence, Liquibase, Flyway, Playwright, Vitest, etc.).
+  - `DOMAIN_LABEL_KEYWORDS` expanded with: scripting, coding, server-side, api, microservice, version control, automation, platform, metrics, alerting, tracing.
+- **File:** `frontend/src/utils/resumeUtils.js`
+
+---
+
 ## 2026-07-28 — Preferred Cities: multi-city picker (up to 5) + default cities
 
 ### FEATURE — Profile preferred city expanded to up to 5 cities
