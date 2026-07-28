@@ -437,9 +437,10 @@ router.post('/send-feed-emails', requireAuth, async (req, res) => {
     if (!subjectTpl || !bodyTpl)
       return res.status(400).json({ error: 'subject and body required' });
 
-    const cap = await getDailyCap();
-    const sentToday = await getSentToday(req.user.userId);
-    if (sentToday >= cap)
+    const isAdmin    = req.user.role === 'admin';
+    const cap        = isAdmin ? Infinity : await getDailyCap();
+    const sentToday  = await getSentToday(req.user.userId);
+    if (!isAdmin && sentToday >= cap)
       return res.status(429).json({ error: `Daily send cap of ${cap} reached. Try again tomorrow.` });
 
     const mail = await getTransportForUser(req.user.userId);
@@ -450,7 +451,7 @@ router.post('/send-feed-emails', requireAuth, async (req, res) => {
 
     const { transport, fromEmail } = mail;
     const fromName = sanitizeHeaderValue(mail.fromName);
-    let remaining  = cap - sentToday;
+    let remaining  = isAdmin ? Infinity : cap - sentToday;
     const now      = new Date().toISOString().replace('T', ' ').slice(0, 19);
     const results  = [];
 
@@ -514,7 +515,7 @@ router.post('/send-feed-emails', requireAuth, async (req, res) => {
           renderedSubject, textBody.slice(0, 200), textBody, now
         );
 
-        remaining--;
+        if (remaining !== Infinity) remaining--;
         results.push({ email, ok: true });
       } catch (e) {
         results.push({ email, ok: false, error: e.message });

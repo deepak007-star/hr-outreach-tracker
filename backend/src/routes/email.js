@@ -261,12 +261,13 @@ router.post('/preview', async (req, res) => {
   if (!subject || !body)
     return res.status(400).json({ error: 'subject and body are required' });
 
+  const isAdmin   = req.user.role === 'admin';
   const footer    = await getFooter();
   const sentToday = await getSentToday(req.user.userId);
-  const cap       = await getDailyCap();
+  const cap       = isAdmin ? Infinity : await getDailyCap();
   const profile   = await db.prepare('SELECT * FROM profiles WHERE user_id = ?').get(req.user.userId);
   const previews  = [];
-  let budgetLeft  = Math.max(0, cap - sentToday);
+  let budgetLeft  = isAdmin ? Infinity : Math.max(0, cap - sentToday);
 
   for (const id of contactIds) {
     const contact = await db.prepare('SELECT * FROM contacts WHERE id = ? AND user_id = ?').get(id, req.user.userId);
@@ -285,7 +286,7 @@ router.post('/preview', async (req, res) => {
     } else if (budgetLeft <= 0) {
       blocked = true; blockReason = `Daily cap of ${cap} reached`; blockType = 'cap_reached';
     } else {
-      budgetLeft--;
+      if (budgetLeft !== Infinity) budgetLeft--;
     }
 
     previews.push({
@@ -306,8 +307,8 @@ router.post('/preview', async (req, res) => {
   res.json({
     previews,
     sentToday,
-    dailyCap: cap,
-    eligible: previews.filter(p => !p.blocked).length,
+    dailyCap:  isAdmin ? null : cap,
+    eligible:  previews.filter(p => !p.blocked).length,
   });
 });
 
@@ -325,8 +326,9 @@ router.post('/send', rlMiddleware('email'), async (req, res) => {
   const { transport, fromEmail } = mail;
   const fromName = sanitizeHeaderValue(mail.fromName);
 
-  const cap = await getDailyCap();
-  if (await getSentToday(req.user.userId) >= cap)
+  const isAdmin = req.user.role === 'admin';
+  const cap     = isAdmin ? Infinity : await getDailyCap();
+  if (!isAdmin && await getSentToday(req.user.userId) >= cap)
     return res.status(429).json({ error: `Daily send cap of ${cap} reached. Try again tomorrow.` });
 
   const footer      = await getFooter();
@@ -353,7 +355,7 @@ router.post('/send', rlMiddleware('email'), async (req, res) => {
     if (await wasRecentlySent(contactId)) {
       results.push({ contactId, ok: false, error: 'Already emailed in the last 14 days' }); continue;
     }
-    if (sentCount >= cap) {
+    if (!isAdmin && sentCount >= cap) {
       results.push({ contactId, ok: false, error: 'Daily cap reached' }); continue;
     }
 
@@ -518,9 +520,11 @@ router.post('/send-direct', rlMiddleware('email'), async (req, res) => {
     return res.status(400).json({ error: 'No email account connected. Connect Google or configure SMTP in Settings first.' });
   const { transport, fromEmail, fromName } = mail;
 
-  const cap = await getDailyCap();
-  if (await getSentToday(req.user.userId) >= cap)
-    return res.status(429).json({ error: `Daily send cap of ${cap} reached.` });
+  if (req.user.role !== 'admin') {
+    const cap = await getDailyCap();
+    if (await getSentToday(req.user.userId) >= cap)
+      return res.status(429).json({ error: `Daily send cap of ${cap} reached.` });
+  }
 
   const footer   = await getFooter();
   const fullBody = `${body}\n\n---\n${footer}`;
@@ -563,8 +567,9 @@ router.get('/log', async (req, res) => {
 
 // ── GET /api/email/stats ───────────────────────────────────────────────────
 router.get('/stats', async (req, res) => {
+  const isAdmin   = req.user.role === 'admin';
   const sentToday = await getSentToday(req.user.userId);
-  const cap       = await getDailyCap();
+  const cap       = isAdmin ? null : await getDailyCap();
   const totalRow  = await db.prepare('SELECT COUNT(*) as c FROM email_log WHERE user_id = ?').get(req.user.userId);
   const total     = parseInt(totalRow?.c || 0);
 
@@ -593,7 +598,7 @@ router.get('/stats', async (req, res) => {
   res.json({
     sentToday,
     dailyCap:  cap,
-    remaining: Math.max(0, cap - sentToday),
+    remaining: isAdmin ? null : Math.max(0, cap - sentToday),
     totalSent: total,
     delivery,
     billing: billingRow ? {

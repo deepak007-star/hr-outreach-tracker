@@ -44,6 +44,7 @@ function getStatus(userId) {
 
 function middleware(type) {
   return (req, res, next) => {
+    if (req.user?.role === 'admin') { next(); return; }
     const uid    = req.user?.userId || req.ip || 'anon';
     const result = check(uid, type);
     if (!result.allowed) {
