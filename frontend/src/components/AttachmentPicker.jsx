@@ -30,7 +30,7 @@ export default function AttachmentPicker({ profile, onSelect, onClose }) {
         setVaultVersions(arr);
         if (!userTabRef.current) {
           if (profile?.has_resume_file) setTab('profile');
-          else if (arr.some(v => v.has_file)) setTab('vault');
+          else if (arr.length > 0) setTab('vault');
         }
       })
       .finally(() => setLoading(false));
@@ -65,7 +65,7 @@ export default function AttachmentPicker({ profile, onSelect, onClose }) {
     onSelect({ type: 'drive', driveUrl: url, filename: 'resume.pdf', label: `Drive: ${label}` });
   }
 
-  const vaultFiles = vaultVersions.filter(v => v.has_file);
+  const vaultFiles = vaultVersions; // show ALL versions; backend serves text-only as .txt fallback
 
   const TABS = [
     { id: 'profile', label: 'Profile' },
@@ -131,14 +131,17 @@ export default function AttachmentPicker({ profile, onSelect, onClose }) {
                     className="w-full text-left p-3 border rounded-sm hover:bg-gray-50 transition group">
                     <div className="text-sm font-medium text-gray-700 group-hover:text-brand-600 transition">{v.label}</div>
                     {v.target_role && <div className="text-xs text-gray-400 mt-0.5">{v.target_role}</div>}
+                    {!v.has_file && (
+                      <div className="text-xs text-amber-600 mt-0.5">Text only — will attach as .txt</div>
+                    )}
                   </button>
                 ))}
               </div>
             ) : (
               <div className="text-center py-6 space-y-2">
                 <p className="text-2xl">📂</p>
-                <p className="text-sm font-medium text-gray-500">No files saved in vault yet</p>
-                <p className="text-xs text-gray-400">Save a resume to the Vault first, or upload directly below.</p>
+                <p className="text-sm font-medium text-gray-500">No resumes saved in vault yet</p>
+                <p className="text-xs text-gray-400">Upload a resume to the Vault first, or choose Upload below.</p>
               </div>
             )
           )}

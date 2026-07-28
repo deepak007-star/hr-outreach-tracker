@@ -260,8 +260,18 @@ router.post('/upload', upload.single('resume'), async (req, res) => {
       cleanup();
       return res.status(400).json({ error: 'Unsupported file type. Use PDF, DOCX, or TXT.' });
     }
-    const { text, mimeType } = await parseFileToText(tmpPath, ext);
-    if (!text?.trim()) { cleanup(); return res.status(400).json({ error: 'Could not extract text from the file.' }); }
+    // Text extraction is best-effort — store the file even if it fails (scanned/image PDFs)
+    let text = '', mimeType = 'application/octet-stream';
+    try {
+      const parsed = await parseFileToText(tmpPath, ext);
+      text     = parsed.text     || '';
+      mimeType = parsed.mimeType || mimeType;
+    } catch {
+      mimeType = ext === '.pdf'  ? 'application/pdf'
+        : ext === '.docx' ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        : ext === '.doc'  ? 'application/msword'
+        : 'text/plain';
+    }
     const storedPath = storeVaultFile(tmpPath, userId, ext);
     cleanup();
     const finalLabel = (label.trim() || req.file.originalname || 'Uploaded Resume').slice(0, 80);

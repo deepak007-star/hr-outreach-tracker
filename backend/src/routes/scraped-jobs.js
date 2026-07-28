@@ -85,11 +85,15 @@ async function resolveFeedAttachment(attachment, userId) {
       }
     } else if (attachment.type === 'vault' && attachment.vaultId) {
       const version = await db.prepare(
-        'SELECT file_path, mime_type, label FROM resume_versions WHERE id = ? AND user_id = ?'
+        'SELECT file_path, mime_type, label, resume_text FROM resume_versions WHERE id = ? AND user_id = ?'
       ).get(attachment.vaultId, userId);
       if (version?.file_path && fs.existsSync(version.file_path)) {
         const ext = version.mime_type?.includes('pdf') ? '.pdf' : version.mime_type?.includes('word') ? '.docx' : '';
         return [{ filename: (version.label || 'resume') + ext, path: version.file_path, contentType: version.mime_type || 'application/octet-stream' }];
+      }
+      // Fallback: file missing on disk but resume text exists — send as .txt
+      if (version?.resume_text?.trim()) {
+        return [{ filename: (version.label || 'resume') + '.txt', content: Buffer.from(version.resume_text, 'utf8'), contentType: 'text/plain' }];
       }
     } else if (attachment.type === 'local' && attachment.data) {
       return [{ filename: attachment.filename || 'resume', content: Buffer.from(attachment.data, 'base64'), contentType: attachment.mimeType || 'application/octet-stream' }];
