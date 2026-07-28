@@ -5,6 +5,21 @@ Each entry includes the date, severity, file(s) changed, root cause, and fix app
 
 ---
 
+## 2026-07-28 — Bulk selection UX for Contacts page (`App.jsx`)
+
+### UX — Quick-select and clear for main Contacts table
+
+- **Feature:** Added **Select 5**, **Select 10**, **All (N)** quick-select buttons to the Contacts toolbar. Previously only manual per-row checkbox selection was available.
+- **Behaviour:**
+  - Select 5 / Select 10 appear when at least that many contacts are currently visible (respects active search/status filter).
+  - `All (N)` always shown when any contacts are loaded — selects every contact in the current filtered view.
+  - `✕ Clear (N)` appears (red, dismissible) as soon as any row is selected.
+  - When items are selected, a bulk-action inline bar appears in the same row: **Change status**, **Compose**, **Delete**.
+- **File:** `frontend/src/App.jsx` — replaced the separate `selected.length > 0` bulk bar block with a unified single-row toolbar that combines Select buttons + bulk actions.
+- **Note:** LinkedIn Feed Contacts panel already had Select 5 / Select 10 / Clear (added in Task 9 on 2026-07-26).
+
+---
+
 ## 2026-07-28 — Comprehensive Security & Bug Audit (Branch: fix/comprehensive-audit-jul28)
 
 ### CRITICAL — Security Fixes

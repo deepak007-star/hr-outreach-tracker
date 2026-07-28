@@ -628,35 +628,66 @@ export default function App() {
             </div>
           </div>
 
-          {/* ── Bulk action bar ─────────────────────────────────────── */}
-          {selected.length > 0 && (
-            <div className="bg-brand-50 border border-brand-200 rounded-md px-4 py-2.5 flex flex-wrap items-center gap-3 text-sm">
-              <span className="font-semibold text-brand-700">{selected.length} selected</span>
-              <select
-                defaultValue=""
-                onChange={e => { if (e.target.value) { handleBulkStatus(e.target.value); e.target.value = ''; } }}
-                className="border border-gray-200 rounded-sm px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-brand-300 outline-none"
-              >
-                <option value="" disabled>Change status to…</option>
-                {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
+          {/* ── Quick-select + bulk action bar ──────────────────────── */}
+          <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-gray-100">
+            {/* Quick-select buttons — always visible */}
+            <span className="text-xs text-gray-400 font-medium">Select:</span>
+            {[5, 10].map(n => (
+              contacts.length >= n && (
+                <button
+                  key={n}
+                  onClick={() => setSelected(contacts.slice(0, n).map(c => c.id))}
+                  className="text-xs px-2.5 py-1 border border-gray-300 rounded-sm text-gray-600 hover:bg-gray-100 hover:border-gray-400 font-semibold transition"
+                >
+                  {n}
+                </button>
+              )
+            ))}
+            {contacts.length > 0 && (
               <button
-                onClick={handleBulkCompose}
-                className={`px-3 py-1.5 rounded-sm text-sm font-medium transition flex items-center gap-1.5 ${
-                  user ? 'bg-brand-600 text-white hover:bg-brand-700' : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
-                }`}
+                onClick={() => setSelected(contacts.map(c => c.id))}
+                className="text-xs px-2.5 py-1 border border-gray-300 rounded-sm text-gray-600 hover:bg-gray-100 hover:border-gray-400 font-semibold transition"
               >
-                {!user && <Lock size={12} />}
-                <MailCheck size={13} /> Compose for {selected.length}
+                All ({contacts.length})
               </button>
-              <button onClick={handleBulkDelete} className="text-red-600 hover:text-red-800 font-medium">
-                Delete Selected
+            )}
+            {selected.length > 0 && (
+              <button
+                onClick={() => setSelected([])}
+                className="text-xs px-2.5 py-1 border border-red-200 rounded-sm text-red-500 hover:bg-red-50 hover:border-red-400 font-semibold transition"
+              >
+                ✕ Clear ({selected.length})
               </button>
-              <button onClick={() => setSelected([])} className="ml-auto text-gray-400 hover:text-gray-600 text-xs underline">
-                Clear selection
-              </button>
-            </div>
-          )}
+            )}
+
+            {/* Bulk actions — shown when something is selected */}
+            {selected.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2 ml-2">
+                <span className="text-gray-200">|</span>
+                <span className="text-xs font-semibold text-brand-700">{selected.length} selected</span>
+                <select
+                  defaultValue=""
+                  onChange={e => { if (e.target.value) { handleBulkStatus(e.target.value); e.target.value = ''; } }}
+                  className="border border-gray-200 rounded-sm px-2.5 py-1 text-xs bg-white focus:ring-2 focus:ring-brand-300 outline-none"
+                >
+                  <option value="" disabled>Change status…</option>
+                  {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <button
+                  onClick={handleBulkCompose}
+                  className={`px-3 py-1 rounded-sm text-xs font-semibold transition flex items-center gap-1.5 ${
+                    user ? 'bg-brand-600 text-white hover:bg-brand-700' : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
+                  }`}
+                >
+                  {!user && <Lock size={11} />}
+                  <MailCheck size={12} /> Compose ({selected.length})
+                </button>
+                <button onClick={handleBulkDelete} className="text-xs text-red-600 hover:text-red-800 font-semibold">
+                  Delete
+                </button>
+              </div>
+            )}
+          </div>
 
           <ContactTable
             contacts={contacts}
