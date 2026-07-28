@@ -283,9 +283,6 @@ function EmailPreview({ subject, body }) {
             className="text-sm text-gray-800 leading-relaxed font-sans"
             dangerouslySetInnerHTML={{ __html: toHtml(filledBody) || '' }}
           />
-          <div className="mt-5 pt-4 border-t border-gray-100 text-xs text-gray-400 italic">
-            To unsubscribe from these emails, reply with UNSUBSCRIBE.
-          </div>
         </div>
       </div>
 

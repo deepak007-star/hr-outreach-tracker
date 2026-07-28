@@ -23,7 +23,6 @@ export default function SmtpSettingsModal({ onClose }) {
   const [smtp, setSmtp] = useState({
     host: 'smtp.gmail.com', port: '587', user: '', pass: '', fromName: '',
   });
-  const [footer,   setFooter]   = useState('To opt out of future emails, reply with UNSUBSCRIBE.');
   const [preset,   setPreset]   = useState('gmail');
   const [showPass, setShowPass] = useState(false);
   const [testing,  setTesting]  = useState(false);
@@ -46,7 +45,6 @@ export default function SmtpSettingsModal({ onClose }) {
           else setPreset('custom');
         }
       } catch {}
-      if (s.unsubscribe_footer_text) setFooter(s.unsubscribe_footer_text);
     }).catch(() => {});
     refreshGoogleStatus();
   }, []);
@@ -118,8 +116,7 @@ export default function SmtpSettingsModal({ onClose }) {
     setSaving(true);
     try {
       await api.put('/settings', {
-        smtp_config:            JSON.stringify(smtp),
-        unsubscribe_footer_text: footer,
+        smtp_config: JSON.stringify(smtp),
       });
       toast.success('Settings saved');
       onClose();
@@ -236,17 +233,6 @@ export default function SmtpSettingsModal({ onClose }) {
               </div>
             </div>
           </details>
-
-          <hr />
-
-          {/* Unsubscribe footer */}
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">
-              Opt-out line (appended to every email)
-            </label>
-            <textarea value={footer} onChange={e => setFooter(e.target.value)} rows={2}
-              className={`${inp} resize-none`} />
-          </div>
 
           {/* Test result */}
           {testMsg && (

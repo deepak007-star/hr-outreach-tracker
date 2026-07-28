@@ -104,7 +104,6 @@ function PreviewCard({ p, index }) {
               dangerouslySetInnerHTML={{ __html: p.body }}
             />
           </div>
-          <div className="pt-1 border-t text-xs text-gray-400 italic">{p.footer}</div>
         </div>
       )}
     </div>
@@ -338,9 +337,6 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
                 )}
               </div>
 
-              <div className="bg-amber-50 border border-amber-200 rounded-sm p-3 text-xs text-amber-800">
-                An unsubscribe line is automatically appended to every email (configurable in SMTP Settings).
-              </div>
             </div>
           </div>
         )}

@@ -270,7 +270,6 @@ router.post('/preview', async (req, res) => {
     return res.status(400).json({ error: 'subject and body are required' });
 
   const isAdmin   = req.user.role === 'admin';
-  const footer    = await getFooter();
   const sentToday = await getSentToday(req.user.userId);
   const cap       = isAdmin ? Infinity : await getDailyCap();
   const profile   = await db.prepare('SELECT * FROM profiles WHERE user_id = ?').get(req.user.userId);
@@ -304,7 +303,6 @@ router.post('/preview', async (req, res) => {
       company:          contact.company,
       subject:          renderTemplate(subject, contact, profile),
       body:             renderTemplate(body, contact, profile),
-      footer,
       blocked,
       blockReason,
       blockType,
@@ -339,7 +337,6 @@ router.post('/send', rlMiddleware('email'), async (req, res) => {
   if (!isAdmin && await getSentToday(req.user.userId) >= cap)
     return res.status(429).json({ error: `Daily send cap of ${cap} reached. Try again tomorrow.` });
 
-  const footer      = await getFooter();
   const results     = [];
   let sentCount     = await getSentToday(req.user.userId);
   const attachments = await resolveAttachment(attachment, req.user.userId);
@@ -370,13 +367,11 @@ router.post('/send', rlMiddleware('email'), async (req, res) => {
     const isHtml   = /<[a-zA-Z]/.test(body);
     // Sanitize HTML to strip any injected script/iframe/event-handler payloads
     const safeBody = isHtml ? sanitizeHtml(body, EMAIL_HTML_OPTS) : body;
-    const textBody = isHtml
-      ? stripHtml(safeBody) + `\n\n---\n${footer}`
-      : `${safeBody}\n\n---\n${footer}`;
+    const textBody = isHtml ? stripHtml(safeBody) : safeBody;
     const htmlBody = isHtml
-      ? `<div style="font-family:sans-serif;font-size:14px;line-height:1.7">${safeBody}<p style="margin:16px 0 0;color:#999;font-size:12px">---<br>${footer}</p></div>`
+      ? `<div style="font-family:sans-serif;font-size:14px;line-height:1.7">${safeBody}</div>`
       : `<div style="font-family:sans-serif;font-size:14px;line-height:1.6">${
-          textBody.split('\n').map(l => `<p style="margin:0 0 4px">${l}</p>`).join('')
+          safeBody.split('\n').map(l => `<p style="margin:0 0 4px">${l || '&nbsp;'}</p>`).join('')
         }</div>`;
 
     const mailOpts = {
@@ -385,16 +380,6 @@ router.post('/send', rlMiddleware('email'), async (req, res) => {
       subject,
       text:    textBody,
       html:    htmlBody,
-      // The body already tells the recipient to "reply with UNSUBSCRIBE"
-      // (see footer above) — without a matching List-Unsubscribe header,
-      // that's the exact combination (opt-out language, no machine-readable
-      // opt-out mechanism) Gmail's spam filter treats as a bulk-sender red
-      // flag. referrals.js has neither the language nor the header, which
-      // is why only this send path was landing in spam.
-      headers: {
-        'List-Unsubscribe':      `<mailto:${fromEmail}?subject=unsubscribe>`,
-        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
-      },
       ...(attachments.length > 0 ? { attachments } : {}),
     };
 
