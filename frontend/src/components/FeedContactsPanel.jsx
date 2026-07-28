@@ -286,11 +286,29 @@ function FeedComposeModal({ contacts, onClose, onSent }) {
         };
       }
       const result = await api.post('/scraped-jobs/send-feed-emails', payload);
-      toast.success(`${result.sent}/${result.total} emails sent!`);
-      onSent(contacts.map(c => c.contact_email));
+      const sent        = result.sent   || 0;
+      const failed      = (result.total || 0) - sent;
+      const sentEmails  = (result.results || []).filter(r => r.ok).map(r => r.email);
+      const failedList  = (result.results || []).filter(r => !r.ok);
+
+      if (failed === 0) {
+        toast.success(`${sent} email${sent !== 1 ? 's' : ''} sent successfully!`);
+      } else if (sent === 0) {
+        toast.error(`All ${failed} email${failed !== 1 ? 's' : ''} failed to send.`, { duration: 5000 });
+      } else {
+        toast.success(`${sent} sent`, { duration: 4000 });
+        const reasons = [...new Set(failedList.map(r => r.error).filter(Boolean))];
+        toast.error(
+          `${failed} failed${reasons.length ? ` — ${reasons[0]}` : ''}`,
+          { duration: 6000 }
+        );
+      }
+
+      onSent(sentEmails); // only mark actually-sent contacts as emailed
       onClose();
     } catch (e) {
-      toast.error(e.response?.data?.error || 'Send failed');
+      toast.error(e.response?.data?.error || 'Send failed — please try again');
+      onClose(); // always close so user isn't stuck on preview
     } finally {
       setSending(false);
     }
@@ -498,6 +516,7 @@ export default function FeedContactsPanel() {
   const [since,      setSince]      = useState('30d');
   const [search,     setSearch]     = useState('');
   const [sourceTab,  setSourceTab]  = useState('all');
+  const [filterTab,  setFilterTab]  = useState('all');
   const [selected,   setSelected]   = useState(new Set());
   const [composeTo,  setComposeTo]  = useState(null);
   const [lastSync,   setLastSync]   = useState(null);
@@ -527,8 +546,22 @@ export default function FeedContactsPanel() {
 
   const handleSent = (sentEmails) => {
     const sentSet = new Set(sentEmails);
-    setContacts(prev => prev.map(c => sentSet.has(c.contact_email) ? { ...c, already_emailed: 1, just_sent: true } : c));
+    setContacts(prev => prev.map(c =>
+      sentSet.has(c.contact_email) ? { ...c, already_emailed: 1, just_sent: true } : c
+    ));
     setSelected(new Set());
+    setComposeTo(null);
+  };
+
+  // Closing the modal always clears selection so "X selected" badge doesn't linger
+  const handleCloseCompose = () => {
+    setComposeTo(null);
+    setSelected(new Set());
+  };
+
+  const selectN = (n) => {
+    const pending = filteredContacts.filter(c => !c.already_emailed);
+    setSelected(new Set(pending.slice(0, n).map(c => c.contact_email)));
   };
 
   const toggleSelect = (email) => {
@@ -539,18 +572,21 @@ export default function FeedContactsPanel() {
     });
   };
 
+  const pendingContacts  = contacts.filter(c => !c.already_emailed);
+  const sentContacts     = contacts.filter(c =>  c.already_emailed);
+  const filteredContacts = filterTab === 'pending' ? pendingContacts
+    : filterTab === 'sent' ? sentContacts
+    : contacts;
+  const selectedContacts = contacts.filter(c => selected.has(c.contact_email));
+
   const toggleAll = () => {
-    const pending = contacts.filter(c => !c.already_emailed);
+    const pending = filteredContacts.filter(c => !c.already_emailed);
     if (pending.every(c => selected.has(c.contact_email))) {
       setSelected(new Set());
     } else {
       setSelected(new Set(pending.map(c => c.contact_email)));
     }
   };
-
-  const [filterTab, setFilterTab] = useState('all');
-
-  const selectedContacts = contacts.filter(c => selected.has(c.contact_email));
 
   const exportCSV = () => {
     if (!filteredContacts.length) { toast.error('No contacts to export'); return; }
@@ -575,11 +611,6 @@ export default function FeedContactsPanel() {
     URL.revokeObjectURL(url);
     toast.success(`Exported ${filteredContacts.length} contact${filteredContacts.length !== 1 ? 's' : ''}`);
   };
-  const pendingContacts  = contacts.filter(c => !c.already_emailed);
-  const sentContacts     = contacts.filter(c =>  c.already_emailed);
-  const filteredContacts = filterTab === 'pending' ? pendingContacts
-    : filterTab === 'sent' ? sentContacts
-    : contacts;
 
   const timeSince = lastSync
     ? (() => {
@@ -688,23 +719,50 @@ export default function FeedContactsPanel() {
 
       {/* Bulk select bar */}
       {pendingContacts.length > 0 && (
-        <div className="flex items-center gap-3">
-          <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer select-none">
             <input
               type="checkbox"
-              checked={pendingContacts.every(c => selected.has(c.contact_email))}
+              checked={filteredContacts.filter(c => !c.already_emailed).length > 0 &&
+                       filteredContacts.filter(c => !c.already_emailed).every(c => selected.has(c.contact_email))}
               onChange={toggleAll}
               className="rounded accent-brand-600"
             />
-            Select all ({pendingContacts.length} not emailed)
+            Select all
           </label>
+
+          {/* Quick-select N buttons */}
+          {[5, 10].map(n => {
+            const available = filteredContacts.filter(c => !c.already_emailed).length;
+            if (available < n && n === 10) return null;
+            return (
+              <button
+                key={n}
+                onClick={() => selectN(n)}
+                disabled={available === 0}
+                className="px-2.5 py-1 text-xs font-semibold border border-gray-300 rounded-sm text-gray-600 hover:bg-gray-50 hover:border-gray-400 disabled:opacity-40 transition"
+              >
+                Select {n}
+              </button>
+            );
+          })}
+
           {selected.size > 0 && (
-            <button
-              onClick={() => setComposeTo(selectedContacts)}
-              className="px-4 py-1.5 bg-brand-600 text-white text-sm font-semibold rounded-sm hover:bg-brand-700 transition"
-            >
-              ✉ Email {selected.size} selected
-            </button>
+            <>
+              <span className="text-xs text-gray-400">{selected.size} selected</span>
+              <button
+                onClick={() => setSelected(new Set())}
+                className="text-xs text-gray-400 hover:text-gray-600 transition"
+              >
+                Clear
+              </button>
+              <button
+                onClick={() => setComposeTo(selectedContacts)}
+                className="px-4 py-1.5 bg-brand-600 text-white text-sm font-semibold rounded-sm hover:bg-brand-700 transition"
+              >
+                ✉ Email {selected.size} selected
+              </button>
+            </>
           )}
         </div>
       )}
@@ -784,7 +842,7 @@ export default function FeedContactsPanel() {
       {composeTo && (
         <FeedComposeModal
           contacts={composeTo}
-          onClose={() => setComposeTo(null)}
+          onClose={handleCloseCompose}
           onSent={handleSent}
         />
       )}
