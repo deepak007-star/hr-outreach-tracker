@@ -1,7 +1,7 @@
 const express = require('express');
 const dns     = require('dns').promises;
 const db      = require('../db/database');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, requireAdmin } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -16,8 +16,8 @@ async function checkEmailDomain(email) {
   }
 }
 
-// POST /api/email-verify/batch  — verify all contacts with pending/stale status
-router.post('/batch', async (req, res) => {
+// POST /api/email-verify/batch  — verify all contacts with pending/stale status (admin only)
+router.post('/batch', requireAuth, requireAdmin, async (req, res) => {
   const cutoff = new Date(Date.now() - 23 * 3_600_000).toISOString().replace('T', ' ').slice(0, 19);
   const contacts = await db.prepare(
     `SELECT id, email FROM contacts

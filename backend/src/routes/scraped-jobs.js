@@ -213,7 +213,7 @@ router.get('/stats', requireAuth, async (req, res) => {
 
 // ─── POST /api/scraped-jobs/purge (admin) ─────────────────────────────────────
 
-router.post('/purge', requireAdmin, async (req, res) => {
+router.post('/purge', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { retention_days } = req.body;
     const days = Math.max(parseInt(retention_days) || 30, 1);
@@ -465,7 +465,8 @@ router.post('/send-feed-emails', requireAuth, async (req, res) => {
     // Resolve attachment once for all contacts
     const attachments = await resolveFeedAttachment(attachment || null, req.user.userId);
 
-    for (const contact of contacts) {
+    for (let i = 0; i < contacts.length; i++) {
+      const contact = contacts[i];
       const { email, name: rawName = '', company = '', title = '' } = contact;
       if (!email) { results.push({ email, ok: false, error: 'Missing email' }); continue; }
       if (remaining <= 0) { results.push({ email, ok: false, error: 'Daily cap reached' }); continue; }
@@ -520,16 +521,30 @@ router.post('/send-feed-emails', requireAuth, async (req, res) => {
         );
 
         if (remaining !== Infinity) remaining--;
+
+        // Update contact status to 'Sent' if this email exists in the contacts table
+        if (cRow?.id) {
+          await db.prepare(`UPDATE contacts SET status = 'Sent', date_last_contacted = ? WHERE id = ? AND user_id = ?`)
+            .run(now, cRow.id, req.user.userId);
+        }
+
         results.push({ email, ok: true });
       } catch (e) {
         results.push({ email, ok: false, error: e.message });
       }
 
-      // 2s gap between sends in a batch
-      if (contacts.indexOf(contact) < contacts.length - 1) {
+      // 2s gap between sends in a batch (use loop index, not indexOf, to avoid O(n²))
+      if (i < contacts.length - 1) {
         await new Promise(r => setTimeout(r, 2000));
       }
     }
+
+    // Sync Excel with the current user's updated contacts
+    try {
+      const { syncExcel } = require('../services/excelSync');
+      const userContacts = await db.prepare('SELECT * FROM contacts WHERE user_id = ? ORDER BY date_added DESC').all(req.user.userId);
+      await syncExcel(userContacts);
+    } catch {}
 
     const sent = results.filter(r => r.ok).length;
     res.json({ sent, total: results.length, results });

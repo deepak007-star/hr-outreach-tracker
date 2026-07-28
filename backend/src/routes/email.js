@@ -496,7 +496,9 @@ router.post('/send', rlMiddleware('email'), async (req, res) => {
     if (i < sends.length - 1) await new Promise(r => setTimeout(r, 2000));
   }
 
-  await syncExcel();
+  // Sync Excel with only the current user's contacts (not all users' data)
+  const userContacts = await db.prepare('SELECT * FROM contacts WHERE user_id = ? ORDER BY date_added DESC').all(req.user.userId);
+  await syncExcel(userContacts);
 
   const sent   = results.filter(r => r.ok).length;
   const failed = results.filter(r => !r.ok).length;

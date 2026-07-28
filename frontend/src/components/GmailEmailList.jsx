@@ -118,7 +118,8 @@ export default function GmailEmailList({ refreshKey, myName = '' }) {
   }
 
   const visible      = allEmails.slice(0, visibleCount);
-  const canShowMore  = visibleCount < total;
+  // More to show if we haven't reached the local buffer end, OR more pages exist on the server
+  const canShowMore  = visibleCount < allEmails.length || loadedPage < pages;
   const repliedCount = visible.filter(e => e.email_status === 'replied').length;
 
   return (

@@ -168,7 +168,7 @@ export default function App() {
 
   useEffect(() => {
     api.get('/email/stats').then(setEmailStats).catch(() => {});
-  }, [contacts]); // refresh stats whenever contacts list refreshes
+  }, [activityKey]); // refresh only after explicit actions (send, delete), not on every search keystroke
 
   // Session-expired event: show toast so user knows why they got logged out
   useEffect(() => {

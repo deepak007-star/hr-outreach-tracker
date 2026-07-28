@@ -145,6 +145,7 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
   function applyTemplate(t) {
     setSubject(t.subject || DEFAULT_SUBJECT);
     setBody(t.body || DEFAULT_BODY);
+    if (t.attachment_json) setAttachment(t.attachment_json);
     toast.success(`Template applied: "${t.name}"`);
   }
 
@@ -206,8 +207,12 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
       if (bounced.length)       toast(`${bounced.length} bounced → marked Do Not Contact`, { icon: '⚠️' });
       if (undeliverable.length) toast.error(`${undeliverable.length} blocked — email undeliverable`);
       onSent();
-    } catch (err) { toast.error(err.response?.data?.error || 'Send failed'); }
-    finally       { setSending(false); }
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Send failed');
+      // Return to compose so the user can adjust and re-preview rather than being stuck on a stale preview
+      setStep('compose');
+    }
+    finally { setSending(false); }
   };
 
   const eligible = previews.filter(p => !p.blocked).length;

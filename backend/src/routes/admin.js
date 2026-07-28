@@ -64,6 +64,8 @@ router.delete('/users/:id', async (req, res) => {
       await db.prepare(`UPDATE email_log SET contact_id = NULL WHERE contact_id IN (${ph})`).run(...ids);
       await db.prepare(`DELETE FROM contacts WHERE user_id = ?`).run(uid);
     }
+    // Clean up reminder settings keys for this user (reminder_<userId> and reminder_email_sent_<userId>_*)
+    await db.prepare("DELETE FROM settings WHERE key LIKE ?").run(`reminder_${uid}%`);
     await db.prepare('DELETE FROM users WHERE id = ?').run(uid);
     res.json({ ok: true });
   } catch (err) {

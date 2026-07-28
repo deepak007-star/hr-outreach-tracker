@@ -196,11 +196,15 @@ router.post('/bulk-status', async (req, res) => {
 
 // ── GET /api/contacts/:id  ─────────────────────────────────────────────────
 router.get('/:id', async (req, res) => {
-  const c = await db.prepare(
-    'SELECT * FROM contacts WHERE id = ? AND user_id = ?'
-  ).get(req.params.id, req.user.userId);
-  if (!c) return res.status(404).json({ error: 'Not found' });
-  res.json({ ...c, tags: JSON.parse(c.tags || '[]') });
+  try {
+    const c = await db.prepare(
+      'SELECT * FROM contacts WHERE id = ? AND user_id = ?'
+    ).get(req.params.id, req.user.userId);
+    if (!c) return res.status(404).json({ error: 'Not found' });
+    res.json({ ...c, tags: JSON.parse(c.tags || '[]') });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── POST /api/contacts  ────────────────────────────────────────────────────

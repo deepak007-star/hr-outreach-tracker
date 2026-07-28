@@ -304,12 +304,18 @@ router.get('/posts', requireAuth, async (req, res) => {
   res.json(posts);
 });
 
+const VALID_POST_STATUSES = new Set(['new', 'saved', 'applied', 'skipped', 'interviewing', 'rejected']);
+
 // ── PATCH /api/apify/posts/:id/status ─────────────────────────────────────
-router.patch('/posts/:id/status', softAuth, async (req, res) => {
+router.patch('/posts/:id/status', requireAuth, async (req, res) => {
   const { status } = req.body;
 
+  if (!VALID_POST_STATUSES.has(status)) {
+    return res.status(400).json({ error: 'Invalid status value' });
+  }
+
   if (status === 'applied') {
-    const uid    = req.user?.userId || req.ip || 'anon';
+    const uid    = req.user.userId;
     const result = rlCheck(uid, 'apply');
     if (!result.allowed) {
       const resetStr = result.resetAt

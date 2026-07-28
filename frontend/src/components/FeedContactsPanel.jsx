@@ -220,7 +220,7 @@ function FeedComposeModal({ contacts, onClose, onSent }) {
   function applyTemplate(t) {
     setSubject(t.subject || DEFAULT_SUBJECT);
     setBody(t.body || DEFAULT_BODY);
-    if (t.attachment) setAttachment(t.attachment);
+    if (t.attachment_json) setAttachment(t.attachment_json);
     toast.success(`Template applied: "${t.name}"`);
   }
 

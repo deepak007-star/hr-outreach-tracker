@@ -1,8 +1,10 @@
 const express = require('express');
 const crypto  = require('crypto');
 const db      = require('../db/database');
+const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
+router.use(requireAuth);
 
 const SEEDS = [
   {

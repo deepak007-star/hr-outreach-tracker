@@ -4,6 +4,7 @@ const path    = require('path');
 const os      = require('os');
 const fs      = require('fs');
 const { scrapeLimiter } = require('../middleware/security');
+const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 const upload = multer({ dest: os.tmpdir(), limits: { fileSize: 5 * 1024 * 1024 } });
@@ -111,7 +112,7 @@ router.post('/scrape', scrapeLimiter, async (req, res) => {
 });
 
 // ── POST /api/jobs/parse-resume ────────────────────────────────────────────
-router.post('/parse-resume', upload.single('resume'), async (req, res) => {
+router.post('/parse-resume', requireAuth, upload.single('resume'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
 
   const filePath = req.file.path;
@@ -122,15 +123,10 @@ router.post('/parse-resume', upload.single('resume'), async (req, res) => {
     let text = '';
 
     if (ext === '.pdf') {
-      const { PDFParse } = require('pdf-parse');
+      const pdfParse = require('pdf-parse');
       const buffer = fs.readFileSync(filePath);
-      const parser = new PDFParse({ data: buffer });
-      try {
-        const data = await parser.getText();
-        text = data.text;
-      } finally {
-        await parser.destroy();
-      }
+      const data   = await pdfParse(buffer);
+      text = data.text;
     } else if (ext === '.docx' || ext === '.doc') {
       const mammoth = require('mammoth');
       const result  = await mammoth.extractRawText({ path: filePath });
