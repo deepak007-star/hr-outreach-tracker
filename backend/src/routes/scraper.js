@@ -196,10 +196,22 @@ router.post('/run', requireAuth, async (req, res) => {
     const titles = [profile?.job_title_1, profile?.job_title_2, profile?.job_title_3, profile?.current_title]
       .filter(Boolean).slice(0, 3);
 
+    const DEFAULT_SCRAPER_CITIES = ['Delhi', 'Bangalore', 'Pune', 'Noida', 'Gurugram'];
+    function parseCities(val) {
+      if (!val) return [];
+      try {
+        const p = JSON.parse(val);
+        return Array.isArray(p) ? p.filter(Boolean) : [String(p)].filter(Boolean);
+      } catch { return val ? [val] : []; }
+    }
+    const preferredCities = parseCities(profile?.preferred_city);
+    const scraperLocation = (preferredCities.length ? preferredCities : DEFAULT_SCRAPER_CITIES).join(', ')
+      || profile?.preferred_location || profile?.location || 'India';
+
     body = {
       scraper:  'linkedin-feed',
       titles:   titles.length ? titles : ['Software Developer'],
-      location: profile?.preferred_city || profile?.preferred_location || profile?.location || 'India',
+      location: scraperLocation,
       limit:    15,
     };
     rateLimiter.record(req.user.userId, 'linkedinFeedScrape');

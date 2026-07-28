@@ -5,6 +5,19 @@ import { toast } from 'react-hot-toast';
 import RichEditor, { toHtml } from './RichEditor.jsx';
 import AttachmentPicker from './AttachmentPicker.jsx';
 
+const _DEFAULT_CITIES = ['Delhi', 'Bangalore', 'Pune', 'Noida', 'Gurugram'];
+function _parsePreferredCities(val) {
+  if (!val || val === '') return [];
+  try {
+    const parsed = JSON.parse(val);
+    return Array.isArray(parsed) ? parsed.filter(Boolean) : [String(parsed)].filter(Boolean);
+  } catch { return val ? [val] : []; }
+}
+function _getEffectiveCities(val) {
+  const c = _parsePreferredCities(val);
+  return c.length ? c : _DEFAULT_CITIES;
+}
+
 const CATEGORIES = [
   { id: 'all',           label: 'All' },
   { id: 'cold-outreach', label: 'Cold Outreach' },
@@ -49,7 +62,7 @@ function buildVarMap(profile) {
     '{{experience}}':         profile.total_experience || '',
     '{{skills}}':             skillsToString(profile.skills),
     '{{location}}':           profile.location || '',
-    '{{preferred_location}}': profile.preferred_location || profile.preferred_city || '',
+    '{{preferred_location}}': profile.preferred_location || _getEffectiveCities(profile.preferred_city).join(', ') || '',
     '{{notice_period}}':      profile.notice_period || '',
     '{{linkedin_url}}':       profile.linkedin_url || '',
     '{{phone}}':              profile.phone || '',
@@ -86,7 +99,7 @@ function generateFromProfile(profile) {
   const title   = profile.current_title || 'Software Developer';
   const exp     = profile.total_experience || '';
   const loc     = profile.location || '';
-  const prefLoc = profile.preferred_location || profile.preferred_city || '';
+  const prefLoc = profile.preferred_location || _getEffectiveCities(profile.preferred_city).join(', ') || '';
   const notice  = profile.notice_period || '';
   const li      = profile.linkedin_url || '';
   const phone   = profile.phone || '';

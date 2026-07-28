@@ -4,6 +4,19 @@ import { api, API_ROOT } from '../api/client.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import JobCard from './JobCard.jsx';
 
+const DEFAULT_CITIES = ['Delhi', 'Bangalore', 'Pune', 'Noida', 'Gurugram'];
+function parsePreferredCities(val) {
+  if (!val || val === '') return [];
+  try {
+    const parsed = JSON.parse(val);
+    return Array.isArray(parsed) ? parsed.filter(Boolean) : [String(parsed)].filter(Boolean);
+  } catch { return val ? [val] : []; }
+}
+function getEffectiveCities(val) {
+  const c = parsePreferredCities(val);
+  return c.length ? c : DEFAULT_CITIES;
+}
+
 // ─── Category definitions ─────────────────────────────────────────────────────
 
 const CATEGORIES = [
@@ -106,7 +119,8 @@ export default function JobScraperSection() {
 
     // Build titles from profile preferences if no search query
     const titles = buildTitlesFromProfile(profile, search);
-    const location = profile?.location || profile?.preferred_city || 'India';
+    const cities   = getEffectiveCities(profile?.preferred_city);
+    const location = cities.join(', ') || profile?.location || 'India';
 
     try {
       const body = {
@@ -115,7 +129,7 @@ export default function JobScraperSection() {
         since,
         limit,
         location,
-        ...(profile?.preferred_city ? { city: profile.preferred_city.toLowerCase() } : {}),
+        cities: cities.map(c => c.toLowerCase()),
       };
 
       const resp = await fetch(`${API_ROOT}/api/scraper/run`, {
@@ -277,7 +291,7 @@ export default function JobScraperSection() {
             <span className="flex-1">
               Showing jobs for your profile:{' '}
               <strong>{profileTitles.slice(0, 3).join(', ')}</strong>
-              {profile.preferred_city && <> · <strong>{profile.preferred_city}</strong></>}
+              {' '}· <strong>{getEffectiveCities(profile?.preferred_city).join(', ')}</strong>
             </span>
             <button onClick={() => setSuppressProfileFilter(true)} className="ml-auto text-gray-400 hover:text-gray-700 underline whitespace-nowrap">
               Show all jobs →

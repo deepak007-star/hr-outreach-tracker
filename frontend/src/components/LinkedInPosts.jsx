@@ -5,6 +5,19 @@ import { useAuth } from '../contexts/AuthContext.jsx';
 import PostWorkflowModal from './PostWorkflowModal.jsx';
 import { computeJobMatch } from '../utils/jobMatch.js';
 
+const DEFAULT_CITIES = ['Delhi', 'Bangalore', 'Pune', 'Noida', 'Gurugram'];
+function parsePreferredCities(val) {
+  if (!val || val === '') return [];
+  try {
+    const parsed = JSON.parse(val);
+    return Array.isArray(parsed) ? parsed.filter(Boolean) : [String(parsed)].filter(Boolean);
+  } catch { return val ? [val] : []; }
+}
+function getEffectiveCities(val) {
+  const c = parsePreferredCities(val);
+  return c.length ? c : DEFAULT_CITIES;
+}
+
 // ─── Confidence badge ─────────────────────────────────────────────────────────
 function ConfidenceBadge({ score }) {
   if (score == null) return null;
@@ -398,7 +411,7 @@ export default function LinkedInPosts() {
     const profileTitles = [profile?.job_title_1, profile?.job_title_2, profile?.job_title_3, profile?.current_title]
       .filter(Boolean).slice(0, 3);
     const titles   = customTitles.length ? customTitles : (profileTitles.length ? profileTitles : ['Software Developer']);
-    const location = profile?.preferred_city || profile?.location || 'India';
+    const location = getEffectiveCities(profile?.preferred_city).join(', ') || profile?.location || 'India';
 
     const addLog = (type, text) => setLogs(prev => [...prev, { type, text }]);
 

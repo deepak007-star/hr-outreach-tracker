@@ -2,6 +2,25 @@
 
 ---
 
+## 2026-07-28 — Preferred Cities: multi-city picker (up to 5) + default cities
+
+### FEATURE — Profile preferred city expanded to up to 5 cities
+
+- **What:** `preferred_city` in the `profiles` table now stores a JSON array string (`'["Delhi","Bangalore","Pune"]'`). Old single-string values auto-migrate on read via `parsePreferredCities()` helper (tries JSON parse, falls back to wrapping plain string in array — no data loss).
+- **Default cities:** If a user has not set any preferred cities, all job search, scraping, and email template substitution defaults to: **Delhi, Bangalore, Pune, Noida, Gurugram**.
+- **ProfilePage.jsx:** Replaced single `<select>` with a multi-city chip picker:
+  - Selected cities shown as green removable chips (✕ button removes)
+  - Dropdown to add from INDIA_CITIES list (only shows unselected cities)
+  - "Max 5 cities selected" message when limit reached
+  - View mode: each city shown as separate chip; defaults shown with `*` suffix when not explicitly set
+- **Job search sync (JobScraperSection.jsx):** All preferred cities joined comma-separated as `location`; also passes `cities` array to scraper. Profile banner shows all cities.
+- **LinkedIn Posts scraper (LinkedInPosts.jsx):** Uses joined cities for `location`.
+- **Email templates (EmailTemplatesModal.jsx):** `{{preferred_location}}` now expands to all cities joined by `, `.
+- **Backend auto-scrape (scraper.js):** Parses JSON city array for the auto-triggered LinkedIn feed scrape (non-admin path). Falls back to default 5 cities if not set.
+- **No schema migration needed:** Column stays `TEXT`, stores JSON string.
+
+---
+
 ## 2026-07-28 — Job Intel auto-sync to Contacts page
 
 ### FEATURE — Automatic sync of extracted HR emails into Contacts

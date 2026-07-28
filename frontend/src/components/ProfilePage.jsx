@@ -69,10 +69,27 @@ function InfoField({ label, value, editing, onChange, placeholder, type = 'text'
 }
 
 const INDIA_CITIES = [
-  'Bangalore', 'Hyderabad', 'Pune', 'Mumbai', 'Delhi NCR', 'Chennai',
-  'Noida', 'Gurgaon', 'Kolkata', 'Ahmedabad', 'Jaipur', 'Kochi',
+  'Delhi', 'Bangalore', 'Hyderabad', 'Pune', 'Mumbai', 'Delhi NCR', 'Chennai',
+  'Noida', 'Gurugram', 'Gurgaon', 'Kolkata', 'Ahmedabad', 'Jaipur', 'Kochi',
   'Chandigarh', 'Indore', 'Bhubaneswar', 'Remote / WFH',
 ];
+
+const DEFAULT_CITIES = ['Delhi', 'Bangalore', 'Pune', 'Noida', 'Gurugram'];
+
+function parsePreferredCities(val) {
+  if (!val || val === '') return [];
+  try {
+    const parsed = JSON.parse(val);
+    return Array.isArray(parsed) ? parsed.filter(Boolean) : [String(parsed)].filter(Boolean);
+  } catch {
+    return val ? [val] : [];
+  }
+}
+
+function getEffectiveCities(val) {
+  const cities = parsePreferredCities(val);
+  return cities.length ? cities : DEFAULT_CITIES;
+}
 
 const JOB_TITLE_OPTIONS = [
   'Java Backend Engineer', 'Spring Boot Developer', 'Full Stack Developer',
@@ -237,15 +254,50 @@ function OverviewTab({ profile, onSave, onDirtyChange }) {
             </div>
           ))}
           <div>
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Preferred City</p>
-            {editing ? (
-              <select value={form.preferred_city || ''} onChange={e => set('preferred_city', e.target.value)}
-                className="w-full border border-gray-200 rounded-sm px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-300 bg-white">
-                <option value="">Select city…</option>
-                {INDIA_CITIES.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            ) : (
-              <p className="text-sm text-gray-800">{form.preferred_city || <span className="text-gray-300 italic">Not set</span>}</p>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">
+              Preferred Cities <span className="text-gray-300 normal-case font-normal">(up to 5)</span>
+            </p>
+            {editing ? (() => {
+              const cities    = parsePreferredCities(form.preferred_city);
+              const remaining = INDIA_CITIES.filter(c => !cities.includes(c));
+              return (
+                <div>
+                  <div className="flex flex-wrap gap-1.5 mb-2 min-h-[28px]">
+                    {cities.length === 0 && (
+                      <span className="text-xs text-gray-400 italic">No cities selected — defaults: {DEFAULT_CITIES.join(', ')}</span>
+                    )}
+                    {cities.map(city => (
+                      <span key={city} className="inline-flex items-center gap-1 px-2.5 py-1 bg-green-50 border border-green-200 text-green-700 text-xs rounded-full font-medium">
+                        {city}
+                        <button type="button"
+                          onClick={() => set('preferred_city', JSON.stringify(cities.filter(c => c !== city)))}
+                          className="ml-0.5 text-green-500 hover:text-green-800 font-bold leading-none">×</button>
+                      </span>
+                    ))}
+                  </div>
+                  {cities.length < 5 ? (
+                    <select value="" onChange={e => {
+                      if (!e.target.value) return;
+                      set('preferred_city', JSON.stringify([...cities, e.target.value]));
+                    }} className="w-full border border-gray-200 rounded-sm px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-300 bg-white">
+                      <option value="">Add a city…</option>
+                      {remaining.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  ) : (
+                    <p className="text-xs text-amber-600 mt-1">Max 5 cities selected — remove one to add another</p>
+                  )}
+                </div>
+              );
+            })() : (
+              <div className="flex flex-wrap gap-1.5">
+                {parsePreferredCities(form.preferred_city).length ? (
+                  parsePreferredCities(form.preferred_city).map(c => (
+                    <span key={c} className="text-sm text-gray-800">{c}</span>
+                  ))
+                ) : (
+                  <span className="text-gray-300 italic text-sm">Not set</span>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -254,9 +306,11 @@ function OverviewTab({ profile, onSave, onDirtyChange }) {
             {[form.job_title_1, form.job_title_2, form.job_title_3].filter(Boolean).map((t, i) => (
               <span key={i} className="text-xs bg-brand-50 border border-brand-200 text-brand-700 px-3 py-1 rounded-full font-semibold">{t}</span>
             ))}
-            {form.preferred_city && (
-              <span className="text-xs bg-green-50 border border-green-200 text-green-700 px-3 py-1 rounded-full font-semibold">{form.preferred_city}</span>
-            )}
+            {getEffectiveCities(form.preferred_city).map(city => (
+              <span key={city} className="text-xs bg-green-50 border border-green-200 text-green-700 px-3 py-1 rounded-full font-semibold">
+                {city}{!parsePreferredCities(form.preferred_city).length ? ' *' : ''}
+              </span>
+            ))}
           </div>
         )}
       </div>
