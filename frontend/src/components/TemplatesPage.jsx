@@ -1,12 +1,13 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, forwardRef } from 'react';
 import { toast } from 'react-hot-toast';
-import { api } from '../api/client.js';
+import { api, API_ROOT } from '../api/client.js';
 import { confirm } from '../utils/confirm.js';
 import { RESUME_TEMPLATES } from '../data/resumeTemplates.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import RichEditor, { toHtml } from './RichEditor.jsx';
 import AttachmentPicker from './AttachmentPicker.jsx';
-import { Mail, FileText, PenLine, Columns2, Eye, Copy, Check, Save, Lock, X } from 'lucide-react';
+import { Mail, FileText, PenLine, Columns2, Eye, Copy, Check, Save, Lock, X, Upload, Trash2 } from 'lucide-react';
+import { downloadAsPdf, downloadAsWord, cleanResumeText } from '../utils/resumeUtils.js';
 
 const TEMPLATE_VARS = ['{{name}}', '{{company}}', '{{role}}', '{{your_name}}', '{{title}}'];
 
@@ -257,23 +258,29 @@ function ResumeDocPreview({ text }) {
 }
 
 // ── Code editor with line numbers ─────────────────────────────────────────────
-function CodeEditor({ value, onChange, language = 'text' }) {
-  const taRef   = useRef();
+const CodeEditor = forwardRef(function CodeEditor({ value, onChange, onSave, language = 'text' }, taRef) {
+  const internalRef = useRef();
+  const ref = taRef || internalRef;
   const numRef  = useRef();
   const lineCount = (value || '').split('\n').length;
 
   const syncScroll = useCallback(() => {
-    if (numRef.current && taRef.current) numRef.current.scrollTop = taRef.current.scrollTop;
-  }, []);
+    if (numRef.current && ref.current) numRef.current.scrollTop = ref.current.scrollTop;
+  }, [ref]);
 
-  function insertTab(e) {
-    if (e.key !== 'Tab') return;
-    e.preventDefault();
-    const el = taRef.current;
-    const s  = el.selectionStart;
-    const newVal = value.slice(0, s) + '  ' + value.slice(el.selectionEnd);
-    onChange(newVal);
-    setTimeout(() => { el.selectionStart = el.selectionEnd = s + 2; }, 0);
+  function handleKeyDown(e) {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const el = ref.current;
+      const s  = el.selectionStart;
+      const newVal = value.slice(0, s) + '    ' + value.slice(el.selectionEnd);
+      onChange(newVal);
+      setTimeout(() => { el.selectionStart = el.selectionEnd = s + 4; }, 0);
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      e.preventDefault();
+      onSave?.();
+    }
   }
 
   return (
@@ -291,11 +298,11 @@ function CodeEditor({ value, onChange, language = 'text' }) {
       </div>
       {/* Editor textarea */}
       <textarea
-        ref={taRef}
+        ref={ref}
         value={value}
         onChange={e => onChange(e.target.value)}
         onScroll={syncScroll}
-        onKeyDown={insertTab}
+        onKeyDown={handleKeyDown}
         spellCheck={false}
         autoCorrect="off"
         autoCapitalize="off"
@@ -304,7 +311,7 @@ function CodeEditor({ value, onChange, language = 'text' }) {
       />
     </div>
   );
-}
+});
 
 // ── Panel toggle buttons ──────────────────────────────────────────────────────
 function PanelToggle({ view, setView }) {
@@ -583,13 +590,81 @@ function EmailTemplatesSection() {
 // ── ATS Resume Templates section ──────────────────────────────────────────────
 function ResumeTemplatesSection() {
   const { user } = useAuth();
-  const [selected,  setSelected]  = useState(null);
-  const [editText,  setEditText]  = useState('');
-  const [saving,    setSaving]    = useState(false);
-  const [view,      setView]      = useState('split');
-  const [copyDone,  setCopyDone]  = useState(false);
+  const [selected,      setSelected]      = useState(null);
+  const [editText,      setEditText]      = useState('');
+  const [saving,        setSaving]        = useState(false);
+  const [view,          setView]          = useState('split');
+  const [copyDone,      setCopyDone]      = useState(false);
+  const [userFiles,     setUserFiles]     = useState([]);
+  const [loadingFiles,  setLoadingFiles]  = useState(true);
+  const [uploading,     setUploading]     = useState(false);
+  const [profileResume, setProfileResume] = useState('');
+  const taRef     = useRef();
+  const uploadRef = useRef();
 
-  function open(t) { setSelected(t); setEditText(t.template); }
+  // Load user uploaded resume versions + profile resume
+  useEffect(() => {
+    api.get('/resume-versions')
+      .then(data => setUserFiles((Array.isArray(data) ? data : []).filter(v => v.is_ats_template)))
+      .catch(() => {})
+      .finally(() => setLoadingFiles(false));
+    if (user) {
+      api.get('/profile').then(p => { if (p?.resume_text) setProfileResume(p.resume_text); }).catch(() => {});
+    }
+  }, [user]);
+
+  function openBuiltin(t) { setSelected({ ...t, _builtin: true }); setEditText(t.template); }
+
+  function openUserFile(v) {
+    setSelected({ ...v, _user: true });
+    setEditText('Loading…');
+    api.get(`/resume-versions/${v.id}/text`)
+      .then(data => setEditText(data.resume_text || ''))
+      .catch(() => { toast.error('Failed to load file'); setEditText(''); });
+  }
+
+  function loadProfile() {
+    if (!profileResume) return toast.error('No profile resume found. Upload one in Profile → Resume.');
+    setSelected({ id: '__profile__', label: 'My Profile Resume', _profile: true });
+    setEditText(profileResume);
+  }
+
+  async function handleUpload(file) {
+    if (!file) return;
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (!['pdf', 'docx', 'doc', 'txt'].includes(ext))
+      return toast.error('Supported formats: PDF, DOCX, TXT');
+    setUploading(true);
+    try {
+      const token = localStorage.getItem('hr_token');
+      const form  = new FormData();
+      form.append('resume', file);
+      form.append('label', file.name.replace(/\.[^.]+$/, ''));
+      form.append('isAtsTemplate', '1');
+      const resp = await fetch(`${API_ROOT}/api/resume-versions/upload`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      });
+      if (!resp.ok) { const e = await resp.json().catch(() => ({})); throw new Error(e.error || 'Upload failed'); }
+      const saved = await resp.json();
+      setUserFiles(fs => [saved, ...fs]);
+      openUserFile(saved);
+      toast.success('Resume uploaded and opened!');
+    } catch (err) { toast.error(err.message); }
+    finally { setUploading(false); if (uploadRef.current) uploadRef.current.value = ''; }
+  }
+
+  async function handleDeleteFile(v, e) {
+    e.stopPropagation();
+    if (!await confirm(`Delete "${v.label}"?`)) return;
+    try {
+      await api.delete(`/resume-versions/${v.id}`);
+      setUserFiles(fs => fs.filter(f => f.id !== v.id));
+      if (selected?.id === v.id) { setSelected(null); setEditText(''); }
+      toast.success('Deleted');
+    } catch { toast.error('Delete failed'); }
+  }
 
   async function handleSave() {
     if (!user) return toast.error('Please sign in to save a resume');
@@ -605,85 +680,171 @@ function ResumeTemplatesSection() {
     navigator.clipboard.writeText(editText).then(() => { setCopyDone(true); setTimeout(() => setCopyDone(false), 2000); });
   }
 
-  function download() {
-    const blob = new Blob([editText], { type: 'text/plain' });
-    const url  = URL.createObjectURL(blob);
-    const a    = Object.assign(document.createElement('a'), { href: url, download: `${selected?.id || 'resume'}_template.txt` });
-    a.click(); URL.revokeObjectURL(url);
+  // ── Toolbar helpers ──────────────────────────────────────────────────────────
+  function getLineRange() {
+    const ta = taRef.current; if (!ta) return null;
+    const s  = ta.selectionStart;
+    const ls = ta.value.lastIndexOf('\n', s - 1) + 1;
+    const le = ta.value.indexOf('\n', s);
+    return { ls, le: le === -1 ? ta.value.length : le, lineText: ta.value.slice(ls, le === -1 ? ta.value.length : le) };
   }
 
-  return (
-    <div className="flex h-[680px] rounded-md border border-gray-200 shadow-card overflow-hidden">
+  function replaceCurrentLine(fn) {
+    const ta = taRef.current; if (!ta) return;
+    const r  = getLineRange(); if (!r) return;
+    setEditText(ta.value.slice(0, r.ls) + fn(r.lineText) + ta.value.slice(r.le));
+    setTimeout(() => ta.focus(), 0);
+  }
 
-      {/* ── Domain sidebar ── */}
-      <div className="w-52 border-r bg-gray-50 flex flex-col shrink-0 overflow-y-auto">
-        <div className="p-4 border-b">
-          <p className="text-xs font-bold text-gray-600 uppercase tracking-wider">Domain</p>
-          <p className="text-[11px] text-gray-400 mt-0.5">ATS-optimised starters</p>
+  function toolSection()   { replaceCurrentLine(l => l.trim().toUpperCase()); }
+  function toolSubLabel()  { replaceCurrentLine(l => `Label: ${l.trim()}`); }
+  function toolBullet()    { replaceCurrentLine(l => /^[•\-]\s/.test(l.trimStart()) ? l.trimStart().slice(2) : `• ${l.trimStart()}`); }
+  function toolClear()     { setEditText(cleanResumeText(editText)); toast.success('Markers cleared'); }
+  function toolPdf()       { if (!editText.trim()) return; try { downloadAsPdf(editText, selected?.label || 'resume'); } catch { toast.error('PDF failed'); } }
+  async function toolDocx(){ if (!editText.trim()) return; try { await downloadAsWord(editText, selected?.label || 'resume'); } catch { toast.error('Word export failed'); } }
+
+  const isBuiltin = !!selected?._builtin;
+  const isActive  = (id) => selected?.id === id;
+
+  return (
+    <div className="flex h-[720px] rounded-md border border-gray-200 shadow-card overflow-hidden">
+
+      {/* ── Sidebar ── */}
+      <div className="w-56 border-r bg-gray-50 flex flex-col shrink-0 overflow-hidden">
+        <div className="p-4 border-b bg-white">
+          <p className="text-xs font-bold text-gray-600 uppercase tracking-wider">ATS Resume Editor</p>
+          <p className="text-[11px] text-gray-400 mt-0.5">Templates &amp; your files</p>
         </div>
-        <div className="flex-1 p-3 space-y-2">
-          {RESUME_TEMPLATES.map(t => (
-            <button key={t.id} onClick={() => open(t)}
-              className={`w-full text-left p-3 rounded-sm border transition-all ${
-                selected?.id === t.id
-                  ? 'bg-brand-600 border-brand-600 shadow-md'
-                  : 'bg-white border-gray-200 hover:border-brand-300 hover:shadow-sm'
-              }`}
-            >
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-xl shrink-0">{t.icon}</span>
-                <p className={`text-sm font-semibold leading-tight ${selected?.id === t.id ? 'text-white' : 'text-gray-800'}`}>{t.label}</p>
+        <div className="flex-1 overflow-y-auto p-3 space-y-4">
+
+          {/* My Resume (from profile) */}
+          {profileResume && (
+            <div>
+              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1.5">My Resume</p>
+              <button onClick={loadProfile}
+                className={`w-full text-left px-3 py-2 rounded-sm border text-xs font-medium transition ${
+                  selected?.id === '__profile__'
+                    ? 'bg-brand-600 border-brand-600 text-white'
+                    : 'bg-white border-gray-200 hover:border-brand-400 text-gray-700'
+                }`}>
+                📋 Load Profile Resume
+              </button>
+            </div>
+          )}
+
+          {/* My Uploaded Files */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">My Files</p>
+              <button onClick={() => uploadRef.current?.click()} disabled={uploading || !user}
+                className="flex items-center gap-1 text-[10px] px-2 py-0.5 bg-brand-600 text-white rounded-sm hover:bg-brand-700 disabled:opacity-50 font-semibold">
+                <Upload size={10} />
+                {uploading ? '…' : 'Upload'}
+              </button>
+            </div>
+            <input ref={uploadRef} type="file" accept=".pdf,.docx,.doc,.txt" className="hidden"
+              onChange={e => e.target.files[0] && handleUpload(e.target.files[0])} />
+
+            {!user ? (
+              <p className="text-[10px] text-gray-400 italic">Login to upload your resume</p>
+            ) : loadingFiles ? (
+              <p className="text-[10px] text-gray-400">Loading…</p>
+            ) : userFiles.length === 0 ? (
+              <p className="text-[10px] text-gray-400 italic">No files yet — upload a PDF or DOCX</p>
+            ) : (
+              <div className="space-y-1">
+                {userFiles.map(v => (
+                  <div key={v.id} onClick={() => openUserFile(v)}
+                    className={`flex items-center gap-1.5 px-2.5 py-2 rounded-sm border cursor-pointer transition text-[11px] ${
+                      isActive(v.id)
+                        ? 'bg-brand-600 border-brand-600 text-white'
+                        : 'bg-white border-gray-200 hover:border-brand-300 text-gray-700'
+                    }`}>
+                    <span className="flex-1 truncate">📄 {v.label}</span>
+                    <button onClick={e => handleDeleteFile(v, e)} title="Delete"
+                      className={`shrink-0 ${isActive(v.id) ? 'text-brand-200 hover:text-white' : 'text-gray-400 hover:text-red-500'}`}>
+                      <Trash2 size={11} />
+                    </button>
+                  </div>
+                ))}
               </div>
-              <p className={`text-[11px] leading-relaxed line-clamp-2 ${selected?.id === t.id ? 'text-brand-100' : 'text-gray-400'}`}>{t.description}</p>
-            </button>
-          ))}
+            )}
+          </div>
+
+          {/* Built-in templates */}
+          <div>
+            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1.5">Templates</p>
+            <div className="space-y-1.5">
+              {RESUME_TEMPLATES.map(t => (
+                <button key={t.id} onClick={() => openBuiltin(t)}
+                  className={`w-full text-left p-2.5 rounded-sm border transition-all ${
+                    isActive(t.id)
+                      ? 'bg-brand-600 border-brand-600 shadow-md'
+                      : 'bg-white border-gray-200 hover:border-brand-300 hover:shadow-sm'
+                  }`}>
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="text-lg shrink-0">{t.icon}</span>
+                    <p className={`text-xs font-semibold leading-tight ${isActive(t.id) ? 'text-white' : 'text-gray-800'}`}>{t.label}</p>
+                  </div>
+                  <p className={`text-[10px] leading-relaxed line-clamp-2 ${isActive(t.id) ? 'text-brand-100' : 'text-gray-400'}`}>{t.description}</p>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* ── Main area ── */}
+      {/* ── Main editor area ── */}
       {!selected ? (
         <div className="flex-1 flex flex-col items-center justify-center text-gray-500 gap-3 bg-gray-900">
           <FileText size={48} strokeWidth={1} className="text-gray-600" />
-          <p className="text-sm text-gray-400">Select a domain template from the sidebar</p>
+          <p className="text-sm text-gray-400">Select a template or upload your resume from the sidebar</p>
           <p className="text-xs text-gray-600">The editor and live preview will open here</p>
+          {user && (
+            <button onClick={() => uploadRef.current?.click()}
+              className="mt-2 flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-sm text-sm font-semibold hover:bg-brand-700 transition">
+              <Upload size={14} /> Upload Resume
+            </button>
+          )}
         </div>
       ) : (
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
-          {/* Toolbar */}
-          <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-gray-900 border-b border-gray-800 shrink-0">
+          {/* Top bar */}
+          <div className="flex items-center justify-between gap-2 px-4 py-2 bg-gray-900 border-b border-gray-800 shrink-0">
             <div className="flex items-center gap-3">
               <div className="flex gap-1.5">
-                <span className="w-3 h-3 rounded-full bg-red-500 inline-block"/>
-                <span className="w-3 h-3 rounded-full bg-yellow-500 inline-block"/>
-                <span className="w-3 h-3 rounded-full bg-green-500 inline-block"/>
+                <span className="w-2.5 h-2.5 rounded-full bg-red-500 inline-block"/>
+                <span className="w-2.5 h-2.5 rounded-full bg-yellow-500 inline-block"/>
+                <span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block"/>
               </div>
-              <span className="text-gray-400 text-xs font-mono">{selected.id}_ats_resume.txt</span>
-              <span className="text-gray-600 text-xs">— {selected.label}</span>
+              <span className="text-gray-400 text-xs font-mono truncate max-w-[220px]">{selected.label || selected.id}</span>
+              {selected._builtin && <span className="text-[9px] px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-300 font-bold">Template</span>}
+              {selected._user    && <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-900 text-blue-300 font-bold">My File</span>}
+              {selected._profile && <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-900 text-green-300 font-bold">Profile</span>}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
               <PanelToggle view={view} setView={setView} />
-              <button onClick={doCopy}
-                className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-200 border border-gray-700 px-2.5 py-1 rounded-sm transition">
-                {copyDone ? <Check size={12} /> : <Copy size={12} />}
-                {copyDone ? 'Copied' : 'Copy'}
-              </button>
-              <button onClick={download}
-                className="text-xs text-gray-400 hover:text-gray-200 border border-gray-700 px-2.5 py-1 rounded-sm transition">
-                ↓ .txt
-              </button>
-              <button onClick={() => setEditText(selected.template)}
-                className="text-xs text-gray-400 hover:text-gray-200 border border-gray-700 px-2.5 py-1 rounded-sm transition">
-                ↺ Reset
-              </button>
               <button onClick={handleSave} disabled={saving || !user}
                 className="flex items-center gap-1.5 text-xs px-3 py-1 bg-green-600 text-white rounded-sm font-semibold hover:bg-green-700 disabled:opacity-50 transition">
-                {saving ? 'Saving…' : user
-                  ? <><Save size={12} /> Save to Profile</>
-                  : <><Lock size={12} /> Login</>
-                }
+                {saving ? 'Saving…' : user ? <><Save size={12} /> Save to Profile</> : <><Lock size={12} /> Login</>}
               </button>
             </div>
+          </div>
+
+          {/* Formatting toolbar */}
+          <div className="flex items-center gap-0.5 px-3 py-1.5 bg-gray-800 border-b border-gray-700 shrink-0 flex-wrap">
+            <TBtn onClick={toolSection}  title="Section header — uppercases current line (Ctrl+Shift+H)">H1</TBtn>
+            <TBtn onClick={toolSubLabel} title="Sub-category label — adds 'Label: ' prefix">H2</TBtn>
+            <TBtn onClick={toolBullet}   title="Toggle bullet point">•</TBtn>
+            <span className="text-gray-700 mx-1">|</span>
+            <TBtn onClick={toolClear}  warn title="Remove all ✦ added-skill markers">✦ Clear</TBtn>
+            {isBuiltin && <TBtn onClick={() => setEditText(selected.template)} warn title="Reset to original template">↺ Reset</TBtn>}
+            <span className="text-gray-700 mx-1">|</span>
+            <TBtn onClick={doCopy}   title="Copy to clipboard">{copyDone ? '✓ Copied' : '⎘ Copy'}</TBtn>
+            <TBtn onClick={toolPdf}  title="Download as PDF">↓ PDF</TBtn>
+            <TBtn onClick={toolDocx} title="Download as Word DOCX">↓ DOCX</TBtn>
+            <span className="ml-auto text-[9px] text-gray-600 font-mono hidden sm:block">Tab = indent · Ctrl+S = save</span>
           </div>
 
           {/* Editor + Preview panels */}
@@ -692,7 +853,7 @@ function ResumeTemplatesSection() {
             {/* Code editor */}
             {(view === 'editor' || view === 'split') && (
               <div className={`flex flex-col min-h-0 ${view === 'split' ? 'w-1/2 border-r border-gray-800' : 'flex-1'}`}>
-                <CodeEditor value={editText} onChange={setEditText} />
+                <CodeEditor ref={taRef} value={editText} onChange={setEditText} onSave={handleSave} />
               </div>
             )}
 
@@ -710,6 +871,17 @@ function ResumeTemplatesSection() {
         </div>
       )}
     </div>
+  );
+}
+
+function TBtn({ children, onClick, title, warn }) {
+  return (
+    <button onClick={onClick} title={title}
+      className={`px-2 py-1 text-[10px] font-semibold rounded-sm transition ${
+        warn ? 'text-yellow-400 hover:bg-yellow-900/40' : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+      }`}>
+      {children}
+    </button>
   );
 }
 
