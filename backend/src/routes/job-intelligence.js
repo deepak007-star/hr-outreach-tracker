@@ -2,7 +2,7 @@
 const express       = require('express');
 const db            = require('../db/database');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
-const { runPipeline, getConfig, saveConfig } = require('../agents/orchestrator');
+const { runPipeline, syncJobIntelContacts, getConfig, saveConfig } = require('../agents/orchestrator');
 
 const router = express.Router();
 
@@ -133,6 +133,17 @@ router.get('/runs', requireAuth, requireAdmin, async (req, res) => {
     ).all();
     res.json(rows);
   } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── POST /api/job-intel/sync-contacts ── manual sync to contacts (admin) ──────
+router.post('/sync-contacts', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const synced = await syncJobIntelContacts();
+    res.json({ ok: true, synced, message: `${synced} contact(s) added/updated in your Contacts page` });
+  } catch (e) {
+    console.error('[Job Intel] sync-contacts error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });

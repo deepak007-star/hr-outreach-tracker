@@ -143,13 +143,16 @@ async function runPipeline(triggeredBy = 'scheduler') {
       JSON.stringify(errors), runId
     );
 
+    // ── 6. Sync extracted emails → admin's contacts page ──────────────────────
+    const contactsSynced = await syncJobIntelContacts();
+
     // Notification
     await db.prepare(`INSERT INTO notifications (id, user_id, type, title, body) VALUES (?, ?, ?, ?, ?)`)
       .run(randomUUID(), null, 'info', 'Job Intel: HR contacts extracted',
-        `Scanned ${totalFetched} job posts across ${Object.keys(sourceStats).join(', ')} — found ${totalNew} new HR contacts with email.`);
+        `Scanned ${totalFetched} job posts across ${Object.keys(sourceStats).join(', ')} — found ${totalNew} new HR contacts with email. ${contactsSynced} added/updated in Contacts.`);
 
     const durationMs = Date.now() - new Date(startedAt.replace(' ', 'T') + 'Z').getTime();
-    return { runId, fetched: totalFetched, new: totalNew, duplicates: totalDupes, errors, durationMs };
+    return { runId, fetched: totalFetched, new: totalNew, duplicates: totalDupes, contactsSynced, errors, durationMs };
 
   } catch (e) {
     console.error('[Pipeline] Fatal error:', e.message);
@@ -180,4 +183,76 @@ async function schedulePipeline() {
   setInterval(() => runPipeline('scheduler').catch(e => console.error('[Pipeline] Scheduled run failed:', e.message)), intervalMs);
 }
 
-module.exports = { runPipeline, schedulePipeline, getConfig, saveConfig, DEFAULT_CONFIG };
+/**
+ * Sync HR contacts extracted by the job-intel pipeline into the admin user's
+ * contacts table. Runs automatically after every pipeline run and on a daily
+ * schedule from index.js.
+ *
+ * - Only upserts contacts where extracted_emails is non-empty.
+ * - ON CONFLICT: only overwrites name/company/source_url if the existing row
+ *   was also job-intel sourced — never stomps manually-added contacts.
+ * - Returns the number of rows affected.
+ */
+async function syncJobIntelContacts() {
+  try {
+    const admin = await db.prepare(
+      "SELECT id FROM users WHERE role = 'admin' ORDER BY created_at ASC LIMIT 1"
+    ).get();
+    if (!admin) {
+      console.log('[Pipeline] syncJobIntelContacts: no admin user found, skipping');
+      return 0;
+    }
+    const adminId = admin.id;
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+
+    const postings = await db.prepare(
+      `SELECT id, company, title, apply_url, source, extracted_emails, extracted_contact_name
+       FROM job_postings
+       WHERE extracted_emails != '[]' AND extracted_emails IS NOT NULL`
+    ).all();
+
+    let synced = 0;
+    for (const posting of postings) {
+      let emails = [];
+      try { emails = JSON.parse(posting.extracted_emails); } catch {}
+
+      for (const rawEmail of emails) {
+        const email = (rawEmail || '').trim().toLowerCase();
+        if (!email || !email.includes('@')) continue;
+
+        const name      = (posting.extracted_contact_name || '').trim();
+        const company   = (posting.company  || '').trim();
+        const sourceUrl = (posting.apply_url || '').trim();
+        const notes     = `[Job Intel] ${posting.title || ''}${company ? ` · ${company}` : ''}${posting.source ? ` (${posting.source})` : ''}`.trim();
+
+        const result = await db.prepare(`
+          INSERT INTO contacts
+            (id, user_id, name, email, company, title, email_source, status, source_url, notes, date_added, tags, email_verified)
+          VALUES
+            (?, ?, ?, ?, ?, '', 'job-intel', 'New', ?, ?, ?, '[]', 'pending')
+          ON CONFLICT (email, user_id) DO UPDATE SET
+            name       = CASE WHEN contacts.email_source = 'job-intel' AND ? != '' THEN ? ELSE contacts.name END,
+            company    = CASE WHEN contacts.email_source = 'job-intel' AND ? != '' THEN ? ELSE contacts.company END,
+            source_url = CASE WHEN contacts.email_source = 'job-intel' AND ? != '' THEN ? ELSE contacts.source_url END,
+            notes      = CASE WHEN contacts.email_source = 'job-intel' THEN ? ELSE contacts.notes END
+        `).run(
+          randomUUID(), adminId, name, email, company, sourceUrl, notes, now,
+          name, name,
+          company, company,
+          sourceUrl, sourceUrl,
+          notes
+        );
+
+        if (result.changes > 0) synced++;
+      }
+    }
+
+    console.log(`[Pipeline] syncJobIntelContacts: synced ${synced} contacts to admin's list`);
+    return synced;
+  } catch (e) {
+    console.error('[Pipeline] syncJobIntelContacts failed:', e.message);
+    return 0;
+  }
+}
+
+module.exports = { runPipeline, schedulePipeline, syncJobIntelContacts, getConfig, saveConfig, DEFAULT_CONFIG };

@@ -193,6 +193,7 @@ export default function ContactTable({
             {sorted.map((c, idx) => {
               const emailVisible   = idx < visibleLimit;
               const isDoNotContact = c.status === 'Do Not Contact';
+              const isJobIntel    = c.email_source === 'job-intel';
 
               return (
                 <Fragment key={c.id}>
@@ -217,7 +218,7 @@ export default function ContactTable({
                     </tr>
                   )}
 
-                  <tr className={`${!emailVisible ? 'bg-gray-50/30 opacity-70' : isDoNotContact ? 'opacity-50' : 'bg-white'} hover:bg-stone-50/60 transition-colors`}>
+                  <tr className={`${!emailVisible ? 'bg-gray-50/30 opacity-70' : isDoNotContact ? 'opacity-50 bg-white' : isJobIntel ? 'bg-gray-100/80 border-l-2 border-gray-300' : 'bg-white'} hover:bg-stone-50/60 transition-colors`}>
                     <td className="px-3 py-2.5">
                       <input
                         type="checkbox"
@@ -263,7 +264,13 @@ export default function ContactTable({
                     </td>
 
                     <td className="px-3 py-2.5 text-xs text-gray-500 capitalize whitespace-nowrap">
-                      {c.email_source?.replace(/_/g, ' ')}
+                      {isJobIntel ? (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 font-medium text-xs">
+                          Job Intel
+                        </span>
+                      ) : (
+                        c.email_source?.replace(/_/g, ' ')
+                      )}
                     </td>
                     <td className={`px-3 py-2.5 text-xs whitespace-nowrap ${
                       c.email_confidence === 'verified' ? 'text-green-600 font-medium' :

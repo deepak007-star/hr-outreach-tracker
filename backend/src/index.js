@@ -68,7 +68,7 @@ async function main() {
   const paymentsRouter       = require('./routes/payments');
   const chatbotRouter        = require('./routes/chatbot');
   const jobIntelRouter       = require('./routes/job-intelligence');
-  const { schedulePipeline } = require('./agents/orchestrator');
+  const { schedulePipeline, syncJobIntelContacts } = require('./agents/orchestrator');
   const { getSettings } = require('./routes/apify');
   const { sendReminderEmail } = require('./routes/reminder');
 
@@ -388,6 +388,12 @@ async function main() {
 
   // ── Multi-agent Job Intelligence Pipeline scheduler ───────────────────────
   schedulePipeline().catch(e => console.error('[Pipeline] Scheduler init failed:', e.message));
+
+  // Daily job-intel contact sync — independently of pipeline schedule, sync any
+  // already-extracted HR emails from job_postings into the admin's contacts page.
+  // Also runs once at startup (45s) so existing DB data populates on first boot.
+  setTimeout(() => syncJobIntelContacts().catch(e => console.error('[Job Intel sync] Startup sync failed:', e.message)), 45_000);
+  setInterval(() => syncJobIntelContacts().catch(e => console.error('[Job Intel sync] Daily sync failed:', e.message)), 24 * 3_600_000);
 
   // Run purge once at startup (after 30s) then every 24h
   setTimeout(runDailyPurgeAndBackup, 30_000);

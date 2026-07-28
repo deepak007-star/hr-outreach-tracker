@@ -1,5 +1,24 @@
 # Audit Log — HR Outreach Tracker
 
+---
+
+## 2026-07-28 — Job Intel auto-sync to Contacts page
+
+### FEATURE — Automatic sync of extracted HR emails into Contacts
+
+- **What:** Every HR email extracted by the Job Intelligence pipeline is now automatically added to the admin user's Contacts page with `email_source = 'job-intel'`.
+- **Trigger 1 (pipeline run):** `syncJobIntelContacts()` is called at the end of every successful `runPipeline()` execution — so any new HR emails found in a pipeline run appear in Contacts immediately.
+- **Trigger 2 (startup + daily):** A standalone daily scheduler in `index.js` runs `syncJobIntelContacts()` at startup (45s delay) then every 24 hours — ensures contacts stay in sync even when the pipeline is disabled.
+- **Trigger 3 (manual):** `POST /api/job-intel/sync-contacts` (admin only) lets an admin force-sync on demand.
+- **Upsert safety:** Uses `ON CONFLICT (email, user_id) DO UPDATE SET … CASE WHEN email_source = 'job-intel' THEN … ELSE contacts.x END` — manually-edited contacts (sourced as `'manual'`, `'gmail'`, etc.) are never overwritten, only job-intel-sourced contacts get updated.
+- **Fields mapped:** `name` ← `extracted_contact_name`, `company` ← `posting.company`, `email` ← extracted email, `notes` ← `[Job Intel] <posting title> · <company> (<source>)`, `source_url` ← `posting.apply_url`, `email_source` = `'job-intel'`, `status` = `'New'`.
+- **UI highlight:** Contacts with `email_source = 'job-intel'` now render with a gray row (`bg-gray-100/80` + left border `border-gray-300`) and a "Job Intel" badge in the Source column.
+- **Files changed:**
+  - `backend/src/agents/orchestrator.js` — added `syncJobIntelContacts()` function; called after step 5 in `runPipeline()`; exported
+  - `backend/src/routes/job-intelligence.js` — added `POST /sync-contacts` endpoint; imports `syncJobIntelContacts`
+  - `backend/src/index.js` — added startup + daily `syncJobIntelContacts` scheduler
+  - `frontend/src/components/ContactTable.jsx` — `isJobIntel` flag; gray row class; "Job Intel" badge in Source column
+
 All significant changes, security fixes, and bug resolutions are recorded here for auditing purposes.
 Each entry includes the date, severity, file(s) changed, root cause, and fix applied.
 
