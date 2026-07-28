@@ -2,6 +2,27 @@
 
 ---
 
+## 2026-07-28 — Overleaf-style split resume editor (ResumeTemplateModal)
+
+### FEATURE — ATS Resume Templates: Overleaf-style split editor replacing flat dark-only editor
+
+- **Problem:** `ResumeTemplateModal.jsx` had a template sidebar + dark textarea but no visual preview, no formatting toolbar, no resizable divider, and no live rendering of the resume structure.
+- **Fix:** Complete rewrite as a proper split-pane Overleaf-style editor with:
+  - **Dark code editor pane (left):** green-on-gray-900 monospace textarea, line numbers scrolling in sync, cursor position status bar (Ln X, Col Y), char/line count in status bar
+  - **Formatting toolbar:** H1 (ALL CAPS section header), H2 (Sub-label), • (Bullet toggle), ↵ (Blank line), ✦ Clear (strips [ADDED]/[ADDED-LINE] markers), ↺ Reset (for built-in templates), ↓ PDF, ↓ DOCX downloads
+  - **Keyboard shortcuts:** Ctrl+S (save to profile), Ctrl+Shift+H (section header), Tab (4-space indent)
+  - **Live A4 visual preview pane (right):** white paper on gray-200 background; line classifier mirrors `resumeUtils.js classifyLine` — name (large bold centered), subtitle (medium gray centered), contact (small centered), section header (bold + bottom border), subcategory (bold label + rest), bullet (indented •), blank (5px gap); [ADDED-LINE] lines get green left border; [ADDED] tokens render as green chip highlights
+  - **Resizable divider:** drag handle between editor and preview, clamped 25–75% editor width
+  - **View mode toggle:** Split / Editor / Preview in top bar, green active indicator
+  - **Traffic-light window controls** (aesthetic, close button functional)
+  - **Profile resume loader:** "Load Profile Resume" button in sidebar if user has a profile resume
+  - **Save to Profile:** Ctrl+S or button writes `resume_text` to `/api/profile`
+- **Files changed:** `frontend/src/components/ResumeTemplateModal.jsx` (complete rewrite)
+- **New imports:** `downloadAsPdf`, `downloadAsWord`, `cleanResumeText` from `resumeUtils.js`
+- **No backend changes**
+
+---
+
 ## 2026-07-28 — Manual resume text editor in Profile page (ATS resume input)
 
 ### FEATURE — Profile → Resume & Skills tab: Edit Text tab with monospace editor
