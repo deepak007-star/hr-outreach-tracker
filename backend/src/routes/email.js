@@ -521,15 +521,13 @@ router.post('/send-direct', rlMiddleware('email'), async (req, res) => {
       return res.status(429).json({ error: `Daily send cap of ${cap} reached.` });
   }
 
-  const footer   = await getFooter();
-  const fullBody = `${body}\n\n---\n${footer}`;
-  const htmlBody = fullBody.split('\n').map(l => `<p style="margin:0 0 4px">${l || '&nbsp;'}</p>`).join('');
+  const htmlBody = body.split('\n').map(l => `<p style="margin:0 0 4px">${l || '&nbsp;'}</p>`).join('');
 
   try {
     await transport.sendMail({
       from:    fromName ? `"${fromName}" <${fromEmail}>` : fromEmail,
       to, subject,
-      text:    fullBody,
+      text:    body,
       html:    `<div style="font-family:sans-serif;font-size:14px;line-height:1.6">${htmlBody}</div>`,
     });
     res.json({ ok: true, to });
