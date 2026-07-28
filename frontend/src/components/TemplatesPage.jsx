@@ -8,8 +8,203 @@ import RichEditor, { toHtml } from './RichEditor.jsx';
 import AttachmentPicker from './AttachmentPicker.jsx';
 import { Mail, FileText, PenLine, Columns2, Eye, Copy, Check, Save, Lock, X, Upload, Trash2 } from 'lucide-react';
 import { downloadAsPdf, downloadAsWord, cleanResumeText } from '../utils/resumeUtils.js';
+import { renderLatexToHtml } from '../utils/latexRenderer.js';
 
 const TEMPLATE_VARS = ['{{name}}', '{{company}}', '{{role}}', '{{your_name}}', '{{title}}'];
+
+// ── LaTeX starter template (Jake's Resume style) ─────────────────────────────
+const LATEX_STARTER = `%-------------------------
+% LaTeX Resume — Jake's Resume style
+% Compile with: pdflatex resume.tex
+%-------------------------
+\\documentclass[letterpaper,11pt]{article}
+
+\\usepackage{latexsym}
+\\usepackage[empty]{fullpage}
+\\usepackage{titlesec}
+\\usepackage{marvosym}
+\\usepackage[usenames,dvipsnames]{color}
+\\usepackage{verbatim}
+\\usepackage{enumitem}
+\\usepackage[hidelinks]{hyperref}
+\\usepackage{fancyhdr}
+\\usepackage[english]{babel}
+\\usepackage{tabularx}
+
+\\pagestyle{fancy}
+\\fancyhf{}
+\\fancyfoot{}
+\\renewcommand{\\headrulewidth}{0pt}
+\\renewcommand{\\footrulewidth}{0pt}
+
+\\addtolength{\\oddsidemargin}{-0.5in}
+\\addtolength{\\evensidemargin}{-0.5in}
+\\addtolength{\\textwidth}{1in}
+\\addtolength{\\topmargin}{-.5in}
+\\addtolength{\\textheight}{1.0in}
+
+\\raggedbottom
+\\raggedright
+\\setlength{\\tabcolsep}{0in}
+
+% Sections formatting
+\\titleformat{\\section}{
+  \\vspace{-4pt}\\scshape\\raggedright\\large
+}{}{0em}{}[\\color{black}\\titlerule \\vspace{-5pt}]
+
+%-----------CUSTOM COMMANDS-----------
+\\newcommand{\\resumeItem}[1]{
+  \\item\\small{#1 \\vspace{-2pt}}
+}
+
+\\newcommand{\\resumeSubheading}[4]{
+  \\vspace{-2pt}\\item
+    \\begin{tabular*}{0.97\\textwidth}[t]{l@{\\extracolsep{\\fill}}r}
+      \\textbf{#1} & #2 \\\\
+      \\textit{\\small#3} & \\textit{\\small #4} \\\\
+    \\end{tabular*}\\vspace{-7pt}
+}
+
+\\newcommand{\\resumeSubheadingSimple}[3]{
+  \\vspace{-2pt}\\item
+    \\begin{tabular*}{0.97\\textwidth}[t]{l@{\\extracolsep{\\fill}}r}
+      \\textbf{#1} & \\textit{\\small #2} \\\\
+      \\textit{\\small#3}
+    \\end{tabular*}\\vspace{-7pt}
+}
+
+\\newcommand{\\resumeProjectHeading}[2]{
+    \\item
+    \\begin{tabular*}{0.97\\textwidth}{l@{\\extracolsep{\\fill}}r}
+      \\small#1 & #2 \\\\
+    \\end{tabular*}\\vspace{-7pt}
+}
+
+\\newcommand{\\resumeSubItem}[1]{\\resumeItem{#1}\\vspace{-4pt}}
+\\newcommand{\\resumeSubHeadingListStart}{\\begin{itemize}[leftmargin=0.15in, label={}]}
+\\newcommand{\\resumeSubHeadingListEnd}{\\end{itemize}}
+\\newcommand{\\resumeItemListStart}{\\begin{itemize}}
+\\newcommand{\\resumeItemListEnd}{\\end{itemize}\\vspace{-5pt}}
+
+%-------------------------------------------
+\\begin{document}
+
+%-----------HEADING-----------
+\\begin{center}
+    {\\Huge \\scshape Your Full Name} \\\\ \\vspace{1pt}
+    \\small New Delhi, India $|$
+    \\href{mailto:you@email.com}{you@email.com} $|$
+    \\href{https://linkedin.com/in/yourhandle}{linkedin.com/in/yourhandle} $|$
+    \\href{https://github.com/yourhandle}{github.com/yourhandle}
+\\end{center}
+
+%-----------EDUCATION-----------
+\\section{Education}
+\\resumeSubHeadingListStart
+  \\resumeSubheadingSimple
+    {GGSIPU, New Delhi}{Aug 2017 -- Aug 2021}{B.Tech, Information Technology}
+\\resumeSubHeadingListEnd
+
+%-----------EXPERIENCE-----------
+\\section{Experience}
+\\resumeSubHeadingListStart
+
+  \\resumeSubheading
+    {Acme Corp}{Bengaluru, IN}
+    {Software Engineer II}{Jan 2023 -- Present}
+  \\resumeItemListStart
+    \\resumeItem{Designed and shipped a \\textbf{Redis} TTL-backed URL Shortener microservice for secure access to AWS S3-stored documents, reducing presigned-URL surface area by 80\\%.}
+    \\resumeItem{Engineered \\textbf{KEK-wrapped key storage} in MongoDB backed by a 3-tier DEK cache (JVM $\\rightarrow$ Redis $\\rightarrow$ MongoDB) --- no plaintext key material is ever persisted.}
+    \\resumeItem{Built automatic, per-algorithm \\textbf{key rotation} with a versioned wire format keeping prior key versions transparently decryptable; re-engineered batch-file decryption to stream line-by-line (OOM-safe up to 2\\,GB).}
+  \\resumeItemListEnd
+
+  \\resumeSubheading
+    {Startup XYZ}{Remote}
+    {Junior Software Engineer}{Jul 2021 -- Dec 2022}
+  \\resumeItemListStart
+    \\resumeItem{Built REST APIs with \\textbf{Spring Boot} serving 500k+ requests/day with p99 < 120 ms.}
+    \\resumeItem{Implemented role-based access control (RBAC) using \\textbf{Spring Security + JWT} tokens.}
+    \\resumeItem{Reduced CI build time by 40\\% by parallelising Gradle tasks and caching Docker layers.}
+  \\resumeItemListEnd
+
+\\resumeSubHeadingListEnd
+
+%-----------PROJECTS-----------
+\\section{Projects}
+\\resumeSubHeadingListStart
+  \\resumeProjectHeading
+    {\\textbf{HR Outreach Tracker} $|$ \\emph{Node.js, React, PostgreSQL, Redis}}{2024}
+  \\resumeItemListStart
+    \\resumeItem{Personal job-search CRM tracking 500+ HR contacts with automated email outreach via OAuth2 Gmail.}
+    \\resumeItem{Integrated LinkedIn scraper (Apify) for daily lead discovery and ATS resume scoring pipeline.}
+  \\resumeItemListEnd
+
+  \\resumeProjectHeading
+    {\\textbf{Distributed File Vault} $|$ \\emph{Java, Spring Boot, Kafka, MongoDB, AWS S3}}{2023}
+  \\resumeItemListStart
+    \\resumeItem{Chunk-streamed uploads to S3 with client-side AES-256-GCM encryption; re-assembly on demand.}
+    \\resumeItem{Event-driven audit log via Kafka; 15+ production hardening issues resolved in first release cycle.}
+  \\resumeItemListEnd
+\\resumeSubHeadingListEnd
+
+%-----------TECHNICAL SKILLS-----------
+\\section{Technical Skills}
+\\resumeSubHeadingListStart
+  \\item{
+    \\textbf{Languages}{: Java 17/21, JavaScript (ES2022), TypeScript, Python, SQL} \\\\
+    \\textbf{Frameworks}{: Spring Boot, Spring Security, Node.js, Express, React 18} \\\\
+    \\textbf{Databases}{: PostgreSQL, MySQL, MongoDB, Redis, Elasticsearch} \\\\
+    \\textbf{Cloud \\& DevOps}{: AWS (EC2, S3, RDS, EKS), Docker, Kubernetes, GitHub Actions, Jenkins} \\\\
+    \\textbf{Tools}{: Git, Maven, Gradle, Postman, Jira, IntelliJ IDEA}
+  }
+\\resumeSubHeadingListEnd
+
+\\end{document}
+`;
+
+// ── Detect LaTeX content ──────────────────────────────────────────────────────
+function isLatex(text) {
+  if (!text) return false;
+  return /\\documentclass|\\begin\{document\}|\\resumeItem|\\resumeSubheading|\\section\{/.test(text);
+}
+
+// ── LaTeX preview component ───────────────────────────────────────────────────
+function LatexDocPreview({ code }) {
+  if (!code || !code.trim()) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center text-gray-500 gap-3 bg-gray-100">
+        <FileText size={48} strokeWidth={1} className="text-gray-300" />
+        <p className="text-sm">Live LaTeX preview will appear here</p>
+      </div>
+    );
+  }
+
+  const html = renderLatexToHtml(code);
+
+  if (!html.trim()) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center text-gray-400 gap-2 bg-gray-100">
+        <p className="text-sm">Add content after <code className="font-mono text-xs bg-gray-200 px-1 rounded">\\begin&#123;document&#125;</code> to see preview</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 overflow-y-auto bg-gray-200 p-6">
+      <div
+        className="bg-white mx-auto shadow-xl"
+        style={{ maxWidth: 680, minHeight: 960, padding: '40px 48px', borderRadius: 2, fontFamily: "'Times New Roman', Times, serif" }}
+      >
+        <div dangerouslySetInnerHTML={{ __html: html }} />
+      </div>
+      <div className="mt-3 max-w-[680px] mx-auto">
+        <p className="text-[10px] text-gray-400">
+          Live render — approximate LaTeX output. Download PDF/DOCX for exact formatting.
+        </p>
+      </div>
+    </div>
+  );
+}
 
 // ── Sample data for live preview ──────────────────────────────────────────────
 const SAMPLE = {
@@ -210,6 +405,9 @@ function DocLine({ line, isFirst, isSecond }) {
 }
 
 function ResumeDocPreview({ text }) {
+  // Delegate to LaTeX renderer for .tex content
+  if (isLatex(text)) return <LatexDocPreview code={text} />;
+
   if (!text) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-gray-500 gap-3 bg-gray-100">
@@ -703,7 +901,7 @@ function ResumeTemplatesSection() {
   function toolPdf()       { if (!editText.trim()) return; try { downloadAsPdf(editText, selected?.label || 'resume'); } catch { toast.error('PDF failed'); } }
   async function toolDocx(){ if (!editText.trim()) return; try { await downloadAsWord(editText, selected?.label || 'resume'); } catch { toast.error('Word export failed'); } }
 
-  const isBuiltin = !!selected?._builtin;
+  const isBuiltin = !!selected?._builtin || !!selected?._isLatex;
   const isActive  = (id) => selected?.id === id;
 
   return (
@@ -775,6 +973,20 @@ function ResumeTemplatesSection() {
           <div>
             <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1.5">Templates</p>
             <div className="space-y-1.5">
+              {/* LaTeX starter — always first */}
+              <button
+                onClick={() => openBuiltin({ id: '__latex__', label: 'LaTeX Resume (Jake\'s style)', icon: '𝓛', description: 'Full LaTeX .tex source — Jake\'s Resume style with all resume macros included.', template: LATEX_STARTER, _isLatex: true })}
+                className={`w-full text-left p-2.5 rounded-sm border transition-all ${
+                  isActive('__latex__')
+                    ? 'bg-brand-600 border-brand-600 shadow-md'
+                    : 'bg-white border-gray-200 hover:border-brand-300 hover:shadow-sm'
+                }`}>
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className="text-lg shrink-0">𝓛</span>
+                  <p className={`text-xs font-semibold leading-tight ${isActive('__latex__') ? 'text-white' : 'text-gray-800'}`}>LaTeX Resume</p>
+                </div>
+                <p className={`text-[10px] leading-relaxed line-clamp-2 ${isActive('__latex__') ? 'text-brand-100' : 'text-gray-400'}`}>Jake's Resume style .tex — edit &amp; preview live</p>
+              </button>
               {RESUME_TEMPLATES.map(t => (
                 <button key={t.id} onClick={() => openBuiltin(t)}
                   className={`w-full text-left p-2.5 rounded-sm border transition-all ${
@@ -799,7 +1011,7 @@ function ResumeTemplatesSection() {
         <div className="flex-1 flex flex-col items-center justify-center text-gray-500 gap-3 bg-gray-900">
           <FileText size={48} strokeWidth={1} className="text-gray-600" />
           <p className="text-sm text-gray-400">Select a template or upload your resume from the sidebar</p>
-          <p className="text-xs text-gray-600">The editor and live preview will open here</p>
+          <p className="text-xs text-gray-600">LaTeX (.tex) and plain-text formats both supported</p>
           {user && (
             <button onClick={() => uploadRef.current?.click()}
               className="mt-2 flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-sm text-sm font-semibold hover:bg-brand-700 transition">
@@ -819,7 +1031,8 @@ function ResumeTemplatesSection() {
                 <span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block"/>
               </div>
               <span className="text-gray-400 text-xs font-mono truncate max-w-[220px]">{selected.label || selected.id}</span>
-              {selected._builtin && <span className="text-[9px] px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-300 font-bold">Template</span>}
+              {selected._builtin && !selected._isLatex && <span className="text-[9px] px-1.5 py-0.5 rounded bg-yellow-900 text-yellow-300 font-bold">Template</span>}
+              {selected._isLatex && <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-900 text-purple-300 font-bold">.tex LaTeX</span>}
               {selected._user    && <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-900 text-blue-300 font-bold">My File</span>}
               {selected._profile && <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-900 text-green-300 font-bold">Profile</span>}
             </div>
@@ -844,7 +1057,7 @@ function ResumeTemplatesSection() {
             <TBtn onClick={doCopy}   title="Copy to clipboard">{copyDone ? '✓ Copied' : '⎘ Copy'}</TBtn>
             <TBtn onClick={toolPdf}  title="Download as PDF">↓ PDF</TBtn>
             <TBtn onClick={toolDocx} title="Download as Word DOCX">↓ DOCX</TBtn>
-            <span className="ml-auto text-[9px] text-gray-600 font-mono hidden sm:block">Tab = indent · Ctrl+S = save</span>
+            <span className="ml-auto text-[9px] text-gray-600 font-mono hidden sm:block">Tab = indent · Ctrl+S = save · LaTeX auto-detected</span>
           </div>
 
           {/* Editor + Preview panels */}
@@ -861,8 +1074,11 @@ function ResumeTemplatesSection() {
             {(view === 'preview' || view === 'split') && (
               <div className={`flex flex-col min-h-0 overflow-hidden ${view === 'split' ? 'w-1/2' : 'flex-1'}`}>
                 <div className="px-4 py-2 bg-gray-100 border-b border-gray-200 flex items-center gap-2 shrink-0">
-                  <span className="text-xs font-semibold text-gray-500">Document Preview</span>
-                  <span className="text-[10px] text-gray-300">— live render</span>
+                  <span className="text-xs font-semibold text-gray-500">
+                    {isLatex(editText) ? 'LaTeX Preview' : 'Document Preview'}
+                  </span>
+                  <span className="text-[10px] text-gray-400">— live render</span>
+                  {isLatex(editText) && <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-bold">.tex</span>}
                 </div>
                 <ResumeDocPreview text={editText} />
               </div>
