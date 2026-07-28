@@ -2,6 +2,27 @@
 
 ---
 
+## 2026-07-28 — Manual resume text editor in Profile page (ATS resume input)
+
+### FEATURE — Profile → Resume & Skills tab: Edit Text tab with monospace editor
+
+- **Problem:** The Resume & Skills tab had file upload only — no way to manually paste or type resume text. Users who wanted to input their resume as plain text had no entry point in the profile page.
+- **Fix:** Added a two-tab layout inside the "Your Resume" section:
+  - **File Upload tab** — existing upload card, unchanged
+  - **Edit Text tab** — shows `profile.resume_text` in a monospace (`Courier New`) textarea with `white-space: pre-wrap` so all line breaks, indentation, and spacing are preserved exactly as typed or extracted
+- **View / Edit mode toggle:**
+  - View mode: textarea is `readOnly`, light gray background, shows exact stored text with no auto-modification
+  - Edit mode: textarea is editable (white background, brand focus ring) with Save / Cancel buttons
+  - "Unsaved changes" warning when draft differs from saved text
+  - Separate Save call updates only `resume_text` — does not affect `resume_filename` or other fields
+- **Copy button:** in view mode, copies full resume text to clipboard
+- **After file upload:** automatically switches to Edit Text tab so user sees and can review the extracted text
+- **Cross-linking:** Edit Text tab links to File Upload tab and vice versa via underlined buttons
+- **ATS compatibility:** `resume_text` (plain string) is what all ATS analyzers (JobAnalyzer, BulkJobAnalyzer, PostWorkflowModal) consume — manual text entry goes through the same field
+- **File:** `frontend/src/components/ProfilePage.jsx` — `ResumeSkillsTab` function
+
+---
+
 ## 2026-07-28 — Resume skill injection: group-by-domain, smart placement, expanded dictionary
 
 ### BUG FIX — `resumeUtils.js` `modifyResume()` created one "Others:" row per unclassified skill

@@ -392,7 +392,12 @@ function ResumeSkillsTab({ profile, onSave }) {
   const [newSkill,    setNewSkill]    = useState('');
   const [uploading,   setUploading]   = useState(false);
   const [showPreview, setShowPreview] = useState(false);
-  const fileRef = useRef(null);
+  const [resumeTab,   setResumeTab]   = useState('file');
+  const [editingText, setEditingText] = useState(false);
+  const [textDraft,   setTextDraft]   = useState('');
+  const [savingText,  setSavingText]  = useState(false);
+  const fileRef    = useRef(null);
+  const textareaRef = useRef(null);
 
   const skills = useMemo(() => { try { return JSON.parse(profile?.skills || '[]'); } catch { return []; } }, [profile?.skills]);
 
@@ -400,6 +405,16 @@ function ResumeSkillsTab({ profile, onSave }) {
     getSuggestedSkills(profile?.current_title || '', skills).slice(0, 24),
     [profile?.current_title, skills],
   );
+
+  // Keep draft in sync when profile changes externally (e.g. after file upload)
+  useEffect(() => {
+    if (!editingText) setTextDraft(profile?.resume_text || '');
+  }, [profile?.resume_text]);
+
+  // Focus textarea when edit mode opens
+  useEffect(() => {
+    if (editingText) textareaRef.current?.focus();
+  }, [editingText]);
 
   async function handleUpload(file) {
     if (!file) return;
@@ -435,8 +450,25 @@ function ResumeSkillsTab({ profile, onSave }) {
       const filled = [detectedName && 'name', detectedTitle && 'title', detectedExp && 'experience', detected.length && `${detected.length} skills`].filter(Boolean);
       toast.success('Resume uploaded!');
       if (filled.length) toast(`Auto-filled: ${filled.join(', ')}`, { icon: '✨' });
+      // Switch to text tab so user can see/edit the extracted text
+      setResumeTab('text');
     } catch (err) { toast.error(err.response?.data?.error || 'Upload failed'); }
     finally { setUploading(false); }
+  }
+
+  async function saveText() {
+    setSavingText(true);
+    try {
+      await onSave({ resume_text: textDraft });
+      setEditingText(false);
+      toast.success('Resume text saved');
+    } catch { toast.error('Save failed'); }
+    finally { setSavingText(false); }
+  }
+
+  function cancelTextEdit() {
+    setTextDraft(profile?.resume_text || '');
+    setEditingText(false);
   }
 
   async function addSkill(s) {
@@ -450,47 +482,170 @@ function ResumeSkillsTab({ profile, onSave }) {
     await onSave({ skills: JSON.stringify(skills.filter(x => x !== s)) });
   }
 
+  const currentText  = profile?.resume_text || '';
+  const lineCount    = currentText ? currentText.split('\n').length : 0;
+  const charCount    = currentText.length;
+  const draftChanged = editingText && textDraft !== currentText;
+
   return (
     <div className="space-y-6">
+      {/* ── Resume section ─────────────────────────────────────────────── */}
       <div>
         <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Your Resume</h3>
-        <input type="file" accept=".pdf,.docx,.doc,.txt" ref={fileRef} className="hidden"
-          onChange={e => handleUpload(e.target.files?.[0])} />
 
-        {profile?.resume_filename ? (
-          <div className="flex items-center gap-4 bg-brand-50 border border-brand-200 rounded-md p-4">
-            <Upload size={24} className="text-brand-500 shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-brand-800 truncate">{profile.resume_filename}</p>
-              {profile.resume_uploaded_at && (
-                <p className="text-xs text-brand-500 mt-0.5">
-                  Uploaded {new Date(profile.resume_uploaded_at).toLocaleDateString('en-IN')} · Skills & info auto-extracted ✓
-                </p>
-              )}
-            </div>
-            <div className="flex gap-2 shrink-0">
-              {profile.has_resume_file && (
-                <button onClick={() => setShowPreview(true)}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-brand-600 text-white text-xs font-semibold rounded-sm hover:bg-brand-700 transition">
-                  <Eye size={12} /> Preview
-                </button>
-              )}
-              <button onClick={() => fileRef.current?.click()} disabled={uploading}
-                className="px-4 py-2 border border-brand-300 text-brand-700 text-xs font-semibold rounded-sm hover:bg-brand-100 disabled:opacity-50">
-                {uploading ? 'Parsing…' : '↺ Update'}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button onClick={() => fileRef.current?.click()} disabled={uploading}
-            className="w-full border-2 border-dashed border-gray-300 rounded-sm py-10 flex flex-col items-center gap-2 text-gray-400 hover:border-brand-400 hover:text-brand-500 hover:bg-brand-50 transition disabled:opacity-50">
-            <Upload size={32} className="opacity-50" />
-            <p className="text-sm font-semibold">{uploading ? 'Parsing resume…' : 'Upload Resume'}</p>
-            <p className="text-xs">PDF, DOCX, or TXT — skills, title & experience are auto-extracted</p>
+        {/* Tab strip */}
+        <div className="flex border-b border-gray-200 mb-4">
+          <button
+            onClick={() => setResumeTab('file')}
+            className={`px-4 py-2 text-xs font-semibold border-b-2 transition-colors ${
+              resumeTab === 'file' ? 'border-brand-500 text-brand-600' : 'border-transparent text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            File Upload
           </button>
+          <button
+            onClick={() => { setResumeTab('text'); }}
+            className={`px-4 py-2 text-xs font-semibold border-b-2 transition-colors ${
+              resumeTab === 'text' ? 'border-brand-500 text-brand-600' : 'border-transparent text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            Edit Text
+            {currentText
+              ? <span className="ml-1.5 text-gray-400 font-normal">({lineCount} lines)</span>
+              : <span className="ml-1.5 text-gray-300 font-normal">(empty)</span>
+            }
+          </button>
+        </div>
+
+        {/* ── File Upload tab ─────────────────────────────────────────── */}
+        {resumeTab === 'file' && (
+          <>
+            <input type="file" accept=".pdf,.docx,.doc,.txt" ref={fileRef} className="hidden"
+              onChange={e => handleUpload(e.target.files?.[0])} />
+
+            {profile?.resume_filename ? (
+              <div className="flex items-center gap-4 bg-brand-50 border border-brand-200 rounded-md p-4">
+                <Upload size={24} className="text-brand-500 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-brand-800 truncate">{profile.resume_filename}</p>
+                  {profile.resume_uploaded_at && (
+                    <p className="text-xs text-brand-500 mt-0.5">
+                      Uploaded {new Date(profile.resume_uploaded_at).toLocaleDateString('en-IN')} · Skills & info auto-extracted ✓
+                    </p>
+                  )}
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  {profile.has_resume_file && (
+                    <button onClick={() => setShowPreview(true)}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-brand-600 text-white text-xs font-semibold rounded-sm hover:bg-brand-700 transition">
+                      <Eye size={12} /> Preview
+                    </button>
+                  )}
+                  <button onClick={() => fileRef.current?.click()} disabled={uploading}
+                    className="px-4 py-2 border border-brand-300 text-brand-700 text-xs font-semibold rounded-sm hover:bg-brand-100 disabled:opacity-50">
+                    {uploading ? 'Parsing…' : '↺ Update'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => fileRef.current?.click()} disabled={uploading}
+                className="w-full border-2 border-dashed border-gray-300 rounded-sm py-10 flex flex-col items-center gap-2 text-gray-400 hover:border-brand-400 hover:text-brand-500 hover:bg-brand-50 transition disabled:opacity-50">
+                <Upload size={32} className="opacity-50" />
+                <p className="text-sm font-semibold">{uploading ? 'Parsing resume…' : 'Upload Resume'}</p>
+                <p className="text-xs">PDF, DOCX, or TXT — skills, title & experience are auto-extracted</p>
+              </button>
+            )}
+
+            <p className="mt-3 text-xs text-gray-400">
+              After uploading, switch to <button onClick={() => setResumeTab('text')} className="text-brand-500 underline">Edit Text</button> to review and fine-tune the extracted content.
+            </p>
+          </>
+        )}
+
+        {/* ── Edit Text tab ───────────────────────────────────────────── */}
+        {resumeTab === 'text' && (
+          <div>
+            {/* Toolbar */}
+            <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+              <p className="text-xs text-gray-400">
+                {currentText
+                  ? `${lineCount} lines · ${charCount} chars · exact formatting preserved`
+                  : 'No resume text yet — paste your resume or upload a file first'
+                }
+              </p>
+              <div className="flex items-center gap-2">
+                {!editingText ? (
+                  <>
+                    {currentText && (
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(currentText); toast.success('Copied to clipboard'); }}
+                        className="px-3 py-1.5 text-xs border border-gray-200 rounded-sm text-gray-500 hover:bg-gray-50 font-medium"
+                      >
+                        Copy
+                      </button>
+                    )}
+                    <button
+                      onClick={() => { setTextDraft(currentText); setEditingText(true); }}
+                      className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold border border-gray-300 rounded-sm text-gray-600 hover:bg-gray-50"
+                    >
+                      <Pencil size={11} /> {currentText ? 'Edit' : 'Paste Resume'}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className={`text-xs font-medium ${draftChanged ? 'text-amber-500' : 'text-gray-300'}`}>
+                      {draftChanged ? 'Unsaved changes' : 'No changes'}
+                    </span>
+                    <button onClick={cancelTextEdit}
+                      className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold border border-gray-200 rounded-sm text-gray-500 hover:bg-gray-50">
+                      <X size={11} /> Cancel
+                    </button>
+                    <button onClick={saveText} disabled={savingText}
+                      className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-brand-600 text-white rounded-sm hover:bg-brand-700 disabled:opacity-50 transition">
+                      <Check size={11} /> {savingText ? 'Saving…' : 'Save'}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <textarea
+              ref={textareaRef}
+              value={editingText ? textDraft : currentText}
+              readOnly={!editingText}
+              onChange={e => setTextDraft(e.target.value)}
+              placeholder={
+                'Paste your resume here…\n\nTip: upload a PDF/DOCX in the "File Upload" tab — the extracted text will appear here ready for manual edits.'
+              }
+              rows={26}
+              spellCheck={false}
+              className={`w-full text-xs leading-relaxed border rounded-sm px-3 py-3 resize-y outline-none transition-colors
+                ${editingText
+                  ? 'border-brand-300 bg-white focus:ring-2 focus:ring-brand-200 text-gray-800'
+                  : currentText
+                    ? 'border-gray-200 bg-gray-50/60 text-gray-700 cursor-default'
+                    : 'border-dashed border-gray-300 bg-white text-gray-400 cursor-text'
+                }`}
+              style={{ fontFamily: "'Courier New', Courier, monospace", whiteSpace: 'pre-wrap', tabSize: 2 }}
+            />
+
+            {editingText && (
+              <p className="text-xs text-gray-400 mt-1.5">
+                {textDraft.split('\n').length} lines · {textDraft.length} chars
+              </p>
+            )}
+
+            {!editingText && !currentText && (
+              <p className="text-xs text-gray-400 mt-2 text-center">
+                Click <strong>Paste Resume</strong> above to enter your resume manually,
+                or <button onClick={() => setResumeTab('file')} className="text-brand-500 underline">upload a file</button> to auto-extract.
+              </p>
+            )}
+          </div>
         )}
       </div>
 
+      {/* ── Skills section ──────────────────────────────────────────────── */}
       <div>
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest">Skills <span className="text-gray-300 font-normal">({skills.length})</span></h3>
