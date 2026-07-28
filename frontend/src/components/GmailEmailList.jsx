@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'react-hot-toast';
 import { api } from '../api/client.js';
 import { confirm } from '../utils/confirm.js';
@@ -12,49 +12,74 @@ const SINCE_OPTIONS = [
 ];
 
 const STATUS_FILTERS = ['All', 'sent', 'replied', 'undelivered', 'failed'];
-const STATUS_COLORS  = {
-  sent:        'bg-blue-50   text-blue-800',
-  replied:     'bg-purple-50 text-purple-800',
-  undelivered: 'bg-orange-50 text-orange-800',
-  failed:      'bg-red-50    text-red-800',
-};
+
+const INITIAL_VISIBLE = 5;
+const SHOW_MORE_STEP  = 10;
+const PAGE_SIZE       = 15;
 
 export default function GmailEmailList({ refreshKey, myName = '' }) {
-  const [emails,      setEmails]      = useState([]);
-  const [loading,     setLoading]     = useState(true);
-  const [since,       setSince]       = useState('18m');
-  const [statusFilter,setStatusFilter]= useState('All');
-  const [search,      setSearch]      = useState('');
-  const [page,        setPage]        = useState(1);
-  const [total,       setTotal]       = useState(0);
-  const [pages,       setPages]       = useState(1);
-  const [replying,    setReplying]    = useState(null); // email object for QuickReplyModal
-  const [replyOnly,   setReplyOnly]   = useState(false);
-  const [addingIds,   setAddingIds]   = useState(new Set());
-  const [addedIds,    setAddedIds]    = useState(new Set());
-  const [addingAll,   setAddingAll]   = useState(false);
+  const [allEmails,    setAllEmails]    = useState([]);
+  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE);
+  const [loadedPage,   setLoadedPage]   = useState(1);
+  const [loading,      setLoading]      = useState(true);
+  const [loadingMore,  setLoadingMore]  = useState(false);
+  const [total,        setTotal]        = useState(0);
+  const [pages,        setPages]        = useState(1);
+  const [since,        setSince]        = useState('18m');
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [search,       setSearch]       = useState('');
+  const [replyOnly,    setReplyOnly]    = useState(false);
+  const [replying,     setReplying]     = useState(null);
+  const [addingIds,    setAddingIds]    = useState(new Set());
+  const [addedIds,     setAddedIds]     = useState(new Set());
+  const [addingAll,    setAddingAll]    = useState(false);
 
-  const fetchEmails = useCallback(async () => {
-    setLoading(true);
+  // Track filter values so fetchPage closure always reads current ones
+  const filterRef = useRef({ since, statusFilter, search, replyOnly });
+  useEffect(() => { filterRef.current = { since, statusFilter, search, replyOnly }; },
+            [since, statusFilter, search, replyOnly]);
+
+  const fetchPage = useCallback(async (pageNum, reset = false) => {
+    if (reset) setLoading(true);
+    else setLoadingMore(true);
     try {
-      const params = { since, limit: 30, page };
-      if (statusFilter !== 'All') params.status   = statusFilter;
-      if (search)                  params.search   = search;
-      if (replyOnly)               params.replies_only = 'true';
+      const { since: s, statusFilter: sf, search: q, replyOnly: ro } = filterRef.current;
+      const params = { since: s, limit: PAGE_SIZE, page: pageNum };
+      if (sf !== 'All') params.status       = sf;
+      if (q)            params.search       = q;
+      if (ro)           params.replies_only = 'true';
 
-      const data = await api.get('/gmail/emails', { params });
-      setEmails(data.emails || []);
-      setTotal(data.total || 0);
-      setPages(data.pages || 1);
+      const data      = await api.get('/gmail/emails', { params });
+      const newEmails = data.emails || [];
+      setAllEmails(prev => reset ? newEmails : [...prev, ...newEmails]);
+      setTotal(data.total  || 0);
+      setPages(data.pages  || 1);
     } catch {
-      setEmails([]);
+      if (reset) setAllEmails([]);
     } finally {
-      setLoading(false);
+      if (reset) setLoading(false);
+      else setLoadingMore(false);
     }
-  }, [since, statusFilter, search, page, replyOnly]);
+  }, []);
 
-  useEffect(() => { fetchEmails(); }, [fetchEmails, refreshKey]);
-  useEffect(() => { setPage(1); }, [since, statusFilter, search, replyOnly]);
+  // Reset + reload on filter / refresh changes
+  useEffect(() => {
+    setAllEmails([]);
+    setVisibleCount(INITIAL_VISIBLE);
+    setLoadedPage(1);
+    fetchPage(1, true);
+  }, [since, statusFilter, search, replyOnly, refreshKey, fetchPage]);
+
+  async function handleShowMore() {
+    const newVisible = visibleCount + SHOW_MORE_STEP;
+    setVisibleCount(newVisible);
+    // Pre-fetch next page when we've consumed the buffer
+    if (newVisible >= allEmails.length && loadedPage < pages) {
+      const next = loadedPage + 1;
+      setLoadedPage(next);
+      await fetchPage(next, false);
+    }
+  }
 
   async function addContact(email) {
     setAddingIds(prev => new Set(prev).add(email.id));
@@ -62,15 +87,14 @@ export default function GmailEmailList({ refreshKey, myName = '' }) {
       const r = await api.post(`/gmail/emails/${email.id}/add-contact`);
       if (r.added) {
         toast.success(`${email.contact_name || email.contact_email} added to Contacts`);
-        setAddedIds(prev => new Set(prev).add(email.contact_email));
       } else {
         toast(`${email.contact_name || email.contact_email} is already in Contacts`, { icon: 'ℹ️' });
-        setAddedIds(prev => new Set(prev).add(email.contact_email));
       }
+      setAddedIds(prev => new Set(prev).add(email.contact_email));
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to add contact');
     } finally {
-      setAddingIds(prev => { const next = new Set(prev); next.delete(email.id); return next; });
+      setAddingIds(prev => { const n = new Set(prev); n.delete(email.id); return n; });
     }
   }
 
@@ -93,7 +117,9 @@ export default function GmailEmailList({ refreshKey, myName = '' }) {
     catch { return d.slice(0, 10); }
   }
 
-  const repliedInMonth = emails.filter(e => e.email_status === 'replied').length;
+  const visible      = allEmails.slice(0, visibleCount);
+  const canShowMore  = visibleCount < total;
+  const repliedCount = visible.filter(e => e.email_status === 'replied').length;
 
   return (
     <div className="space-y-3">
@@ -122,7 +148,11 @@ export default function GmailEmailList({ refreshKey, myName = '' }) {
           onChange={e => setStatusFilter(e.target.value)}
           className="border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none bg-white"
         >
-          {STATUS_FILTERS.map(s => <option key={s} value={s}>{s === 'All' ? 'All statuses' : s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+          {STATUS_FILTERS.map(s => (
+            <option key={s} value={s}>
+              {s === 'All' ? 'All statuses' : s.charAt(0).toUpperCase() + s.slice(1)}
+            </option>
+          ))}
         </select>
 
         <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 cursor-pointer">
@@ -143,27 +173,28 @@ export default function GmailEmailList({ refreshKey, myName = '' }) {
           {addingAll ? '⏳ Adding…' : '+ Add All to Contacts'}
         </button>
 
-        {repliedInMonth > 0 && (
+        {repliedCount > 0 && (
           <span className="ml-auto bg-purple-100 text-purple-800 text-xs font-semibold px-3 py-1.5 rounded-full border border-purple-200">
-            🚩 {repliedInMonth} replied (this page)
+            🚩 {repliedCount} replied (visible)
           </span>
         )}
       </div>
 
       {/* Stats row */}
       <div className="text-xs text-gray-500">
-        {loading ? 'Loading…' : `${total} email${total !== 1 ? 's' : ''} tracked`}
-        {' · '}Reused contacts from past outreach stay private to you until added
+        {loading
+          ? 'Loading…'
+          : `Showing ${Math.min(visibleCount, allEmails.length)} of ${total} email${total !== 1 ? 's' : ''} tracked`}
       </div>
 
       {/* Email rows */}
       {loading ? (
         <div className="space-y-2">
-          {[1,2,3].map(i => (
+          {[1, 2, 3, 4, 5].map(i => (
             <div key={i} className="h-16 bg-gray-100 animate-pulse rounded-md" />
           ))}
         </div>
-      ) : emails.length === 0 ? (
+      ) : visible.length === 0 ? (
         <div className="text-center py-12 text-gray-400">
           <p className="text-4xl mb-2">📭</p>
           <p className="text-sm font-medium">No emails found</p>
@@ -171,7 +202,7 @@ export default function GmailEmailList({ refreshKey, myName = '' }) {
         </div>
       ) : (
         <div className="space-y-2">
-          {emails.map(email => (
+          {visible.map(email => (
             <div
               key={email.id}
               className={`bg-white border rounded-md px-4 py-3 flex items-start gap-3 hover:shadow-sm transition-shadow ${
@@ -197,7 +228,9 @@ export default function GmailEmailList({ refreshKey, myName = '' }) {
                 )}
                 {email.email_status === 'replied' && email.reply_snippet && (
                   <div className="mt-1 bg-purple-50 border-l-2 border-purple-300 pl-2 py-0.5">
-                    <p className="text-xs text-purple-700 font-medium">💬 Reply: {email.reply_snippet.slice(0, 120)}{email.reply_snippet.length > 120 ? '…' : ''}</p>
+                    <p className="text-xs text-purple-700 font-medium">
+                      💬 Reply: {email.reply_snippet.slice(0, 120)}{email.reply_snippet.length > 120 ? '…' : ''}
+                    </p>
                   </div>
                 )}
               </div>
@@ -207,7 +240,6 @@ export default function GmailEmailList({ refreshKey, myName = '' }) {
                 {email.replied_at && (
                   <span className="text-xs text-purple-600">Replied {fmtDate(email.replied_at)}</span>
                 )}
-                {/* Quick reply button — only for emails replied in last 30 days */}
                 {email.email_status === 'replied' && isWithinDays(email.replied_at, 30) && (
                   <button
                     onClick={() => setReplying(email)}
@@ -233,24 +265,28 @@ export default function GmailEmailList({ refreshKey, myName = '' }) {
         </div>
       )}
 
-      {/* Pagination */}
-      {pages > 1 && (
-        <div className="flex justify-center gap-2 pt-2">
+      {/* Show More + pagination */}
+      {!loading && (canShowMore || loadingMore) && (
+        <div className="flex flex-col items-center gap-3 pt-2">
           <button
-            onClick={() => setPage(p => Math.max(1, p - 1))}
-            disabled={page === 1}
-            className="px-3 py-1.5 text-sm border rounded-sm hover:bg-gray-50 disabled:opacity-40"
+            onClick={handleShowMore}
+            disabled={loadingMore}
+            className="flex items-center gap-2 px-5 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-50 hover:border-gray-400 disabled:opacity-50 transition-all shadow-sm"
           >
-            ← Prev
+            {loadingMore
+              ? <><span className="animate-spin">⟳</span> Loading…</>
+              : <>Show 10 more <span className="text-gray-400 font-normal">({total - Math.min(visibleCount, allEmails.length)} remaining)</span></>
+            }
           </button>
-          <span className="px-3 py-1.5 text-sm text-gray-600">{page} / {pages}</span>
-          <button
-            onClick={() => setPage(p => Math.min(pages, p + 1))}
-            disabled={page === pages}
-            className="px-3 py-1.5 text-sm border rounded-sm hover:bg-gray-50 disabled:opacity-40"
-          >
-            Next →
-          </button>
+
+          {/* Compact pagination for direct jump */}
+          {pages > 1 && (
+            <div className="flex items-center gap-1.5 text-xs text-gray-400">
+              <span>Loaded page {loadedPage} of {pages}</span>
+              <span>·</span>
+              <span>{Math.min(visibleCount, allEmails.length)} shown of {total}</span>
+            </div>
+          )}
         </div>
       )}
 
@@ -260,7 +296,12 @@ export default function GmailEmailList({ refreshKey, myName = '' }) {
           email={replying}
           myName={myName}
           onClose={() => setReplying(null)}
-          onSent={fetchEmails}
+          onSent={() => {
+            setAllEmails([]);
+            setVisibleCount(INITIAL_VISIBLE);
+            setLoadedPage(1);
+            fetchPage(1, true);
+          }}
         />
       )}
     </div>
@@ -269,7 +310,6 @@ export default function GmailEmailList({ refreshKey, myName = '' }) {
 
 function isWithinDays(dateStr, days) {
   if (!dateStr) return false;
-  try {
-    return (Date.now() - new Date(dateStr).getTime()) < days * 86_400_000;
-  } catch { return false; }
+  try { return (Date.now() - new Date(dateStr).getTime()) < days * 86_400_000; }
+  catch { return false; }
 }
