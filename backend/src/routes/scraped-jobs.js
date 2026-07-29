@@ -456,7 +456,6 @@ router.post('/send-feed-emails', requireAuth, async (req, res) => {
     const fromName = sanitizeHeaderValue(mail.fromName);
     let remaining  = isAdmin ? Infinity : cap - sentToday;
     const now      = new Date().toISOString().replace('T', ' ').slice(0, 19);
-    const results  = [];
 
     // Fetch sender profile for profile-var substitution
     const profile = await db.prepare('SELECT * FROM profiles WHERE user_id = ?').get(req.user.userId).catch(() => null);

@@ -1,4 +1,4 @@
-const rateLimit  = require('express-rate-limit');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const slowDown   = require('express-slow-down');
 
 // ── Global API rate limiter ────────────────────────────────────────────────────
@@ -11,10 +11,8 @@ const globalApiLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders:   false,
   // Prefer userId over IP — avoids Render/NAT shared-IP collisions.
-  // validate.ip = false tells express-rate-limit v8 that we intentionally
-  // use req.ip here (trust proxy is set, so req.ip is already correct).
-  keyGenerator:    req => req.user?.userId || req.ip || 'anon',
-  validate:        { ip: false },
+  // ipKeyGenerator handles IPv6 normalisation (required by express-rate-limit v8).
+  keyGenerator:    req => req.user?.userId || ipKeyGenerator(req) || 'anon',
   skip:            req => req.method === 'OPTIONS', // preflight always passes
   message:         { error: 'Too many requests — please slow down.' },
   handler: (req, res, _next, options) => {
