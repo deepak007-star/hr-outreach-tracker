@@ -11,11 +11,6 @@ const { classifyJob }     = require('./classification');
 const { storeJob }        = require('./storage');
 const { qaCheck }         = require('./qa');
 
-// Lazy-required to avoid circular-require at module load time
-// (scraper.js → db.js; orchestrator.js → scraper.js would be fine, but
-// loading scraper.js requires Playwright paths that don't exist at test time)
-function getScraperRouter() { return require('../routes/scraper'); }
-function getSettings()      { return require('../routes/apify').getSettings(); }
 
 const CONFIG_KEY = 'job_intel_config';
 
@@ -71,37 +66,6 @@ async function runPipeline(triggeredBy = 'scheduler') {
 
   try {
     const cfg = await getConfig();
-
-    // ── 0. Live scrape: fetch fresh LinkedIn posts BEFORE ingestion ────────
-    // The external APIs (Arbeitnow, WWR, etc.) return the same job listings
-    // every call — no new contacts come from re-processing them. LinkedIn Feed
-    // posts are the only real source of fresh HR emails. Scraping here ensures
-    // every pipeline run actively pulls new posts instead of re-processing stale data.
-    let scrapeStart = startedAt;
-    let freshlyScraped = 0;
-    try {
-      const settings   = await getSettings().catch(() => ({}));
-      const cfgKeywords = Array.isArray(cfg.keywords) && cfg.keywords.length ? cfg.keywords : [];
-      const sqKeywords  = Array.isArray(settings.searchQueries) && settings.searchQueries.length ? settings.searchQueries : [];
-      // Combine both keyword lists, deduplicate, cap at 15 to bound scrape time
-      const titles = [...new Set([...sqKeywords, ...cfgKeywords])].slice(0, 15);
-      if (titles.length === 0) {
-        titles.push('HR Manager', 'Recruiter', 'Talent Acquisition', 'Human Resources');
-      }
-      scrapeStart = new Date().toISOString().replace('T', ' ').slice(0, 19);
-      console.log(`[Pipeline] Scraping LinkedIn Feed — ${titles.length} keywords, limit 100/keyword`);
-      const scraperResult = await getScraperRouter().runScraperHeadless('linkedin-feed', {
-        titles,
-        limit: 100,
-      });
-      freshlyScraped = scraperResult.stored || 0;
-      console.log(`[Pipeline] LinkedIn Feed: ${freshlyScraped} fresh posts stored (exit ${scraperResult.code})`);
-    } catch (e) {
-      console.error('[Pipeline] Live scrape failed (non-fatal):', e.message);
-    }
-    // Pass scrape timestamp to ingestion so db-scraped.js reads only fresh rows
-    cfg.pipeline_scrape_start = scrapeStart;
-    cfg.freshly_scraped_count = freshlyScraped;
 
     // ── 1. Ingestion ───────────────────────────────────────────────────────
     let raw = [], sourceStats = {};
@@ -186,12 +150,9 @@ async function runPipeline(triggeredBy = 'scheduler') {
     const contactsSynced = await syncJobIntelContacts();
 
     // Notification
-    const scrapeNote = cfg.freshly_scraped_count > 0
-      ? `Scraped ${cfg.freshly_scraped_count} fresh LinkedIn posts. `
-      : '';
     const notifBody = totalNew > 0
-      ? `${scrapeNote}Scanned ${totalFetched} job posts — found ${totalNew} NEW HR contacts with email. ${contactsSynced} added to Contacts.`
-      : `${scrapeNote}Scanned ${totalFetched} job posts — no new HR email contacts found in this batch.`;
+      ? `Scanned ${totalFetched} job posts — found ${totalNew} NEW HR contacts with email. ${contactsSynced} added to Contacts.`
+      : `Scanned ${totalFetched} job posts — no new HR email contacts in this batch (all sources already processed).`;
     await db.prepare(`INSERT INTO notifications (id, user_id, type, title, body) VALUES (?, ?, ?, ?, ?)`)
       .run(randomUUID(), null, 'info', 'Job Intel: HR contacts extracted', notifBody);
 
