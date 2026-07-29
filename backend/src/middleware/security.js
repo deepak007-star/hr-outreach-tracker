@@ -10,8 +10,11 @@ const globalApiLimiter = rateLimit({
   max:             1000,            // 1000 requests per 15 min per user/IP
   standardHeaders: true,
   legacyHeaders:   false,
-  // Prefer userId over IP — avoids Render/NAT shared-IP collisions
+  // Prefer userId over IP — avoids Render/NAT shared-IP collisions.
+  // validate.ip = false tells express-rate-limit v8 that we intentionally
+  // use req.ip here (trust proxy is set, so req.ip is already correct).
   keyGenerator:    req => req.user?.userId || req.ip || 'anon',
+  validate:        { ip: false },
   skip:            req => req.method === 'OPTIONS', // preflight always passes
   message:         { error: 'Too many requests — please slow down.' },
   handler: (req, res, _next, options) => {
