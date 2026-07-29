@@ -1274,8 +1274,7 @@ function JobIntelConfigSection() {
         <div>
           <h3 className="font-bold text-gray-800 flex items-center gap-2"><Zap size={16} className="text-brand-600" /> Job Intelligence Pipeline</h3>
           <p className="text-xs text-gray-500 mt-0.5">
-            Pulls jobs from official APIs & ATS boards (Arbeitnow, Remotive, RemoteOK, We Work Remotely, Greenhouse, Lever, Adzuna, Jooble).
-            No LinkedIn scraping — all sources are public, ToS-clean APIs.
+            Every run: (1) scrapes LinkedIn Feed live with your configured keywords (100 posts/keyword) to get fresh HR emails, then (2) processes Arbeitnow, Remotive, RemoteOK, We Work Remotely and other APIs. Takes 5-20 min per run.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -1379,13 +1378,14 @@ function JobIntelConfigSection() {
           {saving ? 'Saving…' : 'Save Config'}
         </button>
         <button onClick={triggerRun} disabled={running || fullRun}
-          className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold border border-gray-200 rounded-md hover:bg-gray-50 disabled:opacity-50">
-          <Play size={13} /> {running ? 'Starting…' : 'Run Pipeline Now'}
+          title="Scrapes LinkedIn Feed with your keywords (100/keyword), then extracts HR contacts from all new posts. Takes 5-20 min."
+          className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold bg-brand-600 text-white rounded-md hover:bg-brand-700 disabled:opacity-50">
+          <Play size={13} /> {running ? 'Scraping + Extracting…' : 'Run Pipeline (Scrape + Extract)'}
         </button>
         <button onClick={triggerFullRun} disabled={running || fullRun}
-          title="Scrapes LinkedIn Feed for fresh HR posts, then runs the extraction pipeline to pull new contacts"
-          className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50">
-          <Zap size={13} /> {fullRun ? 'Scraping…' : 'Scrape + Extract (Full Refresh)'}
+          title="Same as Run Pipeline — scrapes LinkedIn Feed fresh then extracts HR contacts"
+          className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold border border-purple-300 text-purple-700 rounded-md hover:bg-purple-50 disabled:opacity-50">
+          <Zap size={13} /> {fullRun ? 'Running…' : 'Full Refresh'}
         </button>
       </div>
       {runMsg && <p className="text-xs text-purple-700 font-medium mt-1">{runMsg}</p>}

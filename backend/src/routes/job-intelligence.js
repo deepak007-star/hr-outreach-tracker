@@ -3,8 +3,6 @@ const express       = require('express');
 const db            = require('../db/database');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { runPipeline, syncJobIntelContacts, getConfig, saveConfig } = require('../agents/orchestrator');
-const scraperRouter = require('./scraper');
-const { getSettings } = require('./apify');
 
 const router = express.Router();
 
@@ -160,33 +158,14 @@ router.post('/run', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-// ── POST /api/job-intel/run-full ── scrape fresh data → then run pipeline ────
-// Runs the LinkedIn Feed scraper first (the primary source of HR emails in posts),
-// then immediately triggers the pipeline to extract contacts from the fresh data.
-// LinkedIn Feed is the best non-Apify source — it finds HR contact info directly
-// in post text. After scraping, the pipeline also re-processes all other sources.
+// ── POST /api/job-intel/run-full ── alias for /run — pipeline now embeds scraping ─
+// The pipeline (runPipeline) now actively scrapes LinkedIn Feed at the start of
+// every run, so a separate scrape step is no longer needed. This endpoint is kept
+// for backwards compatibility with the Admin Panel button.
 router.post('/run-full', requireAuth, requireAdmin, async (req, res) => {
   try {
-    res.json({ started: true, message: 'LinkedIn Feed scraping started — pipeline will run automatically after. Check pipeline run history in 3-5 min.' });
-
-    // Fire-and-forget: scrape then pipeline
-    (async () => {
-      try {
-        const s = await getSettings();
-        const titles = Array.isArray(s.searchQueries) && s.searchQueries.length
-          ? s.searchQueries
-          : ['HR Manager', 'Recruiter', 'Talent Acquisition', 'HR Business Partner'];
-        const scraperResult = await scraperRouter.runScraperHeadless('linkedin-feed', { titles, limit: 60 });
-        console.log(`[run-full] LinkedIn Feed: ${scraperResult.stored} new posts stored (exit code ${scraperResult.code})`);
-      } catch (e) {
-        console.error('[run-full] LinkedIn Feed scraper failed:', e.message);
-      }
-      try {
-        await runPipeline('manual-full');
-      } catch (e) {
-        console.error('[run-full] Pipeline failed after scrape:', e.message);
-      }
-    })();
+    res.json({ started: true, message: 'Pipeline started — will scrape LinkedIn Feed fresh data first (5-20 min), then extract HR contacts. Check run history.' });
+    runPipeline('manual-full').catch(e => console.error('[Pipeline] manual-full failed:', e.message));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

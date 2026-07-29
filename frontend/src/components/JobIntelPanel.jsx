@@ -87,6 +87,13 @@ export default function JobIntelPanel() {
 
   useEffect(() => { fetchContacts(0); }, [q, source, since]);
 
+  // Auto-refresh every 30s when a pipeline run is active (status = 'running')
+  useEffect(() => {
+    if (stats?.last_run?.status !== 'running') return;
+    const t = setInterval(() => fetchContacts(offset), 30_000);
+    return () => clearInterval(t);
+  }, [stats?.last_run?.status, offset]);
+
   async function addToHRList(contact, email) {
     if (added.has(email)) return;
     try {
@@ -138,15 +145,17 @@ export default function JobIntelPanel() {
       )}
 
       {stats?.last_run && (
-        <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded px-3 py-2 flex items-center gap-2">
+        <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded px-3 py-2 flex items-center gap-2 flex-wrap">
           <Zap size={11} className="text-brand-500 shrink-0" />
-          Last run: <span className="font-medium">{stats.last_run.started_at?.slice(0, 16)}</span>
-          {' · '}scanned {stats.last_run.total_fetched || 0} job posts
-          {' · '}found <span className="font-medium text-green-600">{stats.last_run.total_new || 0} new contacts</span>
-          {' · '}
-          <span className={stats.last_run.status === 'success' ? 'text-green-600' : 'text-red-500'}>
-            {stats.last_run.status}
+          <span>Last run: <span className="font-medium">{stats.last_run.started_at?.slice(0, 16)}</span></span>
+          <span>· scanned {stats.last_run.total_fetched || 0} posts</span>
+          <span>· <span className="font-medium text-green-700">{stats.last_run.total_new || 0} truly new HR contacts</span></span>
+          <span className={`font-medium ${stats.last_run.status === 'success' ? 'text-green-600' : 'text-red-500'}`}>
+            · {stats.last_run.status}
           </span>
+          {stats.last_run.status === 'running' && (
+            <span className="text-blue-600 animate-pulse">· scraping LinkedIn Feed…</span>
+          )}
         </div>
       )}
 
