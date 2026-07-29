@@ -1,8 +1,7 @@
 import { jsPDF } from 'jspdf';
-import { Document, Paragraph, TextRun, Packer, AlignmentType, BorderStyle } from 'docx';
+import { Document, Paragraph, TextRun, Packer, AlignmentType } from 'docx';
 
 // ── Primary domain for each skill ────────────────────────────────────────
-// Used to prevent cross-domain misplacement (e.g. React → Backend line)
 const SKILL_DOMAIN = {
   // Frontend
   react: 'frontend', 'react.js': 'frontend', angular: 'frontend',
@@ -16,7 +15,7 @@ const SKILL_DOMAIN = {
   'react native': 'frontend', gatsby: 'frontend', electron: 'frontend',
   'vue router': 'frontend', vuex: 'frontend', pinia: 'frontend',
 
-  // Languages (separate from frontend/backend so they go to Language: line)
+  // Languages
   javascript: 'language', typescript: 'language',
   java: 'language', python: 'language', go: 'language', golang: 'language',
   kotlin: 'language', swift: 'language', rust: 'language', 'c#': 'language',
@@ -26,7 +25,7 @@ const SKILL_DOMAIN = {
   'bash scripting': 'language', 'shell scripting': 'language', groovy: 'language',
   dart: 'language', elixir: 'language', haskell: 'language',
 
-  // Backend frameworks & patterns
+  // Backend
   'spring boot': 'backend', 'spring mvc': 'backend', 'spring data jpa': 'backend',
   'spring data redis': 'backend', 'spring batch': 'backend', 'spring security': 'backend',
   'spring aop': 'backend', spring: 'backend', 'spring cloud': 'backend',
@@ -43,9 +42,8 @@ const SKILL_DOMAIN = {
   jwt: 'backend', oauth: 'backend', oauth2: 'backend', 'oauth 2.0': 'backend',
   lombok: 'backend', mapstruct: 'backend',
   eureka: 'backend', zuul: 'backend', ribbon: 'backend',
-  'hibernate validator': 'backend',
 
-  // Resilience patterns
+  // Resilience
   resilience4j: 'resilience',
   'circuit breaker': 'resilience', saga: 'resilience', cqrs: 'resilience',
   'event sourcing': 'resilience', 'bulkhead': 'resilience',
@@ -60,12 +58,12 @@ const SKILL_DOMAIN = {
   cockroachdb: 'database', couchdb: 'database', firebase: 'database',
   'firebase firestore': 'database', supabase: 'database',
 
-  // Messaging / Streaming
+  // Messaging
   kafka: 'messaging', 'apache kafka': 'messaging', rabbitmq: 'messaging',
   activemq: 'messaging', sqs: 'messaging', pulsar: 'messaging',
   'azure service bus': 'messaging', sns: 'messaging', nats: 'messaging',
 
-  // DevOps / Tools / Build
+  // DevOps
   jenkins: 'devops', maven: 'devops', gradle: 'devops',
   git: 'devops', github: 'devops', gitlab: 'devops', bitbucket: 'devops',
   docker: 'devops', kubernetes: 'devops', terraform: 'devops',
@@ -96,14 +94,14 @@ const SKILL_DOMAIN = {
   'testing library': 'testing', vitest: 'testing', playwright: 'testing',
   cucumber: 'testing', 'karate framework': 'testing',
 
-  // Monitoring / Observability
+  // Monitoring
   prometheus: 'monitoring', grafana: 'monitoring', elk: 'monitoring',
   datadog: 'monitoring', splunk: 'monitoring', 'new relic': 'monitoring',
   kibana: 'monitoring', logstash: 'monitoring', zipkin: 'monitoring',
   jaeger: 'monitoring',
 };
 
-// Domain → keywords that appear in sub-category line labels
+// Domain → keywords in sub-category line labels
 const DOMAIN_LABEL_KEYWORDS = {
   frontend:   ['frontend', 'front-end', 'front end', 'ui', 'client', 'web ui', 'web frontend'],
   backend:    ['backend', 'back-end', 'back end', 'server', 'server-side', 'api', 'microservice'],
@@ -111,14 +109,13 @@ const DOMAIN_LABEL_KEYWORDS = {
   database:   ['database', 'data', 'db', 'storage', 'rdbms', 'nosql', 'data store'],
   messaging:  ['messaging', 'message', 'queue', 'broker', 'event', 'streaming'],
   devops:     ['devops', 'tool', 'build', 'ci', 'cd', 'other', 'ops', 'version control',
-               'automation', 'infrastructure', 'scm', 'project management'],
+               'automation', 'infrastructure', 'scm', 'project management', 'container', 'orchestration'],
   cloud:      ['cloud', 'aws', 'azure', 'gcp', 'infrastructure', 'platform', 'cloud platform'],
   testing:    ['testing', 'test', 'qa', 'quality', 'unit test', 'integration test'],
   monitoring: ['monitoring', 'observability', 'logging', 'metrics', 'alerting', 'tracing'],
   resilience: ['resilience', 'fault', 'pattern', 'reliability', 'design pattern'],
 };
 
-// These domains are exclusive — React must NOT go to a Backend: line
 const EXCLUSIVE_DOMAINS = new Set([
   'frontend', 'backend', 'language', 'database', 'messaging',
   'devops', 'testing', 'monitoring', 'resilience', 'cloud',
@@ -133,17 +130,14 @@ export function getSkillDomain(skill) {
   return null;
 }
 
-// Strip the [ADDED-LINE] marker so scoring functions work on already-inserted lines
 function stripAddedMarker(line) {
   return line.replace(/^\[ADDED-LINE\]/, '');
 }
 
-// Infer domain from existing skills already present on a line (fallback when label doesn't match)
 function inferDomainFromSiblings(line) {
   const lower = line.toLowerCase();
   const domainCounts = {};
   for (const [key, domain] of Object.entries(SKILL_DOMAIN)) {
-    // Only count whole-word-ish matches to avoid false positives (e.g. "go" matching "logo")
     const re = new RegExp(`(?<![a-z0-9])${key.replace(/[.+[\]()]/g, '\\$&')}(?![a-z0-9])`, 'i');
     if (re.test(lower)) {
       domainCounts[domain] = (domainCounts[domain] || 0) + 1;
@@ -153,22 +147,31 @@ function inferDomainFromSiblings(line) {
   if (!entries.length) return null;
   const [topDomain, topCount] = entries[0];
   const secondCount = entries[1]?.[1] || 0;
-  // Confident if top domain has at least 2 skills OR clearly dominates
   if (topCount >= 2 || topCount > secondCount) return topDomain;
   return null;
 }
 
-function getLineDomain(line) {
+// Returns ALL domains a line belongs to (handles compound labels like "Languages & Backend:")
+function getLineDomains(line) {
   const lower = line.toLowerCase();
   const labelMatch = lower.match(/^([a-z][a-z\s\/&0-9]+?)\s*[:|-]/);
+  const domains = new Set();
+
   if (labelMatch) {
     const label = labelMatch[1].trim();
     for (const [domain, keywords] of Object.entries(DOMAIN_LABEL_KEYWORDS)) {
-      if (keywords.some(kw => label.includes(kw))) return domain;
+      if (keywords.some(kw => label.includes(kw))) {
+        domains.add(domain);
+      }
     }
   }
-  // Fallback: infer from sibling skills already on the line
-  return inferDomainFromSiblings(line);
+
+  if (domains.size === 0) {
+    const inf = inferDomainFromSiblings(line);
+    if (inf) domains.add(inf);
+  }
+
+  return domains;
 }
 
 function detectSeparator(line) {
@@ -178,25 +181,25 @@ function detectSeparator(line) {
   return ', ';
 }
 
-// Returns score for placing skill on this line. Negative = incompatible.
+// Score how well a skill fits on a given line. Negative = incompatible.
 function scoreLineForSkill(line, skillDomain) {
   if (!line.trim()) return -1;
-  const lineDomain = getLineDomain(line);
+  const lineDomains = getLineDomains(line);
+
+  if (!skillDomain || lineDomains.size === 0) return 0;
+
   let score = 0;
 
-  if (lineDomain && skillDomain) {
-    if (lineDomain === skillDomain) {
-      score += 100;
-    } else if (
-      EXCLUSIVE_DOMAINS.has(lineDomain) &&
-      EXCLUSIVE_DOMAINS.has(skillDomain) &&
-      lineDomain !== skillDomain
-    ) {
-      return -1; // Domain conflict — hard block
-    }
+  if (lineDomains.has(skillDomain)) {
+    score += 100;
+  } else if (EXCLUSIVE_DOMAINS.has(skillDomain)) {
+    // Only block if ALL line domains conflict — compound labels (e.g. "Languages & Backend:") should
+    // accept skills from any of their constituent domains
+    const allConflict = [...lineDomains].every(d => EXCLUSIVE_DOMAINS.has(d) && d !== skillDomain);
+    if (allConflict) return -1;
   }
 
-  // Bonus: line already has sibling skills in the same domain
+  // Bonus: line already has a sibling skill in the same domain
   if (skillDomain) {
     const lower = line.toLowerCase();
     for (const [existingKey, existingDomain] of Object.entries(SKILL_DOMAIN)) {
@@ -221,14 +224,77 @@ function isTopLevelSection(line) {
   return /^(experience|education|projects?|certifications?|work\s+experience|professional\s+experience|employment|summary|objective|references|awards|achievements|publications|volunteer|leadership|activities|honors)/i.test(t);
 }
 
-// ── Main resume modifier ──────────────────────────────────────────────────
-// Key invariant: skills are grouped by domain BEFORE any lines are touched.
-// This guarantees one insertion per domain (and one "Others:" for all
-// unclassified skills) no matter how many skills need to be added.
-export function modifyResume(text, skillsToAdd) {
-  if (!skillsToAdd.length || !text) return text;
+// ── Text normalization ─────────────────────────────────────────────────────────
+// Joins continuation lines that were artificially split by PDF layout/word-wrap.
+// Only joins when the join is unambiguous: previous ends with comma/slash/pipe,
+// or the current line starts with a lowercase letter (definite mid-sentence).
+export function normalizeResumeText(raw) {
+  if (!raw?.trim()) return raw || '';
 
+  const lines = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  const out = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i].trimEnd();
+    const t = l.trim();
+
+    if (!t) {
+      if (out.length > 0 && out[out.length - 1] !== '') out.push('');
+      continue;
+    }
+
+    // Drop lines that are only a page number
+    if (/^\s*\d+\s*$/.test(t)) continue;
+
+    // Does this line clearly open a new logical unit?
+    const startsNew =
+      /^[A-Z][A-Z\s\/&0-9]+$/.test(t) ||                         // ALL-CAPS section header
+      /^[•▪▸►\-–]\s/.test(t) ||                                   // Bullet point
+      /^[A-Za-z][A-Za-z\s\/&0-9\/]+?\s*:\s*\S/.test(t);           // "Label: content"
+
+    // Try to join with the previous non-empty line
+    if (!startsNew && out.length > 0 && out[out.length - 1] !== '') {
+      const prev = out[out.length - 1].trimEnd();
+      const shouldJoin =
+        prev.endsWith(',') ||
+        prev.endsWith('/') ||
+        prev.endsWith('|') ||
+        prev.endsWith('&') ||
+        /^[a-z]/.test(t);    // starts with lowercase → unambiguous continuation
+
+      if (shouldJoin) {
+        out[out.length - 1] = prev + ' ' + t;
+        continue;
+      }
+    }
+
+    out.push(l);
+  }
+
+  // Collapse consecutive blank lines to one
+  const final = [];
+  let wasBlank = false;
+  for (const line of out) {
+    if (line === '') {
+      if (!wasBlank) final.push(line);
+      wasBlank = true;
+    } else {
+      wasBlank = false;
+      final.push(line);
+    }
+  }
+
+  return final.join('\n').trim();
+}
+
+// ── Main resume modifier ──────────────────────────────────────────────────────
+export function modifyResume(rawText, skillsToAdd) {
+  if (!skillsToAdd.length || !rawText) return rawText;
+
+  // Normalize first so PDF continuation lines are joined before we try to match sections
+  const text  = normalizeResumeText(rawText);
   const lines = text.split('\n');
+
   let sectionStart = -1;
   for (let i = 0; i < lines.length; i++) {
     const t = lines[i].trim();
@@ -240,7 +306,6 @@ export function modifyResume(text, skillsToAdd) {
   }
 
   if (sectionStart === -1) {
-    // No skills section found — append one
     const res = [...lines];
     res.push('', 'SKILLS', `[ADDED-LINE]Others: ${skillsToAdd.map(s => `[ADDED]${s}`).join(', ')}`, '');
     return res.join('\n');
@@ -253,9 +318,19 @@ export function modifyResume(text, skillsToAdd) {
 
   const result = [...lines];
 
-  // ── Group skills by domain BEFORE touching any lines ──────────────────
-  // This is the core invariant: one line insertion per domain group,
-  // so we never get 3 "Others:" rows for 3 unclassified skills.
+  // Determine content start: if the header line itself is a subcategory (e.g. "Technical Skills: Java, Python")
+  // include it in the search so skills can be appended to it directly.
+  const headerText = stripAddedMarker(lines[sectionStart]).trim();
+  const headerIsSubcategory = /^[A-Za-z][A-Za-z\s\/&0-9]+?\s*:\s*.{1,}/.test(headerText);
+  const contentStart = headerIsSubcategory ? sectionStart : sectionStart + 1;
+
+  // Detect whether the section already uses labeled sub-lines ("Label: content")
+  const hasLabeledLines = result.slice(contentStart, sectionEnd).some(line => {
+    const stripped = stripAddedMarker(line).trim();
+    return /^[A-Za-z][A-Za-z\s\/&0-9]+?\s*:\s*.{1,}/.test(stripped);
+  });
+
+  // Group skills by domain BEFORE touching any lines — one insertion per domain
   const byDomain = new Map();
   for (const skill of skillsToAdd) {
     const domain = getSkillDomain(skill) ?? 'unclassified';
@@ -263,14 +338,13 @@ export function modifyResume(text, skillsToAdd) {
     byDomain.get(domain).push(skill);
   }
 
-  // Checks if there's already an "Others / Misc / General" catch-all line
   function findOthersLine() {
-    for (let i = sectionStart + 1; i < sectionEnd; i++) {
+    for (let i = contentStart; i < sectionEnd; i++) {
       const stripped = stripAddedMarker(result[i]).toLowerCase();
       const labelMatch = stripped.match(/^([a-z][a-z\s\/&0-9]+?)\s*[:|-]/);
       if (!labelMatch) continue;
       const label = labelMatch[1].trim();
-      if (/\b(other|misc|general|additional|extra|general purpose)\b/.test(label)) return i;
+      if (/\b(other|misc|general|additional|extra)\b/.test(label)) return i;
     }
     return -1;
   }
@@ -278,20 +352,16 @@ export function modifyResume(text, skillsToAdd) {
   for (const [domain, skills] of byDomain) {
     const isUnclassified = domain === 'unclassified';
     const skillDomain    = isUnclassified ? null : domain;
-
-    // Build comma-separated added-marker string
-    const markedSkills = skills.map(s => `[ADDED]${s}`);
+    const markedSkills   = skills.map(s => `[ADDED]${s}`);
 
     let bestIdx   = -1;
     let bestScore = 0;
 
     if (isUnclassified) {
-      // For unclassified skills, prefer any existing Others/Misc line over a new one
       bestIdx   = findOthersLine();
       bestScore = bestIdx >= 0 ? 1 : 0;
     } else {
-      // Strip [ADDED-LINE] prefix when scanning so already-inserted domain lines are visible
-      for (let i = sectionStart + 1; i < sectionEnd; i++) {
+      for (let i = contentStart; i < sectionEnd; i++) {
         const raw     = result[i];
         if (!raw.trim()) continue;
         const stripped = stripAddedMarker(raw);
@@ -301,23 +371,27 @@ export function modifyResume(text, skillsToAdd) {
     }
 
     if (bestIdx >= 0 && bestScore > 0) {
-      // Append ALL skills in this domain group to the best matching line
       const sep = detectSeparator(stripAddedMarker(result[bestIdx]));
       result[bestIdx] = result[bestIdx].trimEnd() + sep + markedSkills.join(sep);
     } else {
-      // No matching line — insert ONE new line for the entire group
-      const domainLabel = isUnclassified
-        ? 'Others'
-        : skillDomain.charAt(0).toUpperCase() + skillDomain.slice(1);
-
+      // No matching line — insert a new one at the end of the section
       const lastNonBlank = (() => {
-        for (let i = sectionEnd - 1; i >= sectionStart; i--) {
+        for (let i = sectionEnd - 1; i >= contentStart; i--) {
           if (result[i].trim()) return i;
         }
-        return sectionStart;
+        return contentStart;
       })();
 
-      result.splice(lastNonBlank + 1, 0, `[ADDED-LINE]${domainLabel}: ${markedSkills.join(', ')}`);
+      if (hasLabeledLines) {
+        // Section uses labels → match the style with a new labeled line
+        const domainLabel = isUnclassified
+          ? 'Others'
+          : skillDomain.charAt(0).toUpperCase() + skillDomain.slice(1);
+        result.splice(lastNonBlank + 1, 0, `[ADDED-LINE]${domainLabel}: ${markedSkills.join(', ')}`);
+      } else {
+        // Flat/unlabeled section → insert without domain label to preserve style
+        result.splice(lastNonBlank + 1, 0, `[ADDED-LINE]${markedSkills.join(', ')}`);
+      }
       sectionEnd++;
     }
   }
@@ -331,73 +405,30 @@ export function cleanResumeText(text) {
     .replace(/\[ADDED\]/g, '');
 }
 
-// ── Line type detector for formatting ────────────────────────────────────
-function classifyLine(line, lineIdx, allLines) {
-  const t = line.trim();
-  if (!t) return 'blank';
-
-  // Determine position among non-blank lines
-  let nonBlankPos = 0;
-  for (let i = 0; i < lineIdx; i++) {
-    if (allLines[i].trim()) nonBlankPos++;
-  }
-
-  // First non-blank → name
-  if (nonBlankPos === 0) return 'name';
-
-  // Second non-blank → subtitle/tagline
-  if (nonBlankPos === 1) return 'subtitle';
-
-  // 3rd or 4th non-blank lines that look like contact info
-  if (nonBlankPos <= 3 && (t.includes('|') || t.includes('@') || /\d{7,}/.test(t) ||
-    /linkedin|leetcode|github|portfolio/i.test(t))) {
-    return 'contact';
-  }
-
-  // ALL CAPS standalone line (section header)
-  if (t.length > 2 && t === t.toUpperCase() && /^[A-Z]/.test(t) &&
-    !t.includes(':') && t.length < 80) {
-    return 'section';
-  }
-
-  // Sub-category label line: "Label: content" or "label - content"
-  if (/^[A-Za-z][A-Za-z\s\/&0-9]+?\s*:\s*.{1,}/.test(t)) return 'subcategory';
-  if (/^[A-Za-z][A-Za-z\s\/&0-9]+?\s+-\s+.{1,}/.test(t) &&
-    !t.startsWith('•') && !t.startsWith('-')) return 'subcategory';
-
-  // Bullet point
-  if (/^[•▪▸►\-–]\s/.test(t)) return 'bullet';
-
-  return 'body';
-}
-
-// ── PDF download ──────────────────────────────────────────────────────────
-// Strips markers, renders with uniform font/line-height — no reformatting.
-// Only bold is applied: ALL-CAPS section headers and "Label:" prefixes.
-export function downloadAsPdf(text, filename = 'modified_resume') {
-  const lines  = cleanResumeText(text).split('\n');
-  const doc    = new jsPDF({ unit: 'mm', format: 'a4' });
+// ── PDF download ──────────────────────────────────────────────────────────────
+export function downloadAsPdf(rawText, filename = 'modified_resume') {
+  // Normalize then strip markers so continuation lines are joined before rendering
+  const text  = cleanResumeText(normalizeResumeText(rawText));
+  const lines = text.split('\n');
+  const doc   = new jsPDF({ unit: 'mm', format: 'a4' });
   const MARGIN = 15;
   const PW     = 210 - MARGIN * 2;
   const PAGE_H = 297 - MARGIN;
-  const FS     = 10;   // uniform font size (pt)
-  const LH     = 5;    // uniform line height (mm)
-  const BLH    = 3;    // blank-line height (mm)
+  const FS     = 10;
+  const LH     = 5;
+  const BLH    = 2.5;
   let y = MARGIN;
 
   function checkY() { if (y + LH > PAGE_H) { doc.addPage(); y = MARGIN; } }
 
-  // First non-blank line index (the name)
   const firstNonBlank = lines.findIndex(l => l.trim());
 
   lines.forEach((line, i) => {
     const t = line.trim();
-
     if (!t) { y += BLH; return; }
-
     checkY();
 
-    // Name line — slightly larger, centered, bold
+    // Name
     if (i === firstNonBlank) {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(14);
@@ -410,7 +441,7 @@ export function downloadAsPdf(text, filename = 'modified_resume') {
 
     doc.setFontSize(FS);
 
-    // ALL-CAPS section header (no extra spacing — same line height as everything else)
+    // ALL-CAPS section header
     const isSection = t.length > 2 && t === t.toUpperCase() && /^[A-Z]/.test(t) && !t.includes(':');
     if (isSection) {
       doc.setFont('helvetica', 'bold');
@@ -420,11 +451,11 @@ export function downloadAsPdf(text, filename = 'modified_resume') {
       return;
     }
 
-    // Sub-category "Label: rest" — label bold, rest normal, same line height
+    // Sub-category "Label: rest" — bold label, normal rest
     const colonIdx = t.indexOf(':');
-    if (colonIdx > 0 && colonIdx < 25 && /^[A-Za-z][A-Za-z\s\/&0-9]+$/.test(t.slice(0, colonIdx))) {
-      const label = t.slice(0, colonIdx + 1);
-      const rest  = t.slice(colonIdx + 1);
+    if (colonIdx > 0 && colonIdx < 30 && /^[A-Za-z][A-Za-z\s\/&0-9]+$/.test(t.slice(0, colonIdx))) {
+      const label  = t.slice(0, colonIdx + 1);
+      const rest   = t.slice(colonIdx + 1);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(0, 0, 0);
       const labelW = doc.getTextWidth(label);
@@ -440,7 +471,7 @@ export function downloadAsPdf(text, filename = 'modified_resume') {
       return;
     }
 
-    // Everything else — plain normal text, preserving leading whitespace as indent
+    // Everything else — plain normal text
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(50, 50, 50);
     const indent = line.length - line.trimStart().length;
@@ -452,54 +483,41 @@ export function downloadAsPdf(text, filename = 'modified_resume') {
   doc.save(`${filename}.pdf`);
 }
 
-// ── Word download ─────────────────────────────────────────────────────────
-// Strips markers, renders with uniform font/line-height — no reformatting.
-export async function downloadAsWord(text, filename = 'modified_resume') {
-  const lines = cleanResumeText(text).split('\n');
+// ── Word download ─────────────────────────────────────────────────────────────
+export async function downloadAsWord(rawText, filename = 'modified_resume') {
+  const text  = cleanResumeText(normalizeResumeText(rawText));
+  const lines = text.split('\n');
 
-  // Single consistent run size for body text (20 half-pts = 10pt)
   const SZ      = 20;
   const SZ_NAME = 28;
 
   function run(txt, bold = false, color = '222222') {
-    return new TextRun({ text: txt, font: 'Calibri', size: bold ? SZ : SZ, bold, color });
+    return new TextRun({ text: txt, font: 'Calibri', size: SZ, bold, color });
   }
 
-  // First non-blank line index (the name)
   const firstNonBlank = lines.findIndex(l => l.trim());
 
   const paragraphs = lines.map((line, i) => {
     const t = line.trim();
-
-    // Blank line — empty paragraph, zero spacing
     if (!t) {
       return new Paragraph({ children: [run(' ')], spacing: { before: 0, after: 0, line: 240 } });
     }
-
-    // Shared spacing — ALL paragraphs get the same before/after
     const spacing = { before: 0, after: 0, line: 240 };
 
-    // Name
     if (i === firstNonBlank) {
       return new Paragraph({
-        alignment: AlignmentType.CENTER,
-        spacing,
+        alignment: AlignmentType.CENTER, spacing,
         children: [new TextRun({ text: t, font: 'Calibri', size: SZ_NAME, bold: true, color: '000000' })],
       });
     }
 
-    // ALL-CAPS section header
     const isSection = t.length > 2 && t === t.toUpperCase() && /^[A-Z]/.test(t) && !t.includes(':');
     if (isSection) {
-      return new Paragraph({
-        spacing,
-        children: [run(t, true, '000000')],
-      });
+      return new Paragraph({ spacing, children: [run(t, true, '000000')] });
     }
 
-    // Sub-category "Label: rest"
     const colonIdx = t.indexOf(':');
-    if (colonIdx > 0 && colonIdx < 25 && /^[A-Za-z][A-Za-z\s\/&0-9]+$/.test(t.slice(0, colonIdx))) {
+    if (colonIdx > 0 && colonIdx < 30 && /^[A-Za-z][A-Za-z\s\/&0-9]+$/.test(t.slice(0, colonIdx))) {
       return new Paragraph({
         spacing,
         children: [
@@ -509,7 +527,6 @@ export async function downloadAsWord(text, filename = 'modified_resume') {
       });
     }
 
-    // Everything else — plain text, preserve leading spaces as indent
     const indent = line.length - line.trimStart().length;
     return new Paragraph({
       spacing,
@@ -520,9 +537,7 @@ export async function downloadAsWord(text, filename = 'modified_resume') {
 
   const docObj = new Document({
     sections: [{
-      properties: {
-        page: { margin: { top: 720, bottom: 720, left: 900, right: 900 } },
-      },
+      properties: { page: { margin: { top: 720, bottom: 720, left: 900, right: 900 } } },
       children: paragraphs,
     }],
   });

@@ -3,7 +3,7 @@ import { toast } from 'react-hot-toast';
 import { api } from '../api/client.js';
 import { extractSkills } from '../data/techSkills.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
-import { modifyResume, downloadAsPdf, downloadAsWord } from '../utils/resumeUtils.js';
+import { modifyResume, downloadAsPdf, downloadAsWord, normalizeResumeText } from '../utils/resumeUtils.js';
 import ResumePreview from './ResumePreview.jsx';
 import StepGuide from './StepGuide.jsx';
 
@@ -88,7 +88,7 @@ export default function JobAnalyzer() {
     api.get('/profile')
       .then(p => {
         if (p.resume_text && !resumeText) {
-          setResumeText(p.resume_text);
+          setResumeText(normalizeResumeText(p.resume_text));
           setUsingProfileResume(true);
           setProfileSkills(p.skills || []);
         }
@@ -162,7 +162,7 @@ export default function JobAnalyzer() {
     form.append('resume', file);
     try {
       const data = await api.post('/jobs/parse-resume', form);
-      setResumeText(data.text);
+      setResumeText(normalizeResumeText(data.text));
       setUsingProfileResume(false); // switched to fresh upload
       toast.success('Resume parsed successfully');
     } catch (err) {

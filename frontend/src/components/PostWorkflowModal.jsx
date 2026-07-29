@@ -3,7 +3,7 @@ import { toast } from 'react-hot-toast';
 import { api } from '../api/client.js';
 import { extractSkills } from '../data/techSkills.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
-import { modifyResume, downloadAsPdf, downloadAsWord, cleanResumeText } from '../utils/resumeUtils.js';
+import { modifyResume, downloadAsPdf, downloadAsWord, cleanResumeText, normalizeResumeText } from '../utils/resumeUtils.js';
 import { analyzeAts } from '../utils/atsUtils.js';
 import ResumePreview from './ResumePreview.jsx';
 
@@ -145,7 +145,7 @@ export default function PostWorkflowModal({ post, onClose, onStatusChange }) {
   useEffect(() => {
     if (!user || resumeText) return;
     api.get('/profile').then(p => {
-      if (p.resume_text) setResumeText(p.resume_text);
+      if (p.resume_text) setResumeText(normalizeResumeText(p.resume_text));
     }).catch(() => {});
   }, [user, tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -156,7 +156,7 @@ export default function PostWorkflowModal({ post, onClose, onStatusChange }) {
     form.append('resume', file);
     try {
       const data = await api.post('/jobs/parse-resume', form);
-      setResumeText(data.text);
+      setResumeText(normalizeResumeText(data.text));
       setAddedSkills([]);
       toast.success('Resume parsed');
     } catch { toast.error('Failed to parse resume'); }
