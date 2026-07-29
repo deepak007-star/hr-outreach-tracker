@@ -646,6 +646,22 @@ async function initialize() {
   await addCol('subscriptions', 'razorpay_subscription_id', `TEXT`);
   await addCol('subscriptions', 'razorpay_payment_id',      `TEXT`);
 
+  // ── One-time cleanup: remove job-intel contacts with malformed email addresses
+  // Covers: no dot in domain (hr@contact), TLD > 6 chars (.aupostal),
+  // WhatsApp/Telegram phone links (91XX@wa.me), all-digit local parts.
+  await db.exec(`
+    DELETE FROM contacts
+    WHERE email_source = 'job-intel'
+    AND (
+      email NOT LIKE '%@%.%'
+      OR lower(email) LIKE '%@wa.me'
+      OR lower(email) LIKE '%@t.me'
+      OR lower(email) LIKE '%@bit.ly'
+      OR split_part(email, '@', 1) ~ '^[0-9]+$'
+      OR lower(email) ~ '\\.[a-z]{7,}$'
+    )
+  `).catch(e => console.warn('[DB migration] job-intel email cleanup skipped:', e.message));
+
   // ── Promote first registered user to admin if no admin exists
   const adminExists = await db.prepare('SELECT id FROM users WHERE role = ?').get('admin');
   if (!adminExists) {

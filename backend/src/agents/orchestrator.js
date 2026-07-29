@@ -2,6 +2,7 @@
 const { randomUUID }      = require('crypto');
 const db                  = require('../db/database');
 const { cleanContactName } = require('../lib/nameUtils');
+const { cleanExtractedEmail } = require('../lib/contactExtract');
 const { ingestAll }       = require('./ingestion/index');
 const { normalizeAll }    = require('./normalization');
 const { deduplicateBatch }= require('./deduplication');
@@ -218,8 +219,8 @@ async function syncJobIntelContacts() {
       try { emails = JSON.parse(posting.extracted_emails); } catch {}
 
       for (const rawEmail of emails) {
-        const email = (rawEmail || '').trim().toLowerCase();
-        if (!email || !email.includes('@')) continue;
+        const email = cleanExtractedEmail(rawEmail);
+        if (!email) continue;
 
         const name      = cleanContactName(posting.extracted_contact_name, email);
         const company   = (posting.company  || '').trim();

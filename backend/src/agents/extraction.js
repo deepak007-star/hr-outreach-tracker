@@ -1,5 +1,5 @@
 'use strict';
-const { extractContacts, hasOutreachIntent } = require('../lib/contactExtract');
+const { extractContacts, hasOutreachIntent, cleanExtractedEmail } = require('../lib/contactExtract');
 const db = require('../db/database');
 
 // ── Groq LLM fallback ────────────────────────────────────────────────────────
@@ -44,20 +44,31 @@ async function llmExtract(description) {
  * extracted by the scraper — use that directly without re-running regex/LLM.
  */
 async function extractFromJob(job) {
-  // Fast path: scraper already extracted the email — trust it, skip regex/LLM
+  // Fast path: scraper already extracted the email — validate then use it.
+  // Don't blindly trust the scraped value: it may have absorbed adjacent text
+  // (e.g. user@company.com.aupostal) or be a WhatsApp number (91XX@wa.me).
   if (job._pre_contact_email) {
-    const emails = new Set([job._pre_contact_email]);
+    const primary = cleanExtractedEmail(job._pre_contact_email);
+    const emails  = new Set(primary ? [primary] : []);
     if (job._pre_all_contacts) {
       try {
         const parsed = JSON.parse(job._pre_all_contacts);
-        if (Array.isArray(parsed.emails)) parsed.emails.forEach(e => emails.add(e));
+        if (Array.isArray(parsed.emails)) {
+          parsed.emails.forEach(e => {
+            const clean = cleanExtractedEmail(e);
+            if (clean) emails.add(clean);
+          });
+        }
       } catch (_) {}
     }
-    return {
-      extracted_emails:       JSON.stringify([...emails].filter(Boolean)),
-      extracted_contact_name: null,
-      extraction_method:      'pre-extracted',
-    };
+    if (emails.size) {
+      return {
+        extracted_emails:       JSON.stringify([...emails]),
+        extracted_contact_name: null,
+        extraction_method:      'pre-extracted',
+      };
+    }
+    // Fast path yielded no valid emails — fall through to regex/LLM extraction
   }
 
   const text   = job.description || '';
@@ -75,11 +86,15 @@ async function extractFromJob(job) {
   if (hasOutreachIntent(text)) {
     const llmResult = await llmExtract(text);
     if (llmResult?.emails?.length) {
-      return {
-        extracted_emails:       JSON.stringify(llmResult.emails),
-        extracted_contact_name: llmResult.contact_name || job._author_name || null,
-        extraction_method:      'llm',
-      };
+      // LLM can hallucinate fake emails — validate each one before storing
+      const validEmails = llmResult.emails.map(cleanExtractedEmail).filter(Boolean);
+      if (validEmails.length) {
+        return {
+          extracted_emails:       JSON.stringify(validEmails),
+          extracted_contact_name: llmResult.contact_name || job._author_name || null,
+          extraction_method:      'llm',
+        };
+      }
     }
   }
 

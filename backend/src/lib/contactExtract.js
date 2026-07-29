@@ -15,7 +15,45 @@ const EMAIL_SPAM = [
   'noreply', 'no-reply', 'donotreply', 'sentry.io', 'amazonaws',
   'privacy@', 'legal@', 'support@', 'info@naukri', 'info@linkedin',
   'jobs@naukri', 'abuse@', 'webmaster@',
+  'wa.me',       // WhatsApp phone links — 91XXXXXXXXXX@wa.me
+  't.me',        // Telegram username links
+  'bit.ly',      // URL shorteners occasionally scraped as "emails"
 ];
+
+/**
+ * Validates and normalises a raw extracted email string.
+ * Rejects: spam domains, no dot in domain (e.g. hr@contact), all-digit local
+ * parts (phone numbers), and TLDs > 6 chars (concatenation artefacts like
+ * @jgcorp.com.aupostal where "postal" was absorbed because there was no space).
+ * Returns the lowercased, trimmed email or null if it should be discarded.
+ */
+function cleanExtractedEmail(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+  const e = raw.trim().toLowerCase();
+  if (e.length < 6 || e.length > 254) return null;
+  if (EMAIL_SPAM.some(s => e.includes(s))) return null;
+
+  const at = e.indexOf('@');
+  if (at < 1 || at !== e.lastIndexOf('@')) return null; // no @ or multiple @
+
+  const local  = e.slice(0, at);
+  const domain = e.slice(at + 1);
+
+  if (!local || !domain) return null;
+  if (!domain.includes('.')) return null;          // e.g. hr@contact (no TLD)
+
+  // Phone numbers masquerading as emails (e.g. 8650032095@wa.me)
+  if (/^\d+$/.test(local)) return null;
+
+  // TLD (segment after last dot) must be 2–6 all-letter chars.
+  // This rejects absorbed adjacent words like .aupostal (8 chars) while
+  // accepting all common gTLDs (.com .net .io .tech) and country codes (.in .au).
+  // New gTLDs with 7+ chars (.academy .solutions) are rare in Indian job boards.
+  const tld = domain.slice(domain.lastIndexOf('.') + 1);
+  if (!/^[a-z]{2,6}$/.test(tld)) return null;
+
+  return e;
+}
 
 // Patterns that strongly suggest the post contains an HR's direct contact ask.
 // Ordered roughly by signal strength.
@@ -54,7 +92,8 @@ function extractContacts(text) {
   if (!text) return { emails: [], phones: [], contactEmail: null, contactPhone: null, allContacts: null, hasOutreach: false };
 
   const rawEmails = (text.match(EMAIL_RE) || [])
-    .filter(e => !EMAIL_SPAM.some(s => e.toLowerCase().includes(s)));
+    .map(e => cleanExtractedEmail(e))
+    .filter(Boolean);
 
   // Normalise phones: strip separators, require exactly 10 digit suffix after country code
   const rawPhones = (text.match(PHONE_RE) || [])
@@ -82,4 +121,4 @@ function extractContacts(text) {
   };
 }
 
-module.exports = { extractContacts, hasOutreachIntent, EMAIL_RE, PHONE_RE };
+module.exports = { extractContacts, hasOutreachIntent, cleanExtractedEmail, EMAIL_RE, PHONE_RE };
