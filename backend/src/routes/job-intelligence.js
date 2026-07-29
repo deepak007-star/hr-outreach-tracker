@@ -33,7 +33,7 @@ router.get('/contacts', async (req, res) => {
     const off    = parseInt(offset) || 0;
 
     const [rows, countRow] = await Promise.all([
-      db.prepare(`SELECT * FROM job_postings ${where} ORDER BY fetched_at DESC LIMIT ? OFFSET ?`)
+      db.prepare(`SELECT * FROM job_postings ${where} ORDER BY fetched_at DESC, posted_at DESC NULLS LAST LIMIT ? OFFSET ?`)
         .all(...params, cap, off),
       db.prepare(`SELECT COUNT(*) as n FROM job_postings ${where}`)
         .get(...params),

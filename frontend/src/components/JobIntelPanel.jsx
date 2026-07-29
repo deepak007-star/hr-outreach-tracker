@@ -38,10 +38,11 @@ function sourceLabel(source = '') {
 }
 
 const SINCE_OPTS = [
-  { value: '',    label: 'All time'    },
+  { value: '1',   label: 'Last 24 hrs' },
   { value: '7',   label: 'Last 7 days' },
   { value: '30',  label: 'Last 30 days'},
   { value: '90',  label: 'Last 90 days'},
+  { value: '',    label: 'All time'    },
 ];
 
 export default function JobIntelPanel() {
@@ -56,7 +57,7 @@ export default function JobIntelPanel() {
 
   const [q,      setQ]      = useState('');
   const [source, setSource] = useState('');
-  const [since,  setSince]  = useState('30');
+  const [since,  setSince]  = useState('1');
 
   const fetchContacts = useCallback(async (off = 0) => {
     setLoading(true);
@@ -116,13 +117,18 @@ export default function JobIntelPanel() {
 
       {/* Stats bar */}
       {stats && (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-4 gap-3">
           {[
-            { label: 'Total HR Contacts', value: stats.total,     sub: 'auto-synced to HR List' },
-            { label: 'This Week',          value: stats.this_week, sub: 'new contacts'           },
-            { label: 'Today',              value: stats.today,     sub: 'added today'             },
+            { label: 'Total Contacts', value: stats.total,     sub: 'in Job Intel',    click: () => setSince('') },
+            { label: 'This Week',      value: stats.this_week, sub: 'added this week', click: () => setSince('7') },
+            { label: 'Last 24 hrs',    value: stats.today,     sub: 'added today',     click: () => setSince('1') },
+            { label: 'Filtered',       value: total,           sub: `with current filter`, click: null },
           ].map(s => (
-            <div key={s.label} className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+            <div
+              key={s.label}
+              onClick={s.click || undefined}
+              className={`bg-purple-50 border border-purple-200 rounded-lg p-3 ${s.click ? 'cursor-pointer hover:bg-purple-100 transition-colors' : ''}`}
+            >
               <div className="text-2xl font-bold text-purple-800">{s.value ?? '—'}</div>
               <div className="text-xs font-medium text-purple-700 mt-0.5">{s.label}</div>
               <div className="text-[10px] text-purple-400">{s.sub}</div>
@@ -190,10 +196,14 @@ export default function JobIntelPanel() {
       {contacts.length === 0 && !loading && (
         <div className="text-center py-16 text-gray-400 bg-white border border-gray-200 rounded-lg">
           <Mail size={36} className="mx-auto mb-3 opacity-30" />
-          <p className="font-medium text-gray-500">No HR contacts found yet</p>
+          <p className="font-medium text-gray-500">
+            {since === '1' ? 'No new contacts in the last 24 hours' : 'No HR contacts found yet'}
+          </p>
           <p className="text-sm mt-1 max-w-xs mx-auto">
-            Enable the pipeline in <span className="font-medium">Admin Panel → Job Intel Pipeline</span>, then click Run Pipeline Now.
-            The pipeline scans job descriptions and extracts HR emails automatically.
+            {since === '1'
+              ? <>Try switching to <button onClick={() => setSince('7')} className="font-medium text-brand-600 hover:underline">Last 7 days</button> or click <span className="font-medium">Scrape + Extract</span> in Admin Panel to fetch fresh data.</>
+              : <>Enable the pipeline in <span className="font-medium">Admin Panel → Job Intel Pipeline</span>, then click Run Pipeline Now.</>
+            }
           </p>
         </div>
       )}
@@ -221,9 +231,16 @@ export default function JobIntelPanel() {
                     <Cpu size={9} /> AI extracted
                   </span>
                 )}
-                {contact.posted_at && (
-                  <span className="text-[10px] text-gray-400 ml-auto">{contact.posted_at}</span>
-                )}
+                <span className="text-[10px] text-gray-400 ml-auto flex items-center gap-1.5">
+                  {contact.fetched_at && (
+                    <span title="When this contact was added to Job Intel">
+                      Added {contact.fetched_at.slice(0, 16)}
+                    </span>
+                  )}
+                  {contact.posted_at && contact.posted_at !== contact.fetched_at?.slice(0,10) && (
+                    <span className="text-gray-300">· posted {contact.posted_at}</span>
+                  )}
+                </span>
               </div>
 
               <div className="flex items-start gap-3">
