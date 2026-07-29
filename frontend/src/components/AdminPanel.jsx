@@ -1274,7 +1274,7 @@ function JobIntelConfigSection() {
         <div>
           <h3 className="font-bold text-gray-800 flex items-center gap-2"><Zap size={16} className="text-brand-600" /> Job Intelligence Pipeline</h3>
           <p className="text-xs text-gray-500 mt-0.5">
-            Every run: processes stored LinkedIn posts, Arbeitnow, Remotive, RemoteOK, We Work Remotely and other APIs — extracts HR contact emails from all matching job posts. Typically completes in 2-5 min.
+            Every run: (1) scrapes LinkedIn Feed live with your configured keywords (100 posts/keyword) to get fresh HR emails, then (2) processes Arbeitnow, Remotive, RemoteOK, We Work Remotely and other APIs. Takes 5-20 min per run.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -1378,12 +1378,12 @@ function JobIntelConfigSection() {
           {saving ? 'Saving…' : 'Save Config'}
         </button>
         <button onClick={triggerRun} disabled={running || fullRun}
-          title="Extracts HR contact emails from stored LinkedIn posts and job API results. Completes in 2-5 min."
+          title="Scrapes LinkedIn Feed with your keywords (100/keyword), then extracts HR contacts from all new posts. Takes 5-20 min."
           className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold bg-brand-600 text-white rounded-md hover:bg-brand-700 disabled:opacity-50">
-          <Play size={13} /> {running ? 'Running…' : 'Run Pipeline Now'}
+          <Play size={13} /> {running ? 'Scraping + Extracting…' : 'Run Pipeline (Scrape + Extract)'}
         </button>
         <button onClick={triggerFullRun} disabled={running || fullRun}
-          title="Same as Run Pipeline — processes all sources and extracts HR contacts"
+          title="Same as Run Pipeline — scrapes LinkedIn Feed fresh then extracts HR contacts"
           className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold border border-purple-300 text-purple-700 rounded-md hover:bg-purple-50 disabled:opacity-50">
           <Zap size={13} /> {fullRun ? 'Running…' : 'Full Refresh'}
         </button>
