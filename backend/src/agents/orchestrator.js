@@ -222,23 +222,26 @@ async function syncJobIntelContacts() {
 
         const name      = (posting.extracted_contact_name || '').trim();
         const company   = (posting.company  || '').trim();
+        const jobTitle  = (posting.title    || '').trim();
         const sourceUrl = (posting.apply_url || '').trim();
-        const notes     = `[Job Intel] ${posting.title || ''}${company ? ` · ${company}` : ''}${posting.source ? ` (${posting.source})` : ''}`.trim();
+        const notes     = `[Job Intel] ${jobTitle}${company ? ` · ${company}` : ''}${posting.source ? ` (${posting.source})` : ''}`.trim();
 
         const result = await db.prepare(`
           INSERT INTO contacts
             (id, user_id, name, email, company, title, email_source, status, source_url, notes, date_added, tags, email_verified)
           VALUES
-            (?, ?, ?, ?, ?, '', 'job-intel', 'New', ?, ?, ?, '[]', 'pending')
+            (?, ?, ?, ?, ?, ?, 'job-intel', 'New', ?, ?, ?, '[]', 'pending')
           ON CONFLICT (email, user_id) DO UPDATE SET
             name       = CASE WHEN contacts.email_source = 'job-intel' AND ? != '' THEN ? ELSE contacts.name END,
             company    = CASE WHEN contacts.email_source = 'job-intel' AND ? != '' THEN ? ELSE contacts.company END,
+            title      = CASE WHEN contacts.email_source = 'job-intel' AND ? != '' THEN ? ELSE contacts.title END,
             source_url = CASE WHEN contacts.email_source = 'job-intel' AND ? != '' THEN ? ELSE contacts.source_url END,
             notes      = CASE WHEN contacts.email_source = 'job-intel' THEN ? ELSE contacts.notes END
         `).run(
-          randomUUID(), adminId, name, email, company, sourceUrl, notes, now,
+          randomUUID(), adminId, name, email, company, jobTitle, sourceUrl, notes, now,
           name, name,
           company, company,
+          jobTitle, jobTitle,
           sourceUrl, sourceUrl,
           notes
         );

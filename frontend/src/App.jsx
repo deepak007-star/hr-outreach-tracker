@@ -90,6 +90,8 @@ export default function App() {
   const [loading,        setLoading]        = useState(true);
   const [search,         setSearch]         = useState('');
   const [statusFilter,   setStatusFilter]   = useState('');
+  const [sourceFilter,   setSourceFilter]   = useState('');
+  const [titleFilter,    setTitleFilter]    = useState('');
   const [selected,       setSelected]       = useState([]);
   const [editingContact,   setEditingContact]   = useState(null);
   const [showForm,         setShowForm]         = useState(false);
@@ -139,6 +141,7 @@ export default function App() {
       const params = {};
       if (search)       params.search = search;
       if (statusFilter) params.status = statusFilter;
+      if (sourceFilter) params.source = sourceFilter;
       const data = await api.get('/contacts', { params });
       setContacts(data);
     } catch {
@@ -146,7 +149,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter, user]);
+  }, [search, statusFilter, sourceFilter, user]);
 
   useEffect(() => { fetchContacts(); }, [fetchContacts]);
 
@@ -564,14 +567,21 @@ export default function App() {
 
           {/* ── Toolbar ───────────────────────────────────────────────── */}
           <div className="bg-white border border-gray-200 rounded-md shadow-card overflow-hidden">
-            {/* Primary row: search + filter + add */}
-            <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-gray-100">
+            {/* Primary row: search + filters + add */}
+            <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-gray-100">
               <input
                 type="text"
-                placeholder="Search name, company, email, title…"
+                placeholder="Search name, email, company…"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                className="border border-gray-200 rounded-sm px-3 py-2 w-64 text-sm focus:ring-2 focus:ring-brand-300 focus:border-brand-400 outline-none bg-white"
+                className="border border-gray-200 rounded-sm px-3 py-2 w-52 text-sm focus:ring-2 focus:ring-brand-300 focus:border-brand-400 outline-none bg-white"
+              />
+              <input
+                type="text"
+                placeholder="Filter job title…"
+                value={titleFilter}
+                onChange={e => setTitleFilter(e.target.value)}
+                className="border border-gray-200 rounded-sm px-3 py-2 w-40 text-sm focus:ring-2 focus:ring-brand-300 focus:border-brand-400 outline-none bg-white"
               />
               <select
                 value={statusFilter}
@@ -581,8 +591,19 @@ export default function App() {
                 <option value="">All Statuses</option>
                 {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
-              {(search || statusFilter) && (
-                <button onClick={() => { setSearch(''); setStatusFilter(''); }}
+              <select
+                value={sourceFilter}
+                onChange={e => setSourceFilter(e.target.value)}
+                className="border border-gray-200 rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none bg-white"
+              >
+                <option value="">All Sources</option>
+                <option value="job-intel">Job Intel</option>
+                <option value="manual">Manual</option>
+                <option value="csv">CSV Import</option>
+                <option value="apify">Apify</option>
+              </select>
+              {(search || statusFilter || sourceFilter || titleFilter) && (
+                <button onClick={() => { setSearch(''); setStatusFilter(''); setSourceFilter(''); setTitleFilter(''); }}
                   className="text-xs text-gray-400 hover:text-gray-600 underline">
                   Clear
                 </button>
@@ -690,7 +711,7 @@ export default function App() {
           </div>
 
           <ContactTable
-            contacts={contacts}
+            contacts={titleFilter ? contacts.filter(c => (c.title || '').toLowerCase().includes(titleFilter.toLowerCase())) : contacts}
             loading={loading}
             selected={selected}
             onSelect={setSelected}

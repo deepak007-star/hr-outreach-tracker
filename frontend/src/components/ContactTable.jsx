@@ -9,19 +9,17 @@ import { SkeletonRow } from './ui/Skeleton.jsx';
 
 const STATUSES = ['New','Drafted','Sent','Opened','Replied','Interview','Rejected','Do Not Contact'];
 
-// Email domain verification icon map
 const VERIFY_ICON = {
-  valid:        <CheckCircle2 size={12} className="text-green-600 shrink-0" />,
-  invalid:      <XCircle      size={12} className="text-red-500 shrink-0" />,
-  unverifiable: <HelpCircle   size={12} className="text-gray-400 shrink-0" />,
+  valid:        <CheckCircle2 size={11} className="text-green-600 shrink-0" />,
+  invalid:      <XCircle      size={11} className="text-red-500 shrink-0" />,
+  unverifiable: <HelpCircle   size={11} className="text-gray-400 shrink-0" />,
 };
 const BOUNCE_ICON = {
-  hard_bounce: <Ban           size={12} className="text-red-600 shrink-0" />,
-  flagged:     <ShieldOff     size={12} className="text-red-600 shrink-0" />,
-  soft_bounce: <AlertTriangle size={12} className="text-orange-500 shrink-0" />,
+  hard_bounce: <Ban           size={11} className="text-red-600 shrink-0" />,
+  flagged:     <ShieldOff     size={11} className="text-red-600 shrink-0" />,
+  soft_bounce: <AlertTriangle size={11} className="text-orange-500 shrink-0" />,
 };
 
-// v*****@g****.com — shows only first char of local + domain
 function maskEmail(email) {
   if (!email) return '';
   const atIdx = email.indexOf('@');
@@ -36,23 +34,22 @@ function maskEmail(email) {
   return `${maskedLocal}@${maskedDomain}${tld}`;
 }
 
-function SortTh({ label, field, sortField, sortDir, onSort }) {
+function SortTh({ label, field, sortField, sortDir, onSort, className = '' }) {
   const active = sortField === field;
   const Icon = active ? (sortDir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
   return (
     <th
       onClick={() => onSort(field)}
-      className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide cursor-pointer select-none hover:bg-gray-50 whitespace-nowrap transition-colors"
+      className={`px-2 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide cursor-pointer select-none hover:bg-gray-100 whitespace-nowrap transition-colors ${className}`}
     >
       <span className="flex items-center gap-1">
         {label}
-        <Icon size={11} className={active ? 'text-brand-500' : 'text-gray-300'} />
+        <Icon size={10} className={active ? 'text-brand-500' : 'text-gray-300'} />
       </span>
     </th>
   );
 }
 
-// Inline click-to-edit status cell — shows StatusPill; click reveals <select>
 function StatusCell({ contact, onStatusChange }) {
   const [editing, setEditing] = useState(false);
   if (editing) {
@@ -62,20 +59,38 @@ function StatusCell({ contact, onStatusChange }) {
         value={contact.status}
         onChange={e => { onStatusChange(contact.id, e.target.value); setEditing(false); }}
         onBlur={() => setEditing(false)}
-        className="border border-brand-300 rounded-sm text-xs px-2 py-1 focus:ring-2 focus:ring-brand-300 outline-none bg-white"
+        className="border border-brand-300 rounded-sm text-xs px-1.5 py-0.5 focus:ring-1 focus:ring-brand-300 outline-none bg-white"
       >
         {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
       </select>
     );
   }
   return (
-    <button
-      onClick={() => setEditing(true)}
-      className="hover:opacity-80 transition-opacity"
-      title="Click to change status"
-    >
+    <button onClick={() => setEditing(true)} className="hover:opacity-80 transition-opacity" title="Click to change status">
       <StatusPill status={contact.status} />
     </button>
+  );
+}
+
+// Source label + confidence tooltip in one compact cell
+function SourceCell({ c }) {
+  const isJobIntel = c.email_source === 'job-intel';
+  const label = isJobIntel ? 'Job Intel'
+    : (c.email_source || '').replace(/_/g, ' ') || '—';
+  const confColor = c.email_confidence === 'verified' ? 'text-green-600'
+    : c.email_confidence === 'guessed' ? 'text-amber-600' : 'text-gray-400';
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className={`inline-block text-[10px] font-medium px-1.5 py-0.5 rounded leading-tight ${
+        isJobIntel ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-600'
+      }`}>
+        {label}
+      </span>
+      {c.email_confidence && (
+        <span className={`text-[10px] leading-tight ${confColor}`}>{c.email_confidence}</span>
+      )}
+    </div>
   );
 }
 
@@ -118,23 +133,23 @@ export default function ContactTable({
     );
   }
 
-  const allVisible    = contacts.length <= visibleLimit;
-  const allSelected   = contacts.length > 0 && selected.length === contacts.length;
+  const allVisible  = contacts.length <= visibleLimit;
+  const allSelected = contacts.length > 0 && selected.length === contacts.length;
 
   return (
     <div className="bg-white rounded-md shadow-card border border-gray-100 overflow-hidden">
 
-      {/* Plan-limit info stripe */}
+      {/* Plan-limit stripe */}
       {contacts.length > 0 && (
-        <div className={`border-b px-4 py-2.5 flex items-center justify-between gap-3 ${
+        <div className={`border-b px-4 py-2 flex items-center justify-between gap-3 ${
           !isAuthenticated || !allVisible ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'
         }`}>
           <p className={`text-xs flex items-center gap-1.5 ${
             !isAuthenticated || !allVisible ? 'text-amber-700' : 'text-green-700'
           }`}>
             {!isAuthenticated || !allVisible
-              ? <Lock size={12} className="shrink-0" />
-              : <CheckCircle2 size={12} className="shrink-0" />
+              ? <Lock size={11} className="shrink-0" />
+              : <CheckCircle2 size={11} className="shrink-0" />
             }
             {!isAuthenticated
               ? <><strong>Showing 5 real emails</strong> as demo. Sign in for more.</>
@@ -144,19 +159,32 @@ export default function ContactTable({
             }
           </p>
           {!isAuthenticated
-            ? <button onClick={onLoginRequest}  className="text-xs font-semibold text-brand-600 hover:text-brand-800 whitespace-nowrap transition-colors">Sign In →</button>
+            ? <button onClick={onLoginRequest}  className="text-xs font-semibold text-brand-600 hover:text-brand-800 whitespace-nowrap">Sign In →</button>
             : !allVisible
-              ? <button onClick={onUpgradeClick} className="text-xs font-semibold text-violet-600 hover:text-violet-800 whitespace-nowrap transition-colors">Upgrade →</button>
+              ? <button onClick={onUpgradeClick} className="text-xs font-semibold text-violet-600 hover:text-violet-800 whitespace-nowrap">Upgrade →</button>
               : null
           }
         </div>
       )}
 
       <div className="overflow-x-auto">
-        <table className="w-full text-sm min-w-[900px]">
+        {/* table-fixed keeps column widths stable and prevents overflow ballooning */}
+        <table className="w-full text-sm table-fixed min-w-[760px]">
+          <colgroup>
+            <col className="w-8" />          {/* checkbox */}
+            <col className="w-[14%]" />      {/* name */}
+            <col className="w-[16%]" />      {/* title */}
+            <col className="w-[13%]" />      {/* company */}
+            <col className="w-[18%]" />      {/* email */}
+            <col className="w-[10%]" />      {/* status */}
+            <col className="w-[10%]" />      {/* source */}
+            <col className="w-[8%]" />       {/* added */}
+            <col className="w-[11%]" />      {/* actions */}
+          </colgroup>
+
           <thead className="bg-gray-50 border-b border-gray-100">
             <tr>
-              <th className="px-3 py-3 w-8">
+              <th className="px-2 py-2.5 w-8">
                 <input
                   type="checkbox"
                   className="rounded border-gray-300 accent-teal-600"
@@ -164,22 +192,21 @@ export default function ContactTable({
                   onChange={e => onSelect(e.target.checked ? contacts.map(c => c.id) : [])}
                 />
               </th>
-              <SortTh label="Name"       field="name"             sortField={sortField} sortDir={sortDir} onSort={handleSort} />
-              <SortTh label="Title"      field="title"            sortField={sortField} sortDir={sortDir} onSort={handleSort} />
-              <SortTh label="Company"    field="company"          sortField={sortField} sortDir={sortDir} onSort={handleSort} />
-              <SortTh label="Email"      field="email"            sortField={sortField} sortDir={sortDir} onSort={handleSort} />
-              <SortTh label="Status"     field="status"           sortField={sortField} sortDir={sortDir} onSort={handleSort} />
-              <SortTh label="Source"     field="email_source"     sortField={sortField} sortDir={sortDir} onSort={handleSort} />
-              <SortTh label="Confidence" field="email_confidence" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
-              <SortTh label="Added"      field="date_added"       sortField={sortField} sortDir={sortDir} onSort={handleSort} />
-              <th className="px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
+              <SortTh label="Name"    field="name"         sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+              <SortTh label="Job Title" field="title"      sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+              <SortTh label="Company" field="company"      sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+              <SortTh label="Email"   field="email"        sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+              <SortTh label="Status"  field="status"       sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+              <SortTh label="Source"  field="email_source" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+              <SortTh label="Added"   field="date_added"   sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+              <th className="px-2 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
             </tr>
           </thead>
 
           <tbody className="divide-y divide-gray-100">
             {sorted.length === 0 && (
               <tr>
-                <td colSpan={10}>
+                <td colSpan={9}>
                   <EmptyState
                     icon={<Users size={20} strokeWidth={1.5} />}
                     title="Abhi tak jawaab nahi aaya — par agla email hi ho sakta hai woh wala."
@@ -193,17 +220,16 @@ export default function ContactTable({
             {sorted.map((c, idx) => {
               const emailVisible   = idx < visibleLimit;
               const isDoNotContact = c.status === 'Do Not Contact';
-              const isJobIntel    = c.email_source === 'job-intel';
+              const isJobIntel     = c.email_source === 'job-intel';
 
               return (
                 <Fragment key={c.id}>
-                  {/* Upgrade divider — injected once at the plan-limit boundary */}
                   {idx === visibleLimit && (
                     <tr className="border-y-2 border-amber-300">
-                      <td colSpan={10} className="bg-amber-50 px-4 py-3">
+                      <td colSpan={9} className="bg-amber-50 px-4 py-2.5">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <p className="text-xs text-amber-800 font-medium flex items-center gap-1.5">
-                            <Lock size={12} className="text-amber-600 shrink-0" />
+                            <Lock size={11} className="text-amber-600 shrink-0" />
                             You've reached the <strong>{planName} plan</strong> limit ({visibleLimit} visible).{' '}
                             {sorted.length - visibleLimit} more contact{sorted.length - visibleLimit !== 1 ? 's' : ''} below are locked.
                           </p>
@@ -218,8 +244,15 @@ export default function ContactTable({
                     </tr>
                   )}
 
-                  <tr className={`${!emailVisible ? 'bg-gray-50/30 opacity-70' : isDoNotContact ? 'opacity-50 bg-white' : isJobIntel ? 'bg-gray-100/80 border-l-2 border-gray-300' : 'bg-white'} hover:bg-stone-50/60 transition-colors`}>
-                    <td className="px-3 py-2.5">
+                  <tr className={`${
+                    !emailVisible ? 'bg-gray-50/30 opacity-70'
+                    : isDoNotContact ? 'opacity-50 bg-white'
+                    : isJobIntel ? 'bg-blue-50/20'
+                    : 'bg-white'
+                  } hover:bg-stone-50/60 transition-colors`}>
+
+                    {/* Checkbox */}
+                    <td className="px-2 py-2">
                       <input
                         type="checkbox"
                         className="rounded border-gray-300 accent-teal-600"
@@ -229,62 +262,74 @@ export default function ContactTable({
                         )}
                       />
                     </td>
-                    <td className="px-3 py-2.5 font-medium text-gray-900 whitespace-nowrap">{c.name}</td>
-                    <td className="px-3 py-2.5 text-gray-500 whitespace-nowrap">{c.title || <span className="text-gray-300">—</span>}</td>
-                    <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">{c.company || <span className="text-gray-300">—</span>}</td>
 
-                    {/* Email — masked beyond plan limit */}
-                    <td className="px-3 py-2.5 whitespace-nowrap">
+                    {/* Name */}
+                    <td className="px-2 py-2 font-medium text-gray-900 truncate" title={c.name}>
+                      {c.name}
+                    </td>
+
+                    {/* Job Title */}
+                    <td className="px-2 py-2 text-gray-600 truncate" title={c.title || ''}>
+                      {c.title
+                        ? <span className="text-xs">{c.title}</span>
+                        : <span className="text-gray-300 text-xs">—</span>
+                      }
+                    </td>
+
+                    {/* Company */}
+                    <td className="px-2 py-2 text-gray-700 truncate text-xs" title={c.company || ''}>
+                      {c.company || <span className="text-gray-300">—</span>}
+                    </td>
+
+                    {/* Email */}
+                    <td className="px-2 py-2 truncate">
                       {emailVisible ? (
-                        <span className="inline-flex items-center gap-1.5">
-                          <a href={`mailto:${c.email}`} className="text-brand-600 hover:text-brand-800 hover:underline transition-colors">
+                        <span className="inline-flex items-center gap-1 min-w-0">
+                          <a
+                            href={`mailto:${c.email}`}
+                            className="text-brand-600 hover:text-brand-800 hover:underline transition-colors text-xs truncate"
+                            title={c.email}
+                          >
                             {c.email}
                           </a>
-                          {VERIFY_ICON[c.email_verified]}
-                          {!c.email_verified || c.email_verified === 'pending'
-                            ? <Clock size={12} className="text-amber-500 shrink-0" title="Verification pending" />
-                            : null
-                          }
-                          {BOUNCE_ICON[c.email_deliverable]}
+                          <span className="shrink-0 flex items-center gap-0.5">
+                            {VERIFY_ICON[c.email_verified]}
+                            {(!c.email_verified || c.email_verified === 'pending') && (
+                              <Clock size={11} className="text-amber-500" title="Verification pending" />
+                            )}
+                            {BOUNCE_ICON[c.email_deliverable]}
+                          </span>
                         </span>
                       ) : (
                         <button
                           onClick={isAuthenticated ? onUpgradeClick : onLoginRequest}
-                          className="flex items-center gap-1.5 text-gray-400 hover:text-violet-600 group transition-colors"
+                          className="flex items-center gap-1 text-gray-400 hover:text-violet-600 group transition-colors"
                           title={isAuthenticated ? 'Upgrade to view email' : 'Sign in to view email'}
                         >
                           <span className="font-mono text-xs tracking-tight">{maskEmail(c.email)}</span>
-                          <Lock size={10} className="opacity-60 group-hover:opacity-100 transition-opacity" />
+                          <Lock size={10} className="opacity-60 group-hover:opacity-100 shrink-0" />
                         </button>
                       )}
                     </td>
 
-                    <td className="px-3 py-2.5">
+                    {/* Status */}
+                    <td className="px-2 py-2">
                       <StatusCell contact={c} onStatusChange={onStatusChange} />
                     </td>
 
-                    <td className="px-3 py-2.5 text-xs text-gray-500 capitalize whitespace-nowrap">
-                      {isJobIntel ? (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 font-medium text-xs">
-                          Job Intel
-                        </span>
-                      ) : (
-                        c.email_source?.replace(/_/g, ' ')
-                      )}
+                    {/* Source + Confidence (merged) */}
+                    <td className="px-2 py-2">
+                      <SourceCell c={c} />
                     </td>
-                    <td className={`px-3 py-2.5 text-xs whitespace-nowrap ${
-                      c.email_confidence === 'verified' ? 'text-green-600 font-medium' :
-                      c.email_confidence === 'guessed'  ? 'text-amber-600' : 'text-gray-400'
-                    }`}>
-                      {c.email_confidence}
-                    </td>
-                    <td className="px-3 py-2.5 text-xs text-gray-400 whitespace-nowrap">
+
+                    {/* Added */}
+                    <td className="px-2 py-2 text-[11px] text-gray-400 whitespace-nowrap">
                       {c.date_added ? new Date(c.date_added).toLocaleDateString('en-IN') : '—'}
                     </td>
 
                     {/* Actions */}
-                    <td className="px-3 py-2.5 whitespace-nowrap">
-                      <div className="flex items-center gap-3">
+                    <td className="px-2 py-2 whitespace-nowrap">
+                      <div className="flex items-center gap-2">
                         {c.status !== 'Do Not Contact' && (
                           emailVisible && isAuthenticated && onSendEmail ? (
                             <button
@@ -309,7 +354,7 @@ export default function ContactTable({
                         </button>
                         <button onClick={() => onDelete(c.id)}
                           className="text-xs text-red-500 hover:text-red-700 font-medium transition-colors">
-                          Delete
+                          Del
                         </button>
                       </div>
                     </td>
