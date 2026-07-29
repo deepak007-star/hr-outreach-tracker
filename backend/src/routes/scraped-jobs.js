@@ -22,7 +22,9 @@ const EMAIL_HTML_OPTS = {
 // Per-contact variable substitution supporting many common formats
 function renderFeedTemplate(tpl, contact, profile) {
   const p = profile || {};
-  const firstName = (contact.name || '').split(' ')[0];
+  // First name only; treat email-address-looking values as missing
+  const rawName   = (contact.name || '').trim();
+  const firstName = rawName.includes('@') ? '' : (rawName.split(' ')[0] || '');
   const skillsStr = Array.isArray(p.skills) ? p.skills.join(', ') : (p.skills || '');
 
   function sub(text, patterns, value) {
@@ -32,13 +34,13 @@ function renderFeedTemplate(tpl, contact, profile) {
   }
 
   let result = tpl;
-  // Contact vars
+  // {{name}} → first name only (skips email-address values)
   result = sub(result, [
     /\{\{name\}\}/gi, /\{name\}/gi, /\[name\]/gi,
     /\{\{HR_?[Nn]ame\}\}/g, /\{HR_?[Nn]ame\}/g,
     /\{\{[Hh]iring_?[Mm]anager\}\}/g, /\{\{[Rr]ecipient_?[Nn]ame\}\}/g,
     /\{\{[Ff]ull_?[Nn]ame\}\}/g,
-  ], contact.name || '');
+  ], firstName);
   result = sub(result, [/\{\{[Ff]irst_?[Nn]ame\}\}/g, /\{[Ff]irst_?[Nn]ame\}/g], firstName);
   result = sub(result, [
     /\{\{company\}\}/gi, /\{company\}/gi, /\[company\]/gi,
@@ -58,6 +60,8 @@ function renderFeedTemplate(tpl, contact, profile) {
   // Strip remaining tokens
   result = result.replace(/\{\{[\s\S]*?\}\}/g, '');
   result = result.replace(/\{[A-Za-z_]\w*\}/g, '');
+  // Clean up greeting when name was empty: "Hi ," → "Hi,"
+  result = result.replace(/\bHi\s+,/g, 'Hi,');
   return result;
 }
 

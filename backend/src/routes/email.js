@@ -44,7 +44,9 @@ router.use(requireAuth);
 // as spam, unlike the plain hand-typed text referrals.js sends.
 function renderTemplate(tpl, contact, profile) {
   const p          = profile || {};
-  const firstName  = (contact.name || '').split(' ')[0];
+  // Use first name only; treat email-address-looking names as missing
+  const rawName    = (contact.name || '').trim();
+  const firstName  = rawName.includes('@') ? '' : (rawName.split(' ')[0] || '');
   const skillsStr  = Array.isArray(p.skills) ? p.skills.join(', ') : (p.skills || '');
 
   // Helper: replace many regex patterns with the same value in one pass
@@ -57,14 +59,14 @@ function renderTemplate(tpl, contact, profile) {
   let result = tpl;
 
   // ── Contact / recipient vars ──────────────────────────────────────────────
-  // Supports: {{name}}, {name}, [name], {{HR_Name}}, {HR_Name}, {hr_name}, etc.
+  // {{name}} → first name only (skips email-address values)
   result = sub(result, [
     /\{\{name\}\}/gi, /\{name\}/gi, /\[name\]/gi,
     /\{\{HR_?[Nn]ame\}\}/g, /\{HR_?[Nn]ame\}/g,
     /\{\{[Hh]iring_?[Mm]anager\}\}/g,
     /\{\{[Rr]ecipient_?[Nn]ame\}\}/g, /\{[Rr]ecipient_?[Nn]ame\}/g,
     /\{\{[Ff]ull_?[Nn]ame\}\}/g,
-  ], contact.name || '');
+  ], firstName);
 
   result = sub(result, [
     /\{\{[Ff]irst_?[Nn]ame\}\}/g, /\{[Ff]irst_?[Nn]ame\}/g,
@@ -98,6 +100,9 @@ function renderTemplate(tpl, contact, profile) {
   // Strip any remaining unresolved tokens ({{...}}, {...}, [...])
   result = result.replace(/\{\{[\s\S]*?\}\}/g, '');
   result = result.replace(/\{[A-Za-z_]\w*\}/g, '');
+
+  // Clean up greeting when name was empty: "Hi ," or "Hi  ," → "Hi,"
+  result = result.replace(/\bHi\s+,/g, 'Hi,');
 
   return result;
 }

@@ -7,7 +7,7 @@ import RichEditor from './RichEditor.jsx';
 import AttachmentPicker from './AttachmentPicker.jsx';
 
 const RECIPIENT_VARS = [
-  { label: '{{name}}',    hint: 'Contact full name' },
+  { label: '{{name}}',    hint: 'Contact first name (falls back to "Hi," if no name)' },
   { label: '{{company}}', hint: 'Company' },
   { label: '{{title}}',   hint: 'Job title' },
   { label: '{{email}}',   hint: 'Email address' },
