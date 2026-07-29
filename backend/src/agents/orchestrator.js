@@ -120,9 +120,9 @@ async function runPipeline(triggeredBy = 'scheduler') {
         const qa = qaCheck(job, classResult);
         Object.assign(job, qa);
 
-        // Store
+        // Store — 'inserted' = truly new row, 'updated' = existing row refreshed
         const outcome = await storeJob(job);
-        if (outcome === 'stored') totalNew++;
+        if (outcome === 'inserted') totalNew++;
       } catch (e) {
         errors[`store:${job.source}:${job.external_id}`] = e.message;
       }
@@ -149,9 +149,11 @@ async function runPipeline(triggeredBy = 'scheduler') {
     const contactsSynced = await syncJobIntelContacts();
 
     // Notification
+    const notifBody = totalNew > 0
+      ? `Scanned ${totalFetched} job posts — found ${totalNew} NEW HR contacts with email. ${contactsSynced} added/updated in Contacts.`
+      : `Scanned ${totalFetched} job posts — no new contacts (all ${Object.keys(sourceStats).length} sources already processed). Run "Scrape + Extract" to fetch fresh data.`;
     await db.prepare(`INSERT INTO notifications (id, user_id, type, title, body) VALUES (?, ?, ?, ?, ?)`)
-      .run(randomUUID(), null, 'info', 'Job Intel: HR contacts extracted',
-        `Scanned ${totalFetched} job posts across ${Object.keys(sourceStats).join(', ')} — found ${totalNew} new HR contacts with email. ${contactsSynced} added/updated in Contacts.`);
+      .run(randomUUID(), null, 'info', 'Job Intel: HR contacts extracted', notifBody);
 
     const durationMs = Date.now() - new Date(startedAt.replace(' ', 'T') + 'Z').getTime();
     return { runId, fetched: totalFetched, new: totalNew, duplicates: totalDupes, contactsSynced, errors, durationMs };
@@ -246,7 +248,8 @@ async function syncJobIntelContacts(sinceMs = null) {
         const sourceUrl = (posting.apply_url || '').trim();
         const notes     = `[Job Intel] ${jobTitle}${company ? ` · ${company}` : ''}${posting.source ? ` (${posting.source})` : ''}`.trim();
 
-        const result = await db.prepare(`
+        // RETURNING (xmax = 0) AS is_new detects true INSERT vs ON CONFLICT UPDATE
+        const row = await db.prepare(`
           INSERT INTO contacts
             (id, user_id, name, email, company, title, email_source, status, source_url, notes, date_added, tags, email_verified)
           VALUES
@@ -257,7 +260,8 @@ async function syncJobIntelContacts(sinceMs = null) {
             title      = CASE WHEN contacts.email_source = 'job-intel' AND ? != '' THEN ? ELSE contacts.title END,
             source_url = CASE WHEN contacts.email_source = 'job-intel' AND ? != '' THEN ? ELSE contacts.source_url END,
             notes      = CASE WHEN contacts.email_source = 'job-intel' THEN ? ELSE contacts.notes END
-        `).run(
+          RETURNING (xmax = 0) AS is_new
+        `).get(
           randomUUID(), adminId, name, email, company, jobTitle, sourceUrl, notes, now,
           name, name,
           company, company,
@@ -266,7 +270,7 @@ async function syncJobIntelContacts(sinceMs = null) {
           notes
         );
 
-        if (result.changes > 0) synced++;
+        if (row?.is_new) synced++;
       }
     }
 

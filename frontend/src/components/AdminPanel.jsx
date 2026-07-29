@@ -1212,11 +1212,12 @@ function ScraperSection() {
 
 // ── Job Intel Pipeline Config Section ─────────────────────────────────────
 function JobIntelConfigSection() {
-  const [cfg,     setCfg]     = useState(null);
-  const [saving,  setSaving]  = useState(false);
-  const [running, setRunning] = useState(false);
-  const [runs,    setRuns]    = useState([]);
-  const [runMsg,  setRunMsg]  = useState('');
+  const [cfg,       setCfg]       = useState(null);
+  const [saving,    setSaving]    = useState(false);
+  const [running,   setRunning]   = useState(false);
+  const [fullRun,   setFullRun]   = useState(false);
+  const [runs,      setRuns]      = useState([]);
+  const [runMsg,    setRunMsg]    = useState('');
 
   useEffect(() => {
     api.get('/job-intel/config').then(r => setCfg(r)).catch(() => {});
@@ -1244,6 +1245,18 @@ function JobIntelConfigSection() {
     } catch (e) {
       setRunMsg(e.response?.data?.error || 'Failed to start');
     } finally { setRunning(false); }
+  }
+
+  async function triggerFullRun() {
+    setFullRun(true);
+    setRunMsg('');
+    try {
+      await api.post('/job-intel/run-full');
+      setRunMsg('LinkedIn Feed scraping started — pipeline runs after. New contacts appear in ~5 min. Check run history below.');
+      setTimeout(() => api.get('/job-intel/runs').then(r => setRuns(Array.isArray(r) ? r : [])).catch(() => {}), 10000);
+    } catch (e) {
+      setRunMsg(e.response?.data?.error || 'Failed to start full run');
+    } finally { setFullRun(false); }
   }
 
   function setField(key, val) {
@@ -1360,17 +1373,22 @@ function JobIntelConfigSection() {
       </label>
 
       {/* Buttons */}
-      <div className="flex gap-3 pt-2 border-t border-gray-100">
+      <div className="flex flex-wrap gap-3 pt-2 border-t border-gray-100">
         <button onClick={save} disabled={saving}
           className="px-4 py-2 text-sm font-semibold bg-brand-600 text-white rounded-md hover:bg-brand-700 disabled:opacity-50">
           {saving ? 'Saving…' : 'Save Config'}
         </button>
-        <button onClick={triggerRun} disabled={running}
+        <button onClick={triggerRun} disabled={running || fullRun}
           className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold border border-gray-200 rounded-md hover:bg-gray-50 disabled:opacity-50">
           <Play size={13} /> {running ? 'Starting…' : 'Run Pipeline Now'}
         </button>
+        <button onClick={triggerFullRun} disabled={running || fullRun}
+          title="Scrapes LinkedIn Feed for fresh HR posts, then runs the extraction pipeline to pull new contacts"
+          className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50">
+          <Zap size={13} /> {fullRun ? 'Scraping…' : 'Scrape + Extract (Full Refresh)'}
+        </button>
       </div>
-      {runMsg && <p className="text-xs text-brand-600 mt-1">{runMsg}</p>}
+      {runMsg && <p className="text-xs text-purple-700 font-medium mt-1">{runMsg}</p>}
 
       {/* Run history */}
       {runs.length > 0 && (
@@ -1381,7 +1399,7 @@ function JobIntelConfigSection() {
               <div key={r.id} className="flex items-center gap-3 text-xs text-gray-600 bg-gray-50 px-3 py-2 rounded">
                 <span className={`font-medium ${r.status === 'success' ? 'text-green-600' : r.status === 'running' ? 'text-blue-600' : 'text-red-500'}`}>{r.status}</span>
                 <span>{r.started_at?.slice(0, 16)}</span>
-                <span className="text-gray-400">→ {r.total_new || 0} new / {r.total_fetched || 0} fetched</span>
+                <span className="text-gray-400">→ <span className="text-green-700 font-medium">{r.total_new || 0} truly new</span> / {r.total_fetched || 0} scanned</span>
               </div>
             ))}
           </div>

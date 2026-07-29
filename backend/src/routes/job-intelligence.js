@@ -3,6 +3,8 @@ const express       = require('express');
 const db            = require('../db/database');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { runPipeline, syncJobIntelContacts, getConfig, saveConfig } = require('../agents/orchestrator');
+const scraperRouter = require('./scraper');
+const { getSettings } = require('./apify');
 
 const router = express.Router();
 
@@ -153,6 +155,38 @@ router.post('/run', requireAuth, requireAdmin, async (req, res) => {
   try {
     res.json({ started: true, message: 'Pipeline started in background' });
     runPipeline('manual').catch(e => console.error('[Pipeline] Manual run failed:', e.message));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── POST /api/job-intel/run-full ── scrape fresh data → then run pipeline ────
+// Runs the LinkedIn Feed scraper first (the primary source of HR emails in posts),
+// then immediately triggers the pipeline to extract contacts from the fresh data.
+// LinkedIn Feed is the best non-Apify source — it finds HR contact info directly
+// in post text. After scraping, the pipeline also re-processes all other sources.
+router.post('/run-full', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    res.json({ started: true, message: 'LinkedIn Feed scraping started — pipeline will run automatically after. Check pipeline run history in 3-5 min.' });
+
+    // Fire-and-forget: scrape then pipeline
+    (async () => {
+      try {
+        const s = await getSettings();
+        const titles = Array.isArray(s.searchQueries) && s.searchQueries.length
+          ? s.searchQueries
+          : ['HR Manager', 'Recruiter', 'Talent Acquisition', 'HR Business Partner'];
+        const scraperResult = await scraperRouter.runScraperHeadless('linkedin-feed', { titles, limit: 60 });
+        console.log(`[run-full] LinkedIn Feed: ${scraperResult.stored} new posts stored (exit code ${scraperResult.code})`);
+      } catch (e) {
+        console.error('[run-full] LinkedIn Feed scraper failed:', e.message);
+      }
+      try {
+        await runPipeline('manual-full');
+      } catch (e) {
+        console.error('[run-full] Pipeline failed after scrape:', e.message);
+      }
+    })();
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

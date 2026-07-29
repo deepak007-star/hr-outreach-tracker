@@ -6,7 +6,7 @@ const db = require('../db/database');
  * Write one fully-processed posting to job_postings.
  * Only persists rows where at least one email was extracted —
  * the pipeline's goal is HR contacts, not a job board.
- * Returns 'stored' | 'skipped' | 'no_contact'.
+ * Returns 'inserted' (truly new row) | 'updated' (existing row refreshed) | 'skipped' | 'no_contact'.
  */
 async function storeJob(job) {
   // Gate: only keep rows that have a real extracted email
@@ -15,7 +15,8 @@ async function storeJob(job) {
   if (!emails.length) return 'no_contact';
   const id = randomUUID();
   try {
-    await db.prepare(`
+    // RETURNING (xmax = 0) AS is_new: xmax=0 means a fresh INSERT; xmax!=0 means ON CONFLICT UPDATE
+    const row = await db.prepare(`
       INSERT INTO job_postings (
         id, source, external_id, title, company, company_domain,
         location, description, apply_url, posted_at,
@@ -34,7 +35,8 @@ async function storeJob(job) {
         classification_reason = COALESCE(EXCLUDED.classification_reason, job_postings.classification_reason),
         needs_review          = EXCLUDED.needs_review,
         review_reason         = EXCLUDED.review_reason
-    `).run(
+      RETURNING (xmax = 0) AS is_new
+    `).get(
       id,
       job.source,
       job.external_id || id,
@@ -57,7 +59,7 @@ async function storeJob(job) {
       job.needs_review     || 0,
       job.review_reason    || null,
     );
-    return 'stored';
+    return row?.is_new ? 'inserted' : 'updated';
   } catch (e) {
     if (e.code === '23505') return 'skipped';
     throw e;
