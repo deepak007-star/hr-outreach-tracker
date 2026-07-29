@@ -198,13 +198,21 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
           mimeType: attachment.mimeType || null,
         };
       }
-      const { sent, failed, results } = await api.post('/email/send', payload, { timeout: 120000 });
-      if (sent > 0)    toast.success(`${sent} email${sent !== 1 ? 's' : ''} sent!`);
-      if (failed > 0)  toast.error(`${failed} failed`);
-      const bounced       = results.filter(r => r.bounced);
-      const undeliverable = results.filter(r => r.deliverable === false && !r.bounced);
-      if (bounced.length)       toast(`${bounced.length} bounced → marked Do Not Contact`, { icon: '⚠️' });
-      if (undeliverable.length) toast.error(`${undeliverable.length} blocked — email undeliverable`);
+      const result = await api.post('/email/send', payload, { timeout: 120000 });
+      if (result.queued) {
+        toast.success(
+          `Sending ${result.total} emails in the background — you can close this window and carry on. A notification will appear when done.`,
+          { duration: 7000 }
+        );
+      } else {
+        const { sent, failed, results } = result;
+        if (sent > 0)    toast.success(`${sent} email${sent !== 1 ? 's' : ''} sent!`);
+        if (failed > 0)  toast.error(`${failed} failed`);
+        const bounced       = results.filter(r => r.bounced);
+        const undeliverable = results.filter(r => r.deliverable === false && !r.bounced);
+        if (bounced.length)       toast(`${bounced.length} bounced → marked Do Not Contact`, { icon: '⚠️' });
+        if (undeliverable.length) toast.error(`${undeliverable.length} blocked — email undeliverable`);
+      }
       onSent();
     } catch (err) {
       toast.error(err.response?.data?.error || 'Send failed');

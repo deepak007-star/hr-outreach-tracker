@@ -286,25 +286,30 @@ function FeedComposeModal({ contacts, onClose, onSent }) {
         };
       }
       const result = await api.post('/scraped-jobs/send-feed-emails', payload, { timeout: 120000 });
-      const sent        = result.sent   || 0;
-      const failed      = (result.total || 0) - sent;
-      const sentEmails  = (result.results || []).filter(r => r.ok).map(r => r.email);
-      const failedList  = (result.results || []).filter(r => !r.ok);
 
-      if (failed === 0) {
-        toast.success(`${sent} email${sent !== 1 ? 's' : ''} sent successfully!`);
-      } else if (sent === 0) {
-        toast.error(`All ${failed} email${failed !== 1 ? 's' : ''} failed to send.`, { duration: 5000 });
-      } else {
-        toast.success(`${sent} sent`, { duration: 4000 });
-        const reasons = [...new Set(failedList.map(r => r.error).filter(Boolean))];
-        toast.error(
-          `${failed} failed${reasons.length ? ` — ${reasons[0]}` : ''}`,
-          { duration: 6000 }
+      if (result.queued) {
+        toast.success(
+          `Sending ${result.total} emails in the background — you can close this window and carry on. A notification will appear when done.`,
+          { duration: 7000 }
         );
-      }
+        onSent([]);
+      } else {
+        const sent       = result.sent   || 0;
+        const failed     = (result.total || 0) - sent;
+        const sentEmails = (result.results || []).filter(r => r.ok).map(r => r.email);
+        const failedList = (result.results || []).filter(r => !r.ok);
 
-      onSent(sentEmails); // only mark actually-sent contacts as emailed
+        if (failed === 0) {
+          toast.success(`${sent} email${sent !== 1 ? 's' : ''} sent successfully!`);
+        } else if (sent === 0) {
+          toast.error(`All ${failed} email${failed !== 1 ? 's' : ''} failed to send.`, { duration: 5000 });
+        } else {
+          toast.success(`${sent} sent`, { duration: 4000 });
+          const reasons = [...new Set(failedList.map(r => r.error).filter(Boolean))];
+          toast.error(`${failed} failed${reasons.length ? ` — ${reasons[0]}` : ''}`, { duration: 6000 });
+        }
+        onSent(sentEmails);
+      }
       onClose();
     } catch (e) {
       toast.error(e.response?.data?.error || 'Send failed — please try again');

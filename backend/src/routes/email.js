@@ -10,6 +10,11 @@ const { requireAuth } = require('../middleware/auth');
 const { getTransportForUser, createLegacyTransport } = require('../services/mailTransport');
 const sanitizeHtml = require('sanitize-html');
 const { scrapeLimiter } = require('../middleware/security');
+const { cleanContactName } = require('../lib/nameUtils');
+
+// Batches with more than this many recipients are sent in the background so the
+// user can close the modal without waiting. A notification is created on completion.
+const BACKGROUND_THRESHOLD = 5;
 
 // Allowed HTML subset for outgoing email bodies: safe formatting, no scripts/iframes
 const EMAIL_HTML_OPTS = {
@@ -44,8 +49,10 @@ router.use(requireAuth);
 // as spam, unlike the plain hand-typed text referrals.js sends.
 function renderTemplate(tpl, contact, profile) {
   const p          = profile || {};
-  // name is already cleaned to first-name-only at write time
-  const firstName  = (contact.name || '').split(' ')[0].trim();
+  // cleanContactName handles email-as-name, role keywords, full-name → first-name.
+  // Called at render time so old contacts (imported before the name-cleaning fix)
+  // also get correct first-name substitution without needing a data migration.
+  const firstName  = cleanContactName(contact.name, contact.email);
   const skillsStr  = Array.isArray(p.skills) ? p.skills.join(', ') : (p.skills || '');
 
   // Helper: replace many regex patterns with the same value in one pass
@@ -341,156 +348,171 @@ router.post('/send', rlMiddleware('email'), async (req, res) => {
   if (!isAdmin && await getSentToday(req.user.userId) >= cap)
     return res.status(429).json({ error: `Daily send cap of ${cap} reached. Try again tomorrow.` });
 
-  const results     = [];
-  let sentCount     = await getSentToday(req.user.userId);
   const attachments = await resolveAttachment(attachment, req.user.userId);
+  const userId = req.user.userId;
 
-  for (let i = 0; i < sends.length; i++) {
-    // sends[] normally carries subject/body already rendered by /preview, but
-    // never forward a raw, unresolved {{var}} to a real recipient regardless —
-    // it reads as a broken mail-merge and is a strong spam signal on its own.
-    const contactId    = sends[i].contactId;
-    const subject      = sends[i].subject.replace(/\{\{\s*[\w.]+\s*\}\}/g, '');
-    const body         = sends[i].body.replace(/\{\{\s*[\w.]+\s*\}\}/g, '');
-    const contact = await db.prepare('SELECT * FROM contacts WHERE id = ? AND user_id = ?').get(contactId, req.user.userId);
-    if (!contact) { results.push({ contactId, ok: false, error: 'Contact not found' }); continue; }
+  // Closure capturing all resolved state — can run sync or detached
+  const doSend = async () => {
+    const results  = [];
+    let sentCount  = await getSentToday(userId);
 
-    if (contact.status === 'Do Not Contact') {
-      results.push({ contactId, ok: false, error: 'Do Not Contact' }); continue;
-    }
-    if (contact.email_deliverable === 'hard_bounce' || contact.email_deliverable === 'flagged') {
-      results.push({ contactId, ok: false, error: 'Email undeliverable', deliverable: false }); continue;
-    }
-    if (await wasRecentlySent(contactId)) {
-      results.push({ contactId, ok: false, error: 'Already emailed in the last 14 days' }); continue;
-    }
-    if (!isAdmin && sentCount >= cap) {
-      results.push({ contactId, ok: false, error: 'Daily cap reached' }); continue;
-    }
+    for (let i = 0; i < sends.length; i++) {
+      // sends[] normally carries subject/body already rendered by /preview, but
+      // never forward a raw, unresolved {{var}} to a real recipient regardless —
+      // it reads as a broken mail-merge and is a strong spam signal on its own.
+      const contactId    = sends[i].contactId;
+      const subject      = sends[i].subject.replace(/\{\{\s*[\w.]+\s*\}\}/g, '');
+      const body         = sends[i].body.replace(/\{\{\s*[\w.]+\s*\}\}/g, '');
+      const contact = await db.prepare('SELECT * FROM contacts WHERE id = ? AND user_id = ?').get(contactId, userId);
+      if (!contact) { results.push({ contactId, ok: false, error: 'Contact not found' }); continue; }
 
-    const isHtml   = /<[a-zA-Z]/.test(body);
-    // Sanitize HTML to strip any injected script/iframe/event-handler payloads
-    const safeBody = isHtml ? sanitizeHtml(body, EMAIL_HTML_OPTS) : body;
-    const textBody = isHtml ? stripHtml(safeBody) : safeBody;
-    const htmlBody = isHtml
-      ? `<div style="font-family:sans-serif;font-size:14px;line-height:1.7">${safeBody}</div>`
-      : `<div style="font-family:sans-serif;font-size:14px;line-height:1.6">${
-          safeBody.split('\n').map(l => `<p style="margin:0 0 4px">${l || '&nbsp;'}</p>`).join('')
-        }</div>`;
-
-    const mailOpts = {
-      from:    fromName ? `"${fromName}" <${fromEmail}>` : fromEmail,
-      to:      contact.email,
-      subject,
-      text:    textBody,
-      html:    htmlBody,
-      ...(attachments.length > 0 ? { attachments } : {}),
-    };
-
-    const logId = crypto.randomUUID();
-    const now   = new Date().toISOString().replace('T', ' ').slice(0, 19);
-
-    try {
-      const info  = await transport.sendMail(mailOpts);
-      const msgId = info?.messageId || null;
-
-      await db.prepare(`
-        INSERT INTO email_log (id, contact_id, user_id, subject, body_snapshot, delivery_status, message_id)
-        VALUES (?, ?, ?, ?, ?, 'sent', ?)
-      `).run(logId, contactId, req.user.userId, subject, textBody, msgId);
-
-      await db.prepare(`
-        INSERT INTO email_delivery_events (id, email_log_id, contact_id, user_id, event_type, message_id, created_at)
-        VALUES (?, ?, ?, ?, 'sent', ?, ?)
-      `).run(crypto.randomUUID(), logId, contactId, req.user.userId, msgId, now);
-
-      // SMTP acceptance is our best signal that the address is reachable
-      if (!['hard_bounce', 'flagged'].includes(contact.email_deliverable)) {
-        await db.prepare(`UPDATE contacts SET email_deliverable = 'valid' WHERE id = ?`).run(contactId);
+      if (contact.status === 'Do Not Contact') {
+        results.push({ contactId, ok: false, error: 'Do Not Contact' }); continue;
+      }
+      if (contact.email_deliverable === 'hard_bounce' || contact.email_deliverable === 'flagged') {
+        results.push({ contactId, ok: false, error: 'Email undeliverable', deliverable: false }); continue;
+      }
+      if (await wasRecentlySent(contactId)) {
+        results.push({ contactId, ok: false, error: 'Already emailed in the last 14 days' }); continue;
+      }
+      if (!isAdmin && sentCount >= cap) {
+        results.push({ contactId, ok: false, error: 'Daily cap reached' }); continue;
       }
 
-      const newStatus = ['New', 'Drafted'].includes(contact.status) ? 'Sent' : contact.status;
-      await db.prepare(`UPDATE contacts SET status = ?, date_last_contacted = ? WHERE id = ?`)
-        .run(newStatus, now, contactId);
+      const isHtml   = /<[a-zA-Z]/.test(body);
+      const safeBody = isHtml ? sanitizeHtml(body, EMAIL_HTML_OPTS) : body;
+      const textBody = isHtml ? stripHtml(safeBody) : safeBody;
+      const htmlBody = isHtml
+        ? `<div style="font-family:sans-serif;font-size:14px;line-height:1.7">${safeBody}</div>`
+        : `<div style="font-family:sans-serif;font-size:14px;line-height:1.6">${
+            safeBody.split('\n').map(l => `<p style="margin:0 0 4px">${l || '&nbsp;'}</p>`).join('')
+          }</div>`;
 
-      await upsertBillingStats(req.user.userId, 'emails_sent');
+      const mailOpts = {
+        from:    fromName ? `"${fromName}" <${fromEmail}>` : fromEmail,
+        to:      contact.email,
+        subject,
+        text:    textBody,
+        html:    htmlBody,
+        ...(attachments.length > 0 ? { attachments } : {}),
+      };
 
-      sentCount++;
-      results.push({ contactId, ok: true, email: contact.email, messageId: msgId });
+      const logId = crypto.randomUUID();
+      const now   = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
-    } catch (err) {
-      const bounceType   = classifyBounce(err);
-      const bounceReason = err.message || 'Unknown error';
-      const isBounce     = bounceType !== 'failed';
+      try {
+        const info  = await transport.sendMail(mailOpts);
+        const msgId = info?.messageId || null;
 
-      const deliveryStatus = bounceType === 'hard_bounce' ? 'bounced'
-                           : bounceType === 'soft_bounce' ? 'soft_bounce'
-                           : 'failed';
-
-      await db.prepare(`
-        INSERT INTO email_log (id, contact_id, user_id, subject, body_snapshot, bounced, delivery_status, bounce_reason, bounced_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(logId, contactId, req.user.userId, subject, textBody, isBounce ? 1 : 0, deliveryStatus, bounceReason, now);
-
-      await db.prepare(`
-        INSERT INTO email_delivery_events (id, email_log_id, contact_id, user_id, event_type, bounce_reason, raw_data, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        crypto.randomUUID(), logId, contactId, req.user.userId,
-        bounceType, bounceReason, JSON.stringify({ responseCode: err.responseCode || null }), now
-      );
-
-      if (bounceType === 'hard_bounce') {
         await db.prepare(`
-          UPDATE contacts SET
-            email_deliverable = 'hard_bounce',
-            bounce_count      = bounce_count + 1,
-            last_bounce_at    = ?,
-            bounce_reason     = ?,
-            status            = 'Do Not Contact'
-          WHERE id = ?
-        `).run(now, bounceReason, contactId);
+          INSERT INTO email_log (id, contact_id, user_id, subject, body_snapshot, delivery_status, message_id)
+          VALUES (?, ?, ?, ?, ?, 'sent', ?)
+        `).run(logId, contactId, userId, subject, textBody, msgId);
 
-        // Cross-user shared intelligence: flag this address for all other users
         await db.prepare(`
-          UPDATE contacts SET
-            email_deliverable = 'flagged',
-            bounce_count      = bounce_count + 1,
-            last_bounce_at    = ?,
-            bounce_reason     = ?
-          WHERE LOWER(email) = LOWER(?) AND id != ? AND email_deliverable NOT IN ('hard_bounce', 'flagged')
-        `).run(now, 'Flagged: hard bounce reported by another user', contact.email, contactId);
+          INSERT INTO email_delivery_events (id, email_log_id, contact_id, user_id, event_type, message_id, created_at)
+          VALUES (?, ?, ?, ?, 'sent', ?, ?)
+        `).run(crypto.randomUUID(), logId, contactId, userId, msgId, now);
 
-        await upsertBillingStats(req.user.userId, 'emails_bounced');
+        if (!['hard_bounce', 'flagged'].includes(contact.email_deliverable)) {
+          await db.prepare(`UPDATE contacts SET email_deliverable = 'valid' WHERE id = ?`).run(contactId);
+        }
 
-      } else if (bounceType === 'soft_bounce') {
+        const newStatus = ['New', 'Drafted'].includes(contact.status) ? 'Sent' : contact.status;
+        await db.prepare(`UPDATE contacts SET status = ?, date_last_contacted = ? WHERE id = ?`)
+          .run(newStatus, now, contactId);
+
+        await upsertBillingStats(userId, 'emails_sent');
+        sentCount++;
+        results.push({ contactId, ok: true, email: contact.email, messageId: msgId });
+
+      } catch (err) {
+        const bounceType   = classifyBounce(err);
+        const bounceReason = err.message || 'Unknown error';
+        const isBounce     = bounceType !== 'failed';
+        const deliveryStatus = bounceType === 'hard_bounce' ? 'bounced'
+                             : bounceType === 'soft_bounce' ? 'soft_bounce'
+                             : 'failed';
+
         await db.prepare(`
-          UPDATE contacts SET
-            email_deliverable = CASE WHEN email_deliverable NOT IN ('hard_bounce') THEN 'soft_bounce' ELSE email_deliverable END,
-            bounce_count      = bounce_count + 1,
-            last_bounce_at    = ?,
-            bounce_reason     = ?
-          WHERE id = ?
-        `).run(now, bounceReason, contactId);
-        await upsertBillingStats(req.user.userId, 'emails_bounced');
+          INSERT INTO email_log (id, contact_id, user_id, subject, body_snapshot, bounced, delivery_status, bounce_reason, bounced_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(logId, contactId, userId, subject, textBody, isBounce ? 1 : 0, deliveryStatus, bounceReason, now);
 
-      } else {
-        await upsertBillingStats(req.user.userId, 'emails_failed');
+        await db.prepare(`
+          INSERT INTO email_delivery_events (id, email_log_id, contact_id, user_id, event_type, bounce_reason, raw_data, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          crypto.randomUUID(), logId, contactId, userId,
+          bounceType, bounceReason, JSON.stringify({ responseCode: err.responseCode || null }), now
+        );
+
+        if (bounceType === 'hard_bounce') {
+          await db.prepare(`
+            UPDATE contacts SET
+              email_deliverable = 'hard_bounce',
+              bounce_count      = bounce_count + 1,
+              last_bounce_at    = ?,
+              bounce_reason     = ?,
+              status            = 'Do Not Contact'
+            WHERE id = ?
+          `).run(now, bounceReason, contactId);
+
+          await db.prepare(`
+            UPDATE contacts SET
+              email_deliverable = 'flagged',
+              bounce_count      = bounce_count + 1,
+              last_bounce_at    = ?,
+              bounce_reason     = ?
+            WHERE LOWER(email) = LOWER(?) AND id != ? AND email_deliverable NOT IN ('hard_bounce', 'flagged')
+          `).run(now, 'Flagged: hard bounce reported by another user', contact.email, contactId);
+
+          await upsertBillingStats(userId, 'emails_bounced');
+
+        } else if (bounceType === 'soft_bounce') {
+          await db.prepare(`
+            UPDATE contacts SET
+              email_deliverable = CASE WHEN email_deliverable NOT IN ('hard_bounce') THEN 'soft_bounce' ELSE email_deliverable END,
+              bounce_count      = bounce_count + 1,
+              last_bounce_at    = ?,
+              bounce_reason     = ?
+            WHERE id = ?
+          `).run(now, bounceReason, contactId);
+          await upsertBillingStats(userId, 'emails_bounced');
+
+        } else {
+          await upsertBillingStats(userId, 'emails_failed');
+        }
+
+        results.push({ contactId, ok: false, error: err.message, bounced: isBounce, bounceType });
       }
 
-      results.push({ contactId, ok: false, error: err.message, bounced: isBounce, bounceType });
+      if (i < sends.length - 1) await new Promise(r => setTimeout(r, 1000));
     }
 
-    // 1s gap between sends — enough to stay within Gmail's per-second rate limit
-    if (i < sends.length - 1) await new Promise(r => setTimeout(r, 1000));
+    const userContacts = await db.prepare('SELECT * FROM contacts WHERE user_id = ? ORDER BY date_added DESC').all(userId);
+    await syncExcel(userContacts);
+
+    const sent   = results.filter(r => r.ok).length;
+    const failed = results.filter(r => !r.ok).length;
+    return { sent, failed, results };
+  };
+
+  // Large batches run in background so the user can close the modal immediately
+  if (sends.length > BACKGROUND_THRESHOLD) {
+    res.json({ queued: true, total: sends.length });
+    doSend()
+      .then(({ sent, failed }) =>
+        db.prepare(`INSERT INTO notifications (id, user_id, type, title, body) VALUES (?, ?, 'info', ?, ?)`)
+          .run(crypto.randomUUID(), userId,
+            `Email batch done — ${sent}/${sends.length} sent`,
+            `${sent} delivered${failed > 0 ? `, ${failed} failed` : ''}. Open HR List to review contact statuses.`)
+      )
+      .catch(e => console.error('[email/send] Background batch error:', e.message));
+    return;
   }
 
-  // Sync Excel with only the current user's contacts (not all users' data)
-  const userContacts = await db.prepare('SELECT * FROM contacts WHERE user_id = ? ORDER BY date_added DESC').all(req.user.userId);
-  await syncExcel(userContacts);
-
-  const sent   = results.filter(r => r.ok).length;
-  const failed = results.filter(r => !r.ok).length;
+  const { sent, failed, results } = await doSend();
   res.json({ sent, failed, results });
 });
 

@@ -82,7 +82,15 @@ function BulkEmailModal({ contacts, onClose, onSent }) {
           title:   c.title         || '',
         })),
       }, { timeout: 120000 });
-      toast.success(`${result.sent}/${result.total} emails sent!`);
+
+      if (result.queued) {
+        toast.success(
+          `Sending ${result.total} emails in the background — you can close this and carry on. A notification will appear when done.`,
+          { duration: 7000 }
+        );
+      } else {
+        toast.success(`${result.sent}/${result.total} emails sent!`);
+      }
       onSent(contacts.map(c => c.id));
       onClose();
     } catch (e) {

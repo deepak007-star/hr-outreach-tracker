@@ -646,6 +646,26 @@ async function initialize() {
   await addCol('subscriptions', 'razorpay_subscription_id', `TEXT`);
   await addCol('subscriptions', 'razorpay_payment_id',      `TEXT`);
 
+  // ── One-time cleanup: contacts where the name field was imported as an email address.
+  // Extracts the local part (before @) split on the first dot as a best-effort name.
+  // Role keywords (hr, info, recruit, etc.) are blanked so templates fall back to "Hi,".
+  await db.exec(`
+    UPDATE contacts
+    SET name = CASE
+      WHEN lower(split_part(split_part(name, '@', 1), '.', 1)) = ANY(ARRAY[
+        'hr', 'info', 'jobs', 'careers', 'admin', 'recruit', 'recruiter',
+        'noreply', 'no-reply', 'no_reply', 'support', 'contact', 'hello',
+        'apply', 'talent', 'hiring', 'team', 'staffing', 'placement',
+        'notification', 'recruitment', 'human', 'humanresources',
+        'manager', 'head', 'director', 'chief', 'executive', 'vp',
+        'campus', 'intern'
+      ])
+      THEN ''
+      ELSE initcap(split_part(split_part(lower(name), '@', 1), '.', 1))
+    END
+    WHERE name LIKE '%@%'
+  `).catch(e => console.warn('[DB migration] name email cleanup skipped:', e.message));
+
   // ── One-time cleanup: remove job-intel contacts with malformed email addresses
   // Covers: no dot in domain (hr@contact), TLD > 6 chars (.aupostal),
   // WhatsApp/Telegram phone links (91XX@wa.me), all-digit local parts.

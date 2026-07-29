@@ -20,11 +20,14 @@ const EMAIL_HTML_OPTS = {
   disallowedTagsMode: 'discard',
 };
 
+const BACKGROUND_THRESHOLD = 5;
+
 // Per-contact variable substitution supporting many common formats
 function renderFeedTemplate(tpl, contact, profile) {
   const p = profile || {};
-  // name is already cleaned to first-name-only by cleanContactName at write time
-  const firstName = (contact.name || '').split(' ')[0].trim();
+  // cleanContactName handles email-as-name, role keywords, full-name → first-name
+  // at render time — covers contacts imported before the name-cleaning fix
+  const firstName = cleanContactName(contact.name, contact.email);
   const skillsStr = Array.isArray(p.skills) ? p.skills.join(', ') : (p.skills || '');
 
   function sub(text, patterns, value) {
@@ -460,89 +463,102 @@ router.post('/send-feed-emails', requireAuth, async (req, res) => {
 
     // Resolve attachment once for all contacts
     const attachments = await resolveFeedAttachment(attachment || null, req.user.userId);
+    const userId = req.user.userId;
 
-    for (let i = 0; i < contacts.length; i++) {
-      const contact = contacts[i];
-      const { email, name: rawName = '', company = '', title = '' } = contact;
-      if (!email) { results.push({ email, ok: false, error: 'Missing email' }); continue; }
-      if (remaining <= 0) { results.push({ email, ok: false, error: 'Daily cap reached' }); continue; }
+    const doSend = async () => {
+      const results = [];
+      let rem = remaining;
 
-      // Resolve name: use provided → contacts table → email-prefix extraction
-      const cRow = await db.prepare('SELECT id, name FROM contacts WHERE LOWER(email) = LOWER(?) AND user_id = ? LIMIT 1').get(email, req.user.userId);
-      let name = cleanContactName(rawName || cRow?.name || '', email);
+      for (let i = 0; i < contacts.length; i++) {
+        const contact = contacts[i];
+        const { email, name: rawName = '', company = '', title = '' } = contact;
+        if (!email) { results.push({ email, ok: false, error: 'Missing email' }); continue; }
+        if (rem <= 0) { results.push({ email, ok: false, error: 'Daily cap reached' }); continue; }
 
-      // Per-contact variable substitution
-      const contactObj = { name, company, title, email };
-      const renderedSubject = renderFeedTemplate(subjectTpl, contactObj, profile);
-      const renderedBody    = renderFeedTemplate(bodyTpl,    contactObj, profile);
+        const cRow = await db.prepare('SELECT id, name FROM contacts WHERE LOWER(email) = LOWER(?) AND user_id = ? LIMIT 1').get(email, userId);
+        const name = cleanContactName(rawName || cRow?.name || '', email);
 
-      const isHtml   = /<[a-zA-Z]/.test(renderedBody);
-      const safeBody = isHtml ? sanitizeHtml(renderedBody, EMAIL_HTML_OPTS) : renderedBody;
-      const textBody = isHtml
-        ? safeBody.replace(/<[^>]+>/g, '').replace(/\n{3,}/g, '\n\n').trim()
-        : renderedBody;
-      const htmlBody = isHtml
-        ? `<div style="font-family:sans-serif;font-size:14px;line-height:1.7">${safeBody}</div>`
-        : `<div style="font-family:sans-serif;font-size:14px;line-height:1.7">${
-            renderedBody.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
-          }</div>`;
+        const contactObj = { name, company, title, email };
+        const renderedSubject = renderFeedTemplate(subjectTpl, contactObj, profile);
+        const renderedBody    = renderFeedTemplate(bodyTpl,    contactObj, profile);
 
-      const safeName = sanitizeHeaderValue(name);
-      try {
-        await transport.sendMail({
-          from:    fromName ? `"${fromName}" <${fromEmail}>` : fromEmail,
-          to:      safeName ? `"${safeName}" <${email}>` : email,
-          subject: renderedSubject,
-          text:    textBody,
-          html:    htmlBody,
-          ...(attachments.length > 0 ? { attachments } : {}),
-        });
+        const isHtml   = /<[a-zA-Z]/.test(renderedBody);
+        const safeBody = isHtml ? sanitizeHtml(renderedBody, EMAIL_HTML_OPTS) : renderedBody;
+        const textBody = isHtml
+          ? safeBody.replace(/<[^>]+>/g, '').replace(/\n{3,}/g, '\n\n').trim()
+          : renderedBody;
+        const htmlBody = isHtml
+          ? `<div style="font-family:sans-serif;font-size:14px;line-height:1.7">${safeBody}</div>`
+          : `<div style="font-family:sans-serif;font-size:14px;line-height:1.7">${
+              renderedBody.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
+            }</div>`;
 
-        // Record for daily cap tracking (cRow already looked up above for name)
-        await db.prepare(`
-          INSERT INTO email_log (id, contact_id, user_id, subject, body_snapshot, delivery_status)
-          VALUES (?, ?, ?, ?, ?, 'sent')
-        `).run(crypto.randomUUID(), cRow?.id || null, req.user.userId, renderedSubject, textBody.slice(0, 500));
+        const safeName = sanitizeHeaderValue(name);
+        const nowTs = new Date().toISOString().replace('T', ' ').slice(0, 19);
+        try {
+          await transport.sendMail({
+            from:    fromName ? `"${fromName}" <${fromEmail}>` : fromEmail,
+            to:      safeName ? `"${safeName}" <${email}>` : email,
+            subject: renderedSubject,
+            text:    textBody,
+            html:    htmlBody,
+            ...(attachments.length > 0 ? { attachments } : {}),
+          });
 
-        await db.prepare(`
-          INSERT INTO gmail_tracked_emails
-            (id, user_id, contact_email, contact_name, subject, body_snippet, full_body, sent_at, email_status)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'sent')
-          ON CONFLICT DO NOTHING
-        `).run(
-          crypto.randomUUID(), req.user.userId,
-          email, safeName,
-          renderedSubject, textBody.slice(0, 200), textBody, now
-        );
+          await db.prepare(`
+            INSERT INTO email_log (id, contact_id, user_id, subject, body_snapshot, delivery_status)
+            VALUES (?, ?, ?, ?, ?, 'sent')
+          `).run(crypto.randomUUID(), cRow?.id || null, userId, renderedSubject, textBody.slice(0, 500));
 
-        if (remaining !== Infinity) remaining--;
+          await db.prepare(`
+            INSERT INTO gmail_tracked_emails
+              (id, user_id, contact_email, contact_name, subject, body_snippet, full_body, sent_at, email_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'sent')
+            ON CONFLICT DO NOTHING
+          `).run(crypto.randomUUID(), userId, email, safeName, renderedSubject, textBody.slice(0, 200), textBody, nowTs);
 
-        // Update contact status to 'Sent' if this email exists in the contacts table
-        if (cRow?.id) {
-          await db.prepare(`UPDATE contacts SET status = 'Sent', date_last_contacted = ? WHERE id = ? AND user_id = ?`)
-            .run(now, cRow.id, req.user.userId);
+          if (rem !== Infinity) rem--;
+
+          if (cRow?.id) {
+            await db.prepare(`UPDATE contacts SET status = 'Sent', date_last_contacted = ? WHERE id = ? AND user_id = ?`)
+              .run(nowTs, cRow.id, userId);
+          }
+
+          results.push({ email, ok: true });
+        } catch (e) {
+          results.push({ email, ok: false, error: e.message });
         }
 
-        results.push({ email, ok: true });
-      } catch (e) {
-        results.push({ email, ok: false, error: e.message });
+        if (i < contacts.length - 1) await new Promise(r => setTimeout(r, 1000));
       }
 
-      // 1s gap between sends — enough to stay within Gmail's per-second rate limit
-      if (i < contacts.length - 1) {
-        await new Promise(r => setTimeout(r, 1000));
-      }
+      try {
+        const { syncExcel } = require('../services/excelSync');
+        const userContacts = await db.prepare('SELECT * FROM contacts WHERE user_id = ? ORDER BY date_added DESC').all(userId);
+        await syncExcel(userContacts);
+      } catch {}
+
+      const sent = results.filter(r => r.ok).length;
+      return { sent, total: results.length, results };
+    };
+
+    // Large batches run in background so the user can close the panel immediately
+    if (contacts.length > BACKGROUND_THRESHOLD) {
+      res.json({ queued: true, total: contacts.length });
+      doSend()
+        .then(({ sent, total, results: bg }) => {
+          const failed = total - sent;
+          return db.prepare(`INSERT INTO notifications (id, user_id, type, title, body) VALUES (?, ?, 'info', ?, ?)`)
+            .run(crypto.randomUUID(), userId,
+              `Feed emails done — ${sent}/${total} sent`,
+              `${sent} delivered${failed > 0 ? `, ${failed} failed` : ''}. Check HR List for updated statuses.`);
+        })
+        .catch(e => console.error('[scraped-jobs/send-feed-emails] Background batch error:', e.message));
+      return;
     }
 
-    // Sync Excel with the current user's updated contacts
-    try {
-      const { syncExcel } = require('../services/excelSync');
-      const userContacts = await db.prepare('SELECT * FROM contacts WHERE user_id = ? ORDER BY date_added DESC').all(req.user.userId);
-      await syncExcel(userContacts);
-    } catch {}
-
-    const sent = results.filter(r => r.ok).length;
-    res.json({ sent, total: results.length, results });
+    const { sent, total, results } = await doSend();
+    res.json({ sent, total, results });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
