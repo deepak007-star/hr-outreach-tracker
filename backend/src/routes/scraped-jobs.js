@@ -10,6 +10,7 @@ const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { getTransportForUser } = require('../services/mailTransport');
 const sanitizeHtml = require('sanitize-html');
 const { extractContacts } = require('../lib/contactExtract');
+const { cleanContactName, guessFirstNameFromEmail } = require('../lib/nameUtils');
 
 // Shared HTML-safe subset (same as email.js)
 const EMAIL_HTML_OPTS = {
@@ -22,9 +23,8 @@ const EMAIL_HTML_OPTS = {
 // Per-contact variable substitution supporting many common formats
 function renderFeedTemplate(tpl, contact, profile) {
   const p = profile || {};
-  // First name only; treat email-address-looking values as missing
-  const rawName   = (contact.name || '').trim();
-  const firstName = rawName.includes('@') ? '' : (rawName.split(' ')[0] || '');
+  // name is already cleaned to first-name-only by cleanContactName at write time
+  const firstName = (contact.name || '').split(' ')[0].trim();
   const skillsStr = Array.isArray(p.skills) ? p.skills.join(', ') : (p.skills || '');
 
   function sub(text, patterns, value) {
@@ -65,16 +65,8 @@ function renderFeedTemplate(tpl, contact, profile) {
   return result;
 }
 
-// Extract a best-guess first name from an email address
-// e.g. vishal.baliyan@gmail.com → "Vishal", deepak12@gmail.com → "Deepak"
-function guessNameFromEmail(email) {
-  if (!email) return '';
-  const local  = email.split('@')[0];
-  const first  = local.split(/[.\-_+]/)[0];
-  const clean  = first.replace(/[^a-zA-Z]/g, '');
-  if (!clean) return '';
-  return clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase();
-}
+// Kept as alias for any remaining call sites
+const guessNameFromEmail = guessFirstNameFromEmail;
 
 // Resolve attachment (mirrors email.js resolveAttachment, no google-drive dep here)
 async function resolveFeedAttachment(attachment, userId) {
@@ -476,9 +468,8 @@ router.post('/send-feed-emails', requireAuth, async (req, res) => {
       if (remaining <= 0) { results.push({ email, ok: false, error: 'Daily cap reached' }); continue; }
 
       // Resolve name: use provided → contacts table → email-prefix extraction
-      // Also fetch contact id for email_log (reuse the same row)
       const cRow = await db.prepare('SELECT id, name FROM contacts WHERE LOWER(email) = LOWER(?) AND user_id = ? LIMIT 1').get(email, req.user.userId);
-      let name = rawName.trim() || (cRow?.name || '').trim() || guessNameFromEmail(email);
+      let name = cleanContactName(rawName || cRow?.name || '', email);
 
       // Per-contact variable substitution
       const contactObj = { name, company, title, email };

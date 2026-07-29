@@ -44,9 +44,8 @@ router.use(requireAuth);
 // as spam, unlike the plain hand-typed text referrals.js sends.
 function renderTemplate(tpl, contact, profile) {
   const p          = profile || {};
-  // Use first name only; treat email-address-looking names as missing
-  const rawName    = (contact.name || '').trim();
-  const firstName  = rawName.includes('@') ? '' : (rawName.split(' ')[0] || '');
+  // name is already cleaned to first-name-only at write time
+  const firstName  = (contact.name || '').split(' ')[0].trim();
   const skillsStr  = Array.isArray(p.skills) ? p.skills.join(', ') : (p.skills || '');
 
   // Helper: replace many regex patterns with the same value in one pass

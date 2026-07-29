@@ -1,6 +1,7 @@
 'use strict';
 const { randomUUID }      = require('crypto');
 const db                  = require('../db/database');
+const { cleanContactName } = require('../lib/nameUtils');
 const { ingestAll }       = require('./ingestion/index');
 const { normalizeAll }    = require('./normalization');
 const { deduplicateBatch }= require('./deduplication');
@@ -220,7 +221,7 @@ async function syncJobIntelContacts() {
         const email = (rawEmail || '').trim().toLowerCase();
         if (!email || !email.includes('@')) continue;
 
-        const name      = (posting.extracted_contact_name || '').trim();
+        const name      = cleanContactName(posting.extracted_contact_name, email);
         const company   = (posting.company  || '').trim();
         const jobTitle  = (posting.title    || '').trim();
         const sourceUrl = (posting.apply_url || '').trim();

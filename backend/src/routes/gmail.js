@@ -5,6 +5,7 @@ const crypto  = require('crypto');
 const db      = require('../db/database');
 const { requireAuth } = require('../middleware/auth');
 const { decrypt } = require('../services/tokenCrypto');
+const { cleanContactName } = require('../lib/nameUtils');
 
 const router = express.Router();
 
@@ -285,7 +286,7 @@ router.post('/emails/:id/add-contact', requireAuth, async (req, res) => {
       VALUES (?, ?, ?, ?, 'gmail', ?, ?, ?, ?)
       ON CONFLICT (email, user_id) DO NOTHING
     `).run(
-      crypto.randomUUID(), req.user.userId, row.contact_name || row.contact_email, row.contact_email,
+      crypto.randomUUID(), req.user.userId, cleanContactName(row.contact_name, row.contact_email), row.contact_email,
       row.email_status === 'replied' ? 'Replied' : 'Sent',
       now, row.replied_at || row.sent_at, `Imported from Gmail Sync — last subject: "${row.subject}"`
     );
@@ -318,7 +319,7 @@ router.post('/add-all-contacts', requireAuth, async (req, res) => {
         VALUES (?, ?, ?, ?, 'gmail', ?, ?, ?, ?)
         ON CONFLICT (email, user_id) DO NOTHING
       `).run(
-        crypto.randomUUID(), req.user.userId, row.contact_name || row.contact_email, row.contact_email,
+        crypto.randomUUID(), req.user.userId, cleanContactName(row.contact_name, row.contact_email), row.contact_email,
         row.email_status === 'replied' ? 'Replied' : 'Sent',
         now, row.replied_at || row.sent_at, `Imported from Gmail Sync — last subject: "${row.subject}"`
       );

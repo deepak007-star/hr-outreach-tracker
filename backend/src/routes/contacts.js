@@ -7,6 +7,7 @@ const crypto   = require('crypto');
 const db       = require('../db/database');
 const { syncExcel } = require('../services/excelSync');
 const { requireAuth } = require('../middleware/auth');
+const { cleanContactName } = require('../lib/nameUtils');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -115,9 +116,10 @@ router.post('/import', upload.single('file'), async (req, res) => {
     ws.eachRow((row, rowNum) => {
       if (rowNum === 1) return;
 
-      const name  = getCell(row, colMap.name);
-      const email = getCell(row, colMap.email).toLowerCase();
-      if (!name || !email) { skipped++; return; }
+      const rawName = getCell(row, colMap.name);
+      const email   = getCell(row, colMap.email).toLowerCase();
+      if (!email) { skipped++; return; }
+      const name = cleanContactName(rawName, email);
 
       const statusRaw = getCell(row, colMap.status);
       const status    = VALID_STATUSES.includes(statusRaw) ? statusRaw : 'New';
@@ -215,10 +217,10 @@ router.post('/', async (req, res) => {
     source_url, notes, tags = [], status = 'New',
   } = req.body;
 
-  if (!name)  return res.status(400).json({ error: 'name is required' });
   if (!email) return res.status(400).json({ error: 'email is required' });
   if (!VALID_STATUSES.includes(status)) return res.status(400).json({ error: 'Invalid status' });
 
+  const cleanedName = cleanContactName(name, email);
   const userId = req.user.userId;
   const id     = crypto.randomUUID();
   try {
@@ -226,7 +228,7 @@ router.post('/', async (req, res) => {
       INSERT INTO contacts
         (id, user_id, name, title, company, email, email_source, email_confidence, source_url, status, notes, tags)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, userId, name, title || null, company || null, email.toLowerCase(),
+    `).run(id, userId, cleanedName, title || null, company || null, email.toLowerCase(),
         email_source, email_confidence, source_url || null, status, notes || null, JSON.stringify(tags));
 
     const c = await db.prepare('SELECT * FROM contacts WHERE id = ?').get(id);
