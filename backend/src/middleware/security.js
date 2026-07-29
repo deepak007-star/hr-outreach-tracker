@@ -2,15 +2,24 @@ const rateLimit  = require('express-rate-limit');
 const slowDown   = require('express-slow-down');
 
 // ── Global API rate limiter ────────────────────────────────────────────────────
-// Blocks bots that hammer the API blindly. Generous enough for real users.
+// Blocks bots. For authenticated users, key by userId so that shared-IP
+// environments (Render NAT, multiple users behind same router) don't
+// cause one user's traffic to burn another user's quota.
 const globalApiLimiter = rateLimit({
   windowMs:        15 * 60 * 1000, // 15 minutes
-  max:             300,             // 300 requests per 15 min per IP
+  max:             1000,            // 1000 requests per 15 min per user/IP
   standardHeaders: true,
   legacyHeaders:   false,
-  skip:            req => req.path === '/api/health', // health checks skip
+  // Prefer userId over IP — avoids Render/NAT shared-IP collisions
+  keyGenerator:    req => req.user?.userId || req.ip || 'anon',
+  skip:            req => req.method === 'OPTIONS', // preflight always passes
   message:         { error: 'Too many requests — please slow down.' },
   handler: (req, res, _next, options) => {
+    // Always include CORS headers even on rate-limit rejections so the
+    // browser doesn't misreport a 429 as a CORS policy violation.
+    const origin = req.headers.origin;
+    if (origin) res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.status(429).json(options.message);
   },
 });

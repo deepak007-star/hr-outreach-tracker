@@ -19,9 +19,6 @@ function createLegacyTransport(smtp) {
   });
 }
 
-// Builds the same RFC822 message nodemailer's SMTP transport would send,
-// without opening an SMTP connection — reuses mailOpts (from/to/subject/
-// text/html/attachments) as-is so callers don't need to change anything.
 function buildRawMessage(mailOpts) {
   return new Promise((resolve, reject) => {
     new MailComposer(mailOpts).compile().build((err, message) => {
@@ -35,14 +32,8 @@ function toBase64Url(buffer) {
   return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-// Sends through the Gmail REST API (HTTPS, port 443) instead of raw SMTP
-// (ports 25/465/587). Render's free web-service tier blocks all outbound
-// SMTP ports as of Sept 2025, which made every send here fail with a
-// generic "Connection timeout" regardless of OAuth vs. legacy SMTP creds —
-// the Gmail API rides over normal HTTPS so it isn't affected.
-// Note: gmail.send only reports synchronous failures (bad auth, malformed
-// message); a bounce for a nonexistent recipient now arrives later as an
-// email in the inbox rather than as an error from this call.
+// Sends through the Gmail REST API (HTTPS, port 443) instead of raw SMTP.
+// Render's free tier blocks outbound SMTP ports; Gmail API rides over HTTPS.
 async function sendViaGmailApi(oauthRow, mailOpts) {
   const oauth2 = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
@@ -52,18 +43,39 @@ async function sendViaGmailApi(oauthRow, mailOpts) {
   oauth2.setCredentials({ refresh_token: decrypt(oauthRow.refresh_token) });
   const gmail = google.gmail({ version: 'v1', auth: oauth2 });
 
-  const raw = toBase64Url(await buildRawMessage(mailOpts));
-  const { data } = await gmail.users.messages.send({ userId: 'me', requestBody: { raw } });
-  return { messageId: data.id };
+  try {
+    const raw = toBase64Url(await buildRawMessage(mailOpts));
+    const { data } = await gmail.users.messages.send({ userId: 'me', requestBody: { raw } });
+    return { messageId: data.id };
+  } catch (err) {
+    const msg = (err.message || '').toLowerCase();
+    // invalid_grant = refresh token revoked or expired (common after 7 days in
+    // Google's Testing mode, or if the user revoked access in their Google account).
+    // Clear the dead token immediately so the next send attempt shows a clear
+    // "please reconnect" error instead of silently failing forever.
+    if (msg.includes('invalid_grant') || err.code === 401 || err.status === 401) {
+      try {
+        await db.prepare(
+          "DELETE FROM oauth_accounts WHERE user_id = ? AND provider = 'google'"
+        ).run(oauthRow.userId);
+      } catch (dbErr) {
+        console.error('[mailTransport] Failed to clear stale OAuth token:', dbErr.message);
+      }
+      const clean = new Error(
+        'Google OAuth token expired or revoked. Please reconnect your Google account in Email / SMTP Settings.'
+      );
+      clean.code = 'OAUTH_EXPIRED';
+      throw clean;
+    }
+    throw err;
+  }
 }
 
-// Returns { transport, fromEmail, fromName } for the given user's connected
-// Google account, falling back to the legacy global SMTP settings, or null
-// if neither is configured. `transport.sendMail(mailOpts)` works the same
-// way regardless of which path was used.
+// Returns { transport, fromEmail, fromName } for userId, falling back to
+// legacy SMTP if no OAuth account is connected, or null if nothing is set up.
 async function getTransportForUser(userId) {
   const oauthRow = await db.prepare(
-    "SELECT email, refresh_token FROM oauth_accounts WHERE user_id = ? AND provider = 'google'"
+    "SELECT user_id, email, refresh_token FROM oauth_accounts WHERE user_id = ? AND provider = 'google'"
   ).get(userId);
 
   if (oauthRow) {

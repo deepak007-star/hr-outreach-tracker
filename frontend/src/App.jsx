@@ -88,7 +88,8 @@ const STATUSES = ['New','Drafted','Sent','Opened','Replied','Interview','Rejecte
 export default function App() {
   const [contacts,       setContacts]       = useState([]);
   const [loading,        setLoading]        = useState(true);
-  const [search,         setSearch]         = useState('');
+  const [searchInput,    setSearchInput]    = useState('');  // raw input (instant)
+  const [search,         setSearch]         = useState('');  // debounced (sent to API)
   const [statusFilter,   setStatusFilter]   = useState('');
   const [sourceFilter,   setSourceFilter]   = useState('');
   const [titleFilter,    setTitleFilter]    = useState('');
@@ -133,6 +134,13 @@ export default function App() {
 
   const visibleLimit = PLAN_LIMITS[user?.plan] ?? PLAN_LIMITS.guest;
   const planName     = PLAN_NAMES[user?.plan]  ?? PLAN_NAMES.guest;
+
+  // Debounce search input — waits 400ms after the user stops typing before
+  // firing an API call, preventing a request burst on every keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput), 400);
+    return () => clearTimeout(t);
+  }, [searchInput]);
 
   const fetchContacts = useCallback(async () => {
     if (!user) { setLoading(false); return; } // guests land on LandingPage, not the contacts table
@@ -572,8 +580,8 @@ export default function App() {
               <input
                 type="text"
                 placeholder="Search name, email, company…"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
+                value={searchInput}
+                onChange={e => setSearchInput(e.target.value)}
                 className="border border-gray-200 rounded-sm px-3 py-2 w-52 text-sm focus:ring-2 focus:ring-brand-300 focus:border-brand-400 outline-none bg-white"
               />
               <input
@@ -602,8 +610,8 @@ export default function App() {
                 <option value="csv">CSV Import</option>
                 <option value="apify">Apify</option>
               </select>
-              {(search || statusFilter || sourceFilter || titleFilter) && (
-                <button onClick={() => { setSearch(''); setStatusFilter(''); setSourceFilter(''); setTitleFilter(''); }}
+              {(searchInput || statusFilter || sourceFilter || titleFilter) && (
+                <button onClick={() => { setSearchInput(''); setSearch(''); setStatusFilter(''); setSourceFilter(''); setTitleFilter(''); }}
                   className="text-xs text-gray-400 hover:text-gray-600 underline">
                   Clear
                 </button>
