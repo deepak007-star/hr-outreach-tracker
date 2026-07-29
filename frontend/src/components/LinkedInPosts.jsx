@@ -81,7 +81,7 @@ function BulkEmailModal({ contacts, onClose, onSent }) {
           company: c.company       || '',
           title:   c.title         || '',
         })),
-      });
+      }, { timeout: 120000 });
       toast.success(`${result.sent}/${result.total} emails sent!`);
       onSent(contacts.map(c => c.id));
       onClose();

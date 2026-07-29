@@ -285,7 +285,7 @@ function FeedComposeModal({ contacts, onClose, onSent }) {
           mimeType: attachment.mimeType || null,
         };
       }
-      const result = await api.post('/scraped-jobs/send-feed-emails', payload);
+      const result = await api.post('/scraped-jobs/send-feed-emails', payload, { timeout: 120000 });
       const sent        = result.sent   || 0;
       const failed      = (result.total || 0) - sent;
       const sentEmails  = (result.results || []).filter(r => r.ok).map(r => r.email);

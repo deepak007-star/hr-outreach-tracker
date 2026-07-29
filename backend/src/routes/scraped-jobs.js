@@ -528,9 +528,9 @@ router.post('/send-feed-emails', requireAuth, async (req, res) => {
         results.push({ email, ok: false, error: e.message });
       }
 
-      // 2s gap between sends in a batch (use loop index, not indexOf, to avoid O(n²))
+      // 1s gap between sends — enough to stay within Gmail's per-second rate limit
       if (i < contacts.length - 1) {
-        await new Promise(r => setTimeout(r, 2000));
+        await new Promise(r => setTimeout(r, 1000));
       }
     }
 

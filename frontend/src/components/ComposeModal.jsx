@@ -198,7 +198,7 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
           mimeType: attachment.mimeType || null,
         };
       }
-      const { sent, failed, results } = await api.post('/email/send', payload);
+      const { sent, failed, results } = await api.post('/email/send', payload, { timeout: 120000 });
       if (sent > 0)    toast.success(`${sent} email${sent !== 1 ? 's' : ''} sent!`);
       if (failed > 0)  toast.error(`${failed} failed`);
       const bounced       = results.filter(r => r.bounced);

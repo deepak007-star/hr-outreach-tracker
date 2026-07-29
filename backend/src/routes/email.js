@@ -481,8 +481,8 @@ router.post('/send', rlMiddleware('email'), async (req, res) => {
       results.push({ contactId, ok: false, error: err.message, bounced: isBounce, bounceType });
     }
 
-    // Rate-limit: 2 s gap between sends in a batch
-    if (i < sends.length - 1) await new Promise(r => setTimeout(r, 2000));
+    // 1s gap between sends — enough to stay within Gmail's per-second rate limit
+    if (i < sends.length - 1) await new Promise(r => setTimeout(r, 1000));
   }
 
   // Sync Excel with only the current user's contacts (not all users' data)
