@@ -2,9 +2,10 @@
 /**
  * LinkedIn feed endpoint.
  * Primary source: scraped_jobs (linkedin-feed Playwright scraper — has contact info).
- * Optional secondary: linkedin_posts (Apify — rich metadata, no contact info).
+ * Secondary source: linkedin_posts (historical Apify data — preserved, no new data added).
  *
- * Default: source=scraper (scraper-only). Pass source=all to include Apify posts.
+ * Default: source=all (scraper + historical Apify). Pass source=scraper for scraper-only.
+ * No new Apify scraping is performed — the linkedin_posts table is historical-only.
  */
 
 const express = require('express');

@@ -118,14 +118,14 @@ export default function JobIntelPanel() {
       {stats && (
         <div className="grid grid-cols-3 gap-3">
           {[
-            { label: 'Total HR Contacts', value: stats.total,     sub: 'emails extracted' },
-            { label: 'This Week',          value: stats.this_week, sub: 'new contacts'     },
-            { label: 'Today',              value: stats.today,     sub: 'added today'      },
+            { label: 'Total HR Contacts', value: stats.total,     sub: 'auto-synced to HR List' },
+            { label: 'This Week',          value: stats.this_week, sub: 'new contacts'           },
+            { label: 'Today',              value: stats.today,     sub: 'added today'             },
           ].map(s => (
-            <div key={s.label} className="bg-white border border-gray-200 rounded-lg p-3">
-              <div className="text-2xl font-bold text-gray-900">{s.value ?? '—'}</div>
-              <div className="text-xs font-medium text-gray-700 mt-0.5">{s.label}</div>
-              <div className="text-[10px] text-gray-400">{s.sub}</div>
+            <div key={s.label} className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+              <div className="text-2xl font-bold text-purple-800">{s.value ?? '—'}</div>
+              <div className="text-xs font-medium text-purple-700 mt-0.5">{s.label}</div>
+              <div className="text-[10px] text-purple-400">{s.sub}</div>
             </div>
           ))}
         </div>
@@ -206,10 +206,13 @@ export default function JobIntelPanel() {
           return (
             <div
               key={contact.id}
-              className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-sm transition-shadow"
+              className="bg-purple-50/30 border border-purple-200 border-l-4 border-l-purple-500 rounded-lg p-4 hover:shadow-sm hover:bg-purple-50/50 transition-all"
             >
               {/* Source + extraction method badges */}
               <div className="flex items-center gap-2 mb-2 flex-wrap">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-purple-100 text-purple-700">
+                  🟣 Job Intel
+                </span>
                 <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${src.bg} ${src.text}`}>
                   <Globe size={9} /> {src.label}
                 </span>

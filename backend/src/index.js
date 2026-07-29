@@ -68,8 +68,8 @@ async function main() {
   const paymentsRouter       = require('./routes/payments');
   const chatbotRouter        = require('./routes/chatbot');
   const jobIntelRouter       = require('./routes/job-intelligence');
-  const { schedulePipeline, syncJobIntelContacts } = require('./agents/orchestrator');
-  const { getSettings } = require('./routes/apify');
+  const { schedulePipeline, syncJobIntelContacts, runPipeline } = require('./agents/orchestrator');
+  const { getSettings } = require('./routes/apify'); // getSettings supplies the search-query list used by all scrapers
   const { sendReminderEmail } = require('./routes/reminder');
 
   const cookieParser = require('cookie-parser');
@@ -168,11 +168,10 @@ async function main() {
   // (linkedin-jobs, naukri, internshala, instahyre, foundit), 'remote'
   // (arbeitnow, remoteok, weworkremotely, remotive via the 'general' scraper
   // key), and 'international' (jora, across its 6 live countries) categories,
-  // plus the LinkedIn feed HR-contact scraper (cold-email). Apify is NOT run
-  // automatically — it only runs when an admin manually clicks "Scrape Now
-  // (Apify)" in the Admin Panel. Regular users never trigger scraping
-  // themselves — this is the sole automatic source of fresh data for the
-  // user-facing feed.
+  // plus the LinkedIn Feed HR-contact scraper (cold-email). After all scrapers
+  // finish, the Job Intel pipeline runs automatically to extract HR contacts
+  // from the new data. Apify is NOT used — existing Apify data in the DB is
+  // preserved for historical reference only.
   const { randomUUID } = require('crypto');
   const IST_OFFSET_MS  = 19_800_000; // +5:30
 
@@ -248,9 +247,16 @@ async function main() {
       await database.prepare('INSERT INTO notifications (id, user_id, type, title, body) VALUES (?, ?, ?, ?, ?)')
         .run(randomUUID(), null, 'info', 'Daily job feed updated',
           `Morning prefetch imported ${storedByCategory.general} general jobs, ${storedByCategory.remote} remote jobs, `
-          + `${storedByCategory.international} international jobs, and ${feedStored} LinkedIn feed posts.`);
+          + `${storedByCategory.international} international jobs, and ${feedStored} LinkedIn feed posts. Extracting HR contacts…`);
 
       console.log(`[Daily scrape] Done —`, storedByCategory, `+ ${feedStored} LinkedIn feed posts`);
+
+      // Immediately trigger the Job Intel pipeline so fresh Naukri / LinkedIn /
+      // Instahyre / Internshala / Jora data gets contact-extracted without
+      // waiting for the pipeline's own 6h schedule.
+      runPipeline('daily-scrape').catch(e =>
+        console.error('[Daily scrape → Pipeline] Contact extraction failed:', e.message)
+      );
     } catch (e) { console.error('[Daily scrape] Failed:', e.message); }
   }, 5 * 60_000); // every 5 minutes
 
@@ -389,11 +395,12 @@ async function main() {
   // ── Multi-agent Job Intelligence Pipeline scheduler ───────────────────────
   schedulePipeline().catch(e => console.error('[Pipeline] Scheduler init failed:', e.message));
 
-  // Daily job-intel contact sync — independently of pipeline schedule, sync any
-  // already-extracted HR emails from job_postings into the admin's contacts page.
+  // Job-intel contact sync — runs every 5 minutes so newly extracted emails appear
+  // in HR List and Job Intel Contacts within a few minutes of the pipeline finishing.
   // Also runs once at startup (45s) so existing DB data populates on first boot.
   setTimeout(() => syncJobIntelContacts().catch(e => console.error('[Job Intel sync] Startup sync failed:', e.message)), 45_000);
-  setInterval(() => syncJobIntelContacts().catch(e => console.error('[Job Intel sync] Daily sync failed:', e.message)), 24 * 3_600_000);
+  // Every 5 min: lightweight sync of the last 30 minutes of new postings
+  setInterval(() => syncJobIntelContacts(Date.now() - 30 * 60_000).catch(e => console.error('[Job Intel sync] Periodic sync failed:', e.message)), 5 * 60_000);
 
   // Run purge once at startup (after 30s) then every 24h
   setTimeout(runDailyPurgeAndBackup, 30_000);

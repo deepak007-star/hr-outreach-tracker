@@ -1,6 +1,6 @@
 /**
  * Auto-synced HR email/phone contacts for the Gmail Tracking tab.
- * Sources: LinkedIn Feed (Playwright + Apify) and Naukri job posts with contact info.
+ * Sources: LinkedIn Feed (Playwright), Naukri, Instahyre, Internshala, Jora, and other scraped job posts with contact info.
  * Refreshes every 60 s. Filter by source, status, date range, or search.
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -565,8 +565,13 @@ export default function FeedContactsPanel() {
   };
 
   const selectN = (n) => {
-    const pending = filteredContacts.filter(c => !c.already_emailed);
-    setSelected(new Set(pending.slice(0, n).map(c => c.contact_email)));
+    const unselectedPending = filteredContacts.filter(c => !c.already_emailed && !selected.has(c.contact_email));
+    const toAdd = unselectedPending.slice(0, n).map(c => c.contact_email);
+    setSelected(prev => {
+      const next = new Set(prev);
+      toAdd.forEach(e => next.add(e));
+      return next;
+    });
   };
 
   const toggleSelect = (email) => {
@@ -738,16 +743,16 @@ export default function FeedContactsPanel() {
 
           {/* Quick-select N buttons */}
           {[5, 10].map(n => {
-            const available = filteredContacts.filter(c => !c.already_emailed).length;
-            if (available < n && n === 10) return null;
+            const available = filteredContacts.filter(c => !c.already_emailed && !selected.has(c.contact_email)).length;
             return (
               <button
                 key={n}
                 onClick={() => selectN(n)}
                 disabled={available === 0}
                 className="px-2.5 py-1 text-xs font-semibold border border-gray-300 rounded-sm text-gray-600 hover:bg-gray-50 hover:border-gray-400 disabled:opacity-40 transition"
+                title={`Add ${Math.min(n, available)} unsent to selection`}
               >
-                Select {n}
+                +{n}
               </button>
             );
           })}

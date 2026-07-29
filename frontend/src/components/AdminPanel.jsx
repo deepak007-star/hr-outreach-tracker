@@ -1081,10 +1081,9 @@ function ReferralsSection() {
   );
 }
 
-// ── Job Scraper Section (Apify + LinkedIn feed, admin-only manual trigger) ──
+// ── Job Scraper Section (multi-platform daily scraper, admin-only manual trigger) ──
 function ScraperSection() {
   const [showConfig,   setShowConfig]   = useState(false);
-  const [apifyRunning, setApifyRunning] = useState(false);
   const [feedRunning,  setFeedRunning]  = useState(false);
   const [feedLogs,     setFeedLogs]     = useState([]);
   const [showFeedLogs, setShowFeedLogs] = useState(false);
@@ -1098,16 +1097,6 @@ function ScraperSection() {
   useEffect(() => {
     if (showFeedLogs) logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [feedLogs]);
-
-  async function runApifyNow() {
-    setApifyRunning(true);
-    try {
-      const r = await api.post('/apify/scrape');
-      toast.success(`Apify scrape complete — ${r.imported}/${r.total} posts imported`);
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Apify scrape failed');
-    } finally { setApifyRunning(false); }
-  }
 
   async function runFeedScraperNow() {
     setFeedRunning(true);
@@ -1167,13 +1156,12 @@ function ScraperSection() {
         <div>
           <h3 className="font-bold text-gray-800 flex items-center gap-2">Job Scraper</h3>
           <p className="text-sm text-gray-500 mt-1">
-            Every morning at 7:00 AM IST, the tracker automatically prefetches jobs across the configured role queries:
-            <strong> General</strong> (LinkedIn Jobs, Naukri.com, Internshala, Instahyre, Foundit),
-            <strong> Remote</strong> (Arbeitnow, RemoteOK, We Work Remotely, Remotive),
-            <strong> International</strong> (Jora — Australia, Singapore, Hong Kong, Indonesia, Malaysia, New Zealand),
-            and the LinkedIn Feed HR-contact scraper (cold-email).
-            Apify does <strong>not</strong> run automatically — trigger it manually below whenever you want a fresh Apify pull.
-            Regular users only ever see prefetched results — scraping is admin-only.
+            Every morning at <strong>7:00 AM IST</strong>, the tracker automatically scrapes jobs across all configured role queries from:
+            <strong> Naukri.com</strong>, <strong>LinkedIn Jobs &amp; Feed</strong>, <strong>Internshala</strong>, <strong>Instahyre</strong>, <strong>Foundit</strong>,
+            <strong> Arbeitnow</strong>, <strong>RemoteOK</strong>, <strong>We Work Remotely</strong>, <strong>Remotive</strong>,
+            and <strong>Jora</strong> (AU/SG/HK/ID/MY/NZ).
+            After scraping, the <strong>Job Intel Pipeline</strong> automatically extracts HR emails and syncs them to your HR List and Job Intel Contacts within minutes.
+            Manually trigger the LinkedIn Feed scraper below for an immediate refresh.
           </p>
         </div>
 
@@ -1190,14 +1178,7 @@ function ScraperSection() {
             onClick={() => setShowConfig(true)}
             className="flex items-center gap-1.5 px-4 py-2 border border-gray-300 text-gray-700 rounded-sm text-sm font-semibold hover:bg-gray-50 transition-colors"
           >
-            <Settings size={14} /> Edit Query List / Config
-          </button>
-          <button
-            onClick={runApifyNow}
-            disabled={apifyRunning}
-            className="px-4 py-2 bg-brand-600 text-white rounded-sm text-sm font-semibold hover:bg-brand-700 disabled:opacity-60 transition-colors"
-          >
-            {apifyRunning ? 'Running…' : 'Scrape Now (Apify)'}
+            <Settings size={14} /> Edit Job Keywords
           </button>
           <button
             onClick={runFeedScraperNow}

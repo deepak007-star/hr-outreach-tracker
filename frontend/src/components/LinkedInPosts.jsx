@@ -354,7 +354,6 @@ export default function LinkedInPosts() {
   const [hiringOnly,    setHiringOnly] = useState(false);
   const [filter,        setFilter]     = useState('all'); // 'all' | 'email' | 'phone'
   const [minMatch,      setMinMatch]  = useState(0);
-  const [includeApify,  setIncludeApify] = useState(true);
   const [selected,      setSelected]   = useState(new Set());
   const [composeTo,     setComposeTo]  = useState(null);
   const [activePost,    setActivePost] = useState(null);
@@ -381,7 +380,7 @@ export default function LinkedInPosts() {
   const fetchPosts = useCallback(async () => {
     setLoading(true);
     try {
-      const params = { since, limit: 500, source: includeApify ? 'all' : 'scraper' };
+      const params = { since, limit: 500, source: 'all' };
       if (search)       params.search       = search;
       if (hiringOnly)   params.hiring_only  = 'true';
       if (showAllRoles) params.matchProfile = 'false';
@@ -391,7 +390,7 @@ export default function LinkedInPosts() {
       setSinceFallback(!!data.since_fallback);
     } catch { toast.error('Failed to load posts'); }
     finally  { setLoading(false); }
-  }, [search, since, hiringOnly, includeApify, showAllRoles]);
+  }, [search, since, hiringOnly, showAllRoles]);
 
   useEffect(() => { fetchPosts(); }, [fetchPosts]);
 
@@ -561,7 +560,7 @@ export default function LinkedInPosts() {
 
   const withEmail = posts.filter(p => p.contact_email).length;
   const phoneOnly = posts.filter(p => !p.contact_email && p.contact_phone).length;
-  const apifyOnly = posts.filter(p => p.source === 'apify' || p.source === 'both').length;
+  const historicalApify = posts.filter(p => p.source === 'apify' || p.source === 'both').length;
 
   return (
     <div className="space-y-4">
@@ -587,12 +586,8 @@ export default function LinkedInPosts() {
         <div className="ml-auto flex items-center gap-2 flex-wrap">
           <span className="text-xs text-gray-400">
             {posts.length} posts · {withEmail} email · {phoneOnly} phone
-            {includeApify && apifyOnly > 0 ? ` · ${apifyOnly} Apify` : ''}
+            {historicalApify > 0 ? ` · ${historicalApify} archived` : ''}
           </span>
-          <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none border rounded-sm px-2.5 py-1.5 hover:bg-gray-50 transition-colors">
-            <input type="checkbox" checked={includeApify} onChange={e => setIncludeApify(e.target.checked)} className="rounded accent-brand-600" />
-            Include Apify posts
-          </label>
           {isAdmin && (
             <input type="text" placeholder="Custom keywords (comma-separated)…"
                    value={customKeywords} onChange={e => setCustomKeywords(e.target.value)}

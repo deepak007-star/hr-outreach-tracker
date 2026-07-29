@@ -25,7 +25,7 @@ async function getSettings() {
     apiKey:       await get('apify_api_key'),
     actorId:      await get('apify_actor_id'),
     searchQueries,
-    maxPosts:    parseInt((await get('apify_max_posts'))    || '30'),
+    maxPosts:    parseInt((await get('apify_max_posts'))    || '150'),
     postedLimit: (await get('apify_posted_limit')) || '24h',
     sortBy:      (await get('apify_sort_by'))      || 'relevance',
   };
@@ -216,9 +216,9 @@ async function performScrape(overrides = {}) {
   if (status !== 'SUCCEEDED')
     return { error: `Apify run ended with status: ${status}` };
 
-  // Fetch dataset items
+  // Fetch dataset items (limit=2000 to capture full run output)
   const itemsRes = await fetch(
-    `${APIFY}/datasets/${datasetId}/items?format=json&clean=true&limit=500`,
+    `${APIFY}/datasets/${datasetId}/items?format=json&clean=true&limit=2000`,
     { headers: { Authorization: `Bearer ${s.apiKey}` } }
   );
   const raw   = await itemsRes.json();

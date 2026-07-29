@@ -661,17 +661,22 @@ export default function App() {
           <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-gray-100">
             {/* Quick-select buttons — always visible */}
             <span className="text-xs text-gray-400 font-medium">Select:</span>
-            {[5, 10].map(n => (
-              contacts.length >= n && (
+            {[5, 10].map(n => {
+              const SENT_STATUSES = new Set(['Sent','Opened','Replied','Interview','Rejected','Do Not Contact']);
+              const unsentIds = contacts
+                .filter(c => !SENT_STATUSES.has(c.status) && !selected.includes(c.id))
+                .map(c => c.id);
+              return unsentIds.length > 0 && (
                 <button
                   key={n}
-                  onClick={() => setSelected(contacts.slice(0, n).map(c => c.id))}
+                  onClick={() => setSelected(prev => [...prev, ...unsentIds.slice(0, n)])}
                   className="text-xs px-2.5 py-1 border border-gray-300 rounded-sm text-gray-600 hover:bg-gray-100 hover:border-gray-400 font-semibold transition"
+                  title={`Add ${Math.min(n, unsentIds.length)} unsent contact${Math.min(n, unsentIds.length) !== 1 ? 's' : ''} to selection`}
                 >
-                  {n}
+                  +{n}
                 </button>
-              )
-            ))}
+              );
+            })}
             {contacts.length > 0 && (
               <button
                 onClick={() => setSelected(contacts.map(c => c.id))}

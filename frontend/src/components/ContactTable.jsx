@@ -75,7 +75,7 @@ function StatusCell({ contact, onStatusChange }) {
 // Source label + confidence tooltip in one compact cell
 function SourceCell({ c }) {
   const isJobIntel = c.email_source === 'job-intel';
-  const label = isJobIntel ? 'Job Intel'
+  const label = isJobIntel ? '🟣 Job Intel'
     : (c.email_source || '').replace(/_/g, ' ') || '—';
   const confColor = c.email_confidence === 'verified' ? 'text-green-600'
     : c.email_confidence === 'guessed' ? 'text-amber-600' : 'text-gray-400';
@@ -83,7 +83,7 @@ function SourceCell({ c }) {
   return (
     <div className="flex flex-col gap-0.5">
       <span className={`inline-block text-[10px] font-medium px-1.5 py-0.5 rounded leading-tight ${
-        isJobIntel ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-600'
+        isJobIntel ? 'bg-purple-100 text-purple-700 font-semibold' : 'bg-gray-100 text-gray-600'
       }`}>
         {label}
       </span>
@@ -247,7 +247,7 @@ export default function ContactTable({
                   <tr className={`${
                     !emailVisible ? 'bg-gray-50/30 opacity-70'
                     : isDoNotContact ? 'opacity-50 bg-white'
-                    : isJobIntel ? 'bg-blue-50/20'
+                    : isJobIntel ? 'bg-purple-50/40 border-l-2 border-l-purple-400'
                     : 'bg-white'
                   } hover:bg-stone-50/60 transition-colors`}>
 

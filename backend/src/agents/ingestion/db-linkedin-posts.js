@@ -2,9 +2,9 @@
 const db = require('../../db/database');
 
 /**
- * Internal ingestion source: reads from the linkedin_posts table already
- * populated by the Apify scraper. Filters for posts that likely contain
- * HR contact info (email patterns, outreach phrases).
+ * Internal ingestion source: reads from the linkedin_posts table.
+ * This table contains historical data only — no new Apify scraping occurs.
+ * Filters for posts that likely contain HR contact info (email patterns, outreach phrases).
  */
 module.exports = async function fetchFromLinkedinPostsDB(cfg) {
   const days   = cfg?.internal_lookback_days || 60;
@@ -29,7 +29,7 @@ module.exports = async function fetchFromLinkedinPostsDB(cfg) {
     )
     AND scraped_at >= ?
     ORDER BY scraped_at DESC
-    LIMIT 1000
+    LIMIT 2000
   `).all(cutoff).catch(e => {
     console.error('[db-linkedin-posts] query failed:', e.message);
     return [];

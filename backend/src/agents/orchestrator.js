@@ -195,7 +195,12 @@ async function schedulePipeline() {
  *   was also job-intel sourced — never stomps manually-added contacts.
  * - Returns the number of rows affected.
  */
-async function syncJobIntelContacts() {
+/**
+ * @param {number|null} sinceMs  Only sync postings fetched after this epoch-ms.
+ *   null = sync all (used after a full pipeline run).
+ *   Pass Date.now() - N to do a lightweight incremental sync.
+ */
+async function syncJobIntelContacts(sinceMs = null) {
   try {
     const admin = await db.prepare(
       "SELECT id FROM users WHERE role = 'admin' ORDER BY created_at ASC LIMIT 1"
@@ -207,11 +212,24 @@ async function syncJobIntelContacts() {
     const adminId = admin.id;
     const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
-    const postings = await db.prepare(
-      `SELECT id, company, title, apply_url, source, extracted_emails, extracted_contact_name
-       FROM job_postings
-       WHERE extracted_emails != '[]' AND extracted_emails IS NOT NULL`
-    ).all();
+    // Periodic (5-min) sync: only look at postings from the last 30 minutes to keep it lightweight.
+    // Full pipeline run passes sinceMs=null to sync everything.
+    const cutoff = sinceMs != null
+      ? new Date(sinceMs).toISOString().replace('T', ' ').slice(0, 19)
+      : null;
+
+    const postings = cutoff
+      ? await db.prepare(
+          `SELECT id, company, title, apply_url, source, extracted_emails, extracted_contact_name
+           FROM job_postings
+           WHERE extracted_emails != '[]' AND extracted_emails IS NOT NULL
+           AND fetched_at >= ?`
+        ).all(cutoff)
+      : await db.prepare(
+          `SELECT id, company, title, apply_url, source, extracted_emails, extracted_contact_name
+           FROM job_postings
+           WHERE extracted_emails != '[]' AND extracted_emails IS NOT NULL`
+        ).all();
 
     let synced = 0;
     for (const posting of postings) {
