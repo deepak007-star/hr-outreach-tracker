@@ -2,6 +2,76 @@
 
 ---
 
+## 2026-07-30 — Proxy list UI + anti-bot status badge (Commit: 1e37f66)
+
+### FEATURE — Admin Panel → Job Intel Pipeline: Proxy / IP Rotation card
+
+- **Problem:** The `proxy_list` settings key was not in `ALLOWED_SETTINGS_KEYS`, so `PUT /api/settings` silently ignored proxy writes. There was no UI for entering or saving proxies, and no visibility into whether the scraper was hitting bot blocks.
+- **Fix:**
+  - `backend/src/routes/settings.js`: Added `'proxy_list'` to `ALLOWED_SETTINGS_KEYS`.
+  - `frontend/src/components/AdminPanel.jsx` (`JobIntelConfigSection`):
+    - Loads `proxy_list` and `antibot_status` from `GET /api/settings` on mount.
+    - New **Proxy / IP Rotation** card with a `font-mono` textarea (one URL per line, `http://` or `socks5://`) and a **Save Proxy List** button.
+    - **Anti-bot status badge** (top-right of the card): green "Scraper OK" / amber "Low yield — possible IP block" / red "All proxies dead" — pulled from `antibot_status` settings key written by the pipeline after each run.
+    - Inline warning text shown when status is `low_yield` (displays the pipeline's exact message).
+- **Files changed:** `backend/src/routes/settings.js`, `frontend/src/components/AdminPanel.jsx`
+
+---
+
+## 2026-07-30 — Anti-bot pipeline: proxy rotation, 7-engine search, CAPTCHA detection (Commit: f191888)
+
+### FEATURE — Multi-layer anti-bot system for the Job Intel LinkedIn scraper
+
+**New files:**
+
+- `backend/src/lib/proxyRotator.js` — Singleton proxy pool with TCP health-checks (`net.createConnection`), round-robin selection, per-proxy failure tracking (dead after 3 failures, auto-reset when all dead), `toCsvEnv()` for child-process env injection, and `loadFromEnv()` for reconstructing the pool in the scraper child process from `PROXY_URLS`.
+
+- `backend/src/lib/captchaDetector.js` — Unified bot-challenge detection:
+  - `detectBotChallenge(page)`: three-tier check — URL patterns (7), DOM selectors (16: Google, DDG, Cloudflare, LinkedIn, Bing, Brave, generic), body text patterns (16: "unusual traffic", "checking your browser", "access denied", LinkedIn authwall, etc.). Returns `{detected, type, engine, message}`.
+  - `EngineState` class: per-run tracker with `markBlocked(engine, cooldownMs)` / `markSuccess(engine)` / `isBlocked(engine)` (auto-unblocks on cooldown expiry) / `summary()`.
+
+**Modified files:**
+
+- `backend/src/scrapers/linkedin-feed.js` — Major enhancement:
+  - 14-entry UA pool + 6 viewport sizes, randomised per browser launch.
+  - Playwright init script: masks `navigator.webdriver`, `window.chrome`, `navigator.plugins`, `navigator.languages`, `navigator.platform`, `navigator.hardwareConcurrency`, `navigator.deviceMemory`, `Notification.requestPermission`.
+  - Extra HTTP headers: `Accept-Language`, `sec-ch-ua`, `sec-ch-ua-mobile`, `sec-ch-ua-platform`.
+  - `PROXY_URL` env var wired to `--proxy-server` Chromium arg.
+  - `detectBotChallenge(page)` called after every `page.goto()` with engine-skip on detection.
+  - 7-phase engine cascade: DDG LinkedIn → Google LinkedIn → Bing LinkedIn → Brave LinkedIn → Yahoo LinkedIn → DDG Twitter/Telegram → Broad pass (DDG + Bing + Brave without `site:` filter).
+  - New engine functions: `searchBing`, `searchBrave`, `searchYahoo`, `mergeResults` (cross-engine URL dedup).
+  - Engine state summary printed at end of run.
+
+- `backend/src/agents/orchestrator.js`:
+  - **Stage 0a**: Reads `proxy_list` from settings, calls `proxyRotator.loadFromString()` + `proxyRotator.healthCheckAll(8000)`, injects `PROXY_URL` + `PROXY_URLS` into `scraperExtraEnv`. Writes `antibot_status = proxy_pool_dead` to settings if all proxies are dead.
+  - **Stage 0b**: Passes `scraperExtraEnv` as 4th arg to `runScraperHeadless`.
+  - **Stage 0c**: Post-scrape quality audit — compares `freshlyScraped` to `min(keywords×2, 10)`. Writes `antibot_status = low_yield` (with details) or `antibot_status = ok` to settings.
+  - `require('../lib/proxyRotator')` added at top.
+
+- `backend/src/routes/scraper.js`:
+  - `runScraperHeadless(scraper, body, onLog = () => {}, extraEnv = {})` — added optional `extraEnv` 4th parameter, merged into `spawn` env: `env: { ...process.env, SCRAPER_NO_OPEN: '1', FORCE_COLOR: '0', ...extraEnv }`.
+
+---
+
+## 2026-07-30 — Resume PDF normalization + skill placement fix + ResumePreview rewrite (Commit: 67e964d)
+
+### BUG FIX — Resume Analyzer & Maker / Generalize Resume destroyed PDF formatting
+
+Three root causes identified and fixed:
+
+**Root cause 1 — PDF continuation lines:** `pdf-parse` extracts PDF text with artificial line breaks at visual column boundaries. A single skill entry like `"Languages & Backend: Java 8/21, …WebFlux /"` became 3 separate text lines. `modifyResume` appended skills to only the fragment, leaving the rest untouched.
+- **Fix:** `normalizeResumeText(raw)` — rejoins continuation lines where the previous line ends with `,` / `/` / `|` / `&`, or the current line starts with lowercase. Also drops page-number-only lines and collapses blank-line runs. Called at the top of `modifyResume` and in all file-upload / profile-load paths in `JobAnalyzer`, `BulkJobAnalyzer`, `PostWorkflowModal`.
+
+**Root cause 2 — Compound label domain blocking:** `getLineDomain("Languages & Backend:")` returned only `'backend'` (first match in iteration order), giving Python/TypeScript (domain `'language'`) a score of `-1` — blocked instead of appended.
+- **Fix:** `getLineDomains(line)` returns a `Set` of ALL matching domains. `scoreLineForSkill` only blocks a skill when ALL line domains conflict with the skill's domain (`allConflict` check).
+
+**Root cause 3 — Monospace gray box preview:** `ResumePreview.jsx` was a `font-mono whitespace-pre-wrap` gray box — no visual structure.
+- **Fix:** Complete rewrite. `classifyLine(rawLine)` maps each line to `{type: 'blank'|'section'|'subcategory'|'bullet'|'body', …}`. White paper background (`bg-white border border-gray-200 rounded-lg shadow-sm`). First non-blank → bold centered name. ALL-CAPS → section header with `uppercase tracking-widest border-b`. `Label: rest` → bold label + normal rest. Bullet → indented paragraph. `[ADDED-LINE]` → green left border + `bg-green-50`. `[ADDED]` inline → green `+skill` chip.
+
+- **Files changed:** `frontend/src/utils/resumeUtils.js`, `frontend/src/components/ResumePreview.jsx`, `frontend/src/components/JobAnalyzer.jsx`, `frontend/src/components/BulkJobAnalyzer.jsx`, `frontend/src/components/PostWorkflowModal.jsx`
+
+---
+
 ## 2026-07-28 — Overleaf-style split resume editor (ResumeTemplateModal)
 
 ### FEATURE — ATS Resume Templates: Overleaf-style split editor replacing flat dark-only editor
@@ -263,3 +333,8 @@ Each entry includes the date, severity, file(s) changed, root cause, and fix app
 | C | `scraped-jobs.js` feed-contacts | `total` shown in pagination reflects in-memory merge cap (2000 rows), not true DB total | Low |
 | D | `FeedContactsPanel.jsx` + `EmailTemplatesModal.jsx` | Template preview rendered via `dangerouslySetInnerHTML` without DOMPurify — self-XSS risk in own browser | Low |
 | E | `scraped-jobs.js` | `already_emailed` flag checks `gmail_tracked_emails` not `email_log` — contacts emailed via ComposeModal aren't marked in feed | Medium |
+| F | `linkedin-feed.js` | PROXY_URLS env var is passed to the child process but the scraper only reads `PROXY_URL` (single). In-scraper proxy rotation across engines (calling `proxyRotator.loadFromEnv()` and rotating per engine) is not yet implemented — the orchestrator selects one proxy at stage 0a and passes it as a static `PROXY_URL` for the whole run | Low |
+| G | `captchaDetector.js` | CAPTCHA solving (2Captcha, CapSolver, hCaptcha API) is not implemented — detection triggers engine-skip, not solve-and-continue. High-resistance sites that block all 7 engines cannot be unblocked without proxies | Medium |
+| H | `orchestrator.js` | `antibot_status` is a single settings key — only the most recent run's status is stored. No time-series history of block events; the Admin Panel shows only the latest status, not a trend | Low |
+| I | `resumeUtils.js` `normalizeResumeText` | Join heuristic (lowercase start) can incorrectly merge separate bullet points when bullet text happens to start with lowercase. Edge case — only affects PDFs where bullets aren't prefixed with `•` or `-` | Low |
+| J | `ProfilePage.jsx` `detectFromResume` | "Professional summary" detection still splits on blank-line paragraph breaks which are absent in most PDF-extracted text (see bugs.md #13). `normalizeResumeText` fixes the skill injection path but `detectFromResume` was not updated | Medium |

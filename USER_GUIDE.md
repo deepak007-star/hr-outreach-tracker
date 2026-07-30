@@ -318,10 +318,122 @@ Located at `backend/data/HR_Outreach_Tracker.xlsx`
 
 ---
 
+---
+
+## 11. Job Intel Pipeline (Admin only)
+
+The Job Intel Pipeline automatically scrapes LinkedIn hiring posts, extracts HR email addresses from them, and adds those contacts directly to your Contacts page — no manual work required.
+
+### What it does
+
+Each pipeline run executes these steps in order:
+1. **Scrapes LinkedIn** hiring posts across 5 search engines (DuckDuckGo, Google, Bing, Brave, Yahoo) using your configured keywords. Collects up to 100 posts per keyword.
+2. **Pulls external job boards** — Arbeitnow, RemoteOK, We Work Remotely, Remotive, Greenhouse, Lever, Adzuna, Jooble (optional keys).
+3. **Deduplicates** across all sources.
+4. **Extracts HR contact emails** from each posting's title, company, description, and apply URL.
+5. **Syncs new contacts** to your HR List (Contacts page) with source label "Job Intel."
+
+### Configuring the pipeline
+
+Go to **Admin Panel → Job Intel Pipeline tab**.
+
+| Field | What to set |
+|---|---|
+| **Enable pipeline** | Toggle on to activate scheduled runs |
+| **Run every (hours)** | How often it runs automatically (default: 6h; minimum: 1h) |
+| **Job keywords / titles** | One per line — titles the scraper searches for (e.g. `Backend Developer`, `HR Manager`) |
+| **Target locations** | One per line (e.g. `India`, `Remote`) |
+| **Greenhouse company slugs** | One per line — company slugs from boards.greenhouse.io |
+| **Lever company slugs** | One per line — company slugs from api.lever.co |
+| **Adzuna API** | App ID + App Key from developer.adzuna.com (free tier available) |
+| **Jooble API** | Key from jooble.org/api/contacts (free) |
+| **Enable LLM classification** | Uses Groq (same key as VartaBot) to score job relevance — off by default |
+
+Click **Save Config** after making changes.
+
+### Running manually
+
+- **Run Pipeline (Scrape + Extract)** — Full run: scrapes LinkedIn live, then processes all external APIs. Takes 5–20 min.
+- **Full Refresh** — Same as above. Both buttons do the same thing.
+
+### Run history
+
+The last 5 runs appear below the buttons showing status (success / running / failed), start time, and counts: `N truly new / M scanned`.
+
+### Contacts from Job Intel
+
+Contacts found by the pipeline appear in your HR List with:
+- A **"Job Intel"** badge in the Source column
+- Gray row background (vs white for manually-added contacts)
+- Notes prefilled: `[Job Intel] <job title> · <company> (<source>)`
+
+These contacts are never overwritten by subsequent pipeline runs if you've manually edited them (the system checks `email_source` before overwriting).
+
+---
+
+## 12. Proxy / IP Rotation (Admin only)
+
+By default the scraper's 7-engine cascade (DDG → Google → Bing → Brave → Yahoo → Twitter/Telegram → broad pass) handles most IP-block scenarios automatically — if one engine blocks your IP it falls through to the next. Proxies are an optional additional layer for when all engines start blocking the same server IP.
+
+### Anti-bot status badge
+
+The **Proxy / IP Rotation** card in Admin Panel → Job Intel Pipeline shows a live status badge after each pipeline run:
+
+| Badge | Meaning |
+|---|---|
+| **Scraper OK** (green) | Last run completed with normal yield |
+| **Low yield — possible IP block** (amber) | Returned fewer results than expected for the keyword count — consider adding proxies |
+| **All proxies dead** (red) | Proxies are configured but none passed the TCP health check |
+
+### Adding proxies
+
+In the **Proxy / IP Rotation** textarea, enter one proxy per line:
+
+```
+http://user:password@proxy-host:8080
+socks5://proxy-host:1080
+http://proxy-host:3128
+```
+
+Click **Save Proxy List**. The next pipeline run will:
+1. TCP-health-check all proxies (8s timeout each, in parallel)
+2. Mark dead ones automatically
+3. Rotate through alive proxies round-robin across engines
+4. Update the status badge with the result
+
+If all proxies fail the health check, the scraper falls back to direct scraping (no error, just a warning badge).
+
+### Where to get proxies
+
+Residential proxies from Bright Data, Oxylabs, or Webshare (free tier) work best for LinkedIn. Public free-proxy lists are almost always dead by the time you use them — the health check will catch this immediately.
+
+---
+
+## 13. Resume Analyzer & Maker / Generalize Resume
+
+The **Job Analyzer** (single job) and **Bulk Job Analyzer** (multiple jobs) both include a "Generalize Resume" / resume patching feature that adds missing skills from a job description into your existing resume without changing any formatting.
+
+### How it works
+
+1. Your resume text is loaded (from Profile, or file upload) and **normalized** — PDF line-break artifacts are cleaned up automatically before any analysis.
+2. The tool compares your resume skills against the job's required skills and identifies gaps.
+3. Missing skills are grouped by domain (backend, frontend, devops, database, cloud, language, etc.) and inserted into the correct existing section on your resume.
+4. Added skills appear inline as green `+skill` chips in the preview; added lines have a green left border.
+
+### Downloading
+
+After adding skills:
+- **Download PDF** — rendered A4 document
+- **Download Word** — editable `.docx`
+
+Both downloads include only the clean resume text (no `[ADDED]` / `[ADDED-LINE]` markers — those are stripped before export).
+
+---
+
 ## Starting the App
 
 Run `start.bat` from the project root. It opens two terminal windows:
-- **Backend** → `http://localhost:3001` (Express + SQLite)
+- **Backend** → `http://localhost:3001` (Express + Postgres)
 - **Frontend** → `http://localhost:5173` (React + Vite)
 
 Open your browser to `http://localhost:5173` to use the dashboard.
