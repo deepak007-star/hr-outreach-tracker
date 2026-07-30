@@ -10,6 +10,7 @@ const { extractFromJob }  = require('./extraction');
 const { classifyJob }     = require('./classification');
 const { storeJob }        = require('./storage');
 const { qaCheck }         = require('./qa');
+const proxyRotator        = require('../lib/proxyRotator');
 
 // Lazy-required to avoid circular-require at module load time
 function getScraperRouter() { return require('../routes/scraper'); }
@@ -70,7 +71,40 @@ async function runPipeline(triggeredBy = 'scheduler') {
   try {
     const cfg = await getConfig();
 
-    // ── 0. Live scrape: fetch fresh LinkedIn posts BEFORE ingestion ────────
+    // ── 0a. Proxy pool setup: load from DB, health-check, pick best proxy ─
+    let scraperExtraEnv = {};
+    try {
+      const proxyRow = await db.prepare(`SELECT value FROM settings WHERE key = 'proxy_list'`).get().catch(() => null);
+      const proxyStr = proxyRow?.value || '';
+      if (proxyStr.trim()) {
+        const loaded = proxyRotator.loadFromString(proxyStr);
+        console.log(`[Pipeline] Proxy pool: ${loaded} configured — health-checking…`);
+        const health = await proxyRotator.healthCheckAll(8000);
+        console.log(`[Pipeline] Proxies: ${health.alive}/${health.total} alive, dead=${health.dead}` +
+          (health.latencies.length ? `, latencies=${health.latencies.join(',')}ms` : ''));
+
+        if (health.alive > 0) {
+          // Pass the full pool as comma-sep to the scraper child process;
+          // it calls proxyRotator.loadFromEnv() to reconstruct the pool.
+          scraperExtraEnv.PROXY_URLS = proxyRotator.toCsvEnv();
+          // Also provide a single PROXY_URL (the next round-robin pick) as
+          // the initial proxy for the Playwright browser --proxy-server arg.
+          scraperExtraEnv.PROXY_URL  = proxyRotator.next() || '';
+          console.log(`[Pipeline] Proxy injection: PROXY_URL=${scraperExtraEnv.PROXY_URL.replace(/:[^:@]+@/, ':***@')}`);
+        } else {
+          console.warn('[Pipeline] All proxies dead — scraping without proxy (may hit IP blocks)');
+          // Store anti-bot warning in settings for the UI to surface
+          await db.prepare(`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`)
+            .run('antibot_status', JSON.stringify({ ts: new Date().toISOString(), status: 'proxy_pool_dead', alive: 0, total: health.total }));
+        }
+      } else {
+        console.log('[Pipeline] No proxies configured — scraping direct (set "proxy_list" in settings to enable rotation)');
+      }
+    } catch (e) {
+      console.error('[Pipeline] Proxy setup failed (non-fatal):', e.message);
+    }
+
+    // ── 0b. Live scrape: fetch fresh LinkedIn posts BEFORE ingestion ───────
     // The external APIs (Arbeitnow, WWR, etc.) return the same job listings
     // every call — no new contacts come from re-processing them. LinkedIn Feed
     // posts are the only real source of fresh HR emails. Scraping here ensures
@@ -91,9 +125,31 @@ async function runPipeline(triggeredBy = 'scheduler') {
       const scraperResult = await getScraperRouter().runScraperHeadless('linkedin-feed', {
         titles,
         limit: 100,
-      });
+      }, () => {}, scraperExtraEnv);
       freshlyScraped = scraperResult.stored || 0;
       console.log(`[Pipeline] LinkedIn Feed: ${freshlyScraped} fresh posts stored (exit ${scraperResult.code})`);
+
+      // ── 0c. Anti-bot quality audit ─────────────────────────────────────
+      // If the scrape returned significantly fewer results than the keyword
+      // count suggests, flag a potential IP-block event so the UI can warn.
+      const expectedMin = Math.min(titles.length * 2, 10); // very conservative lower bound
+      if (freshlyScraped < expectedMin) {
+        const antiBotMsg = `Low yield: ${freshlyScraped} posts from ${titles.length} keywords (expected ≥${expectedMin}). Possible IP block or anti-bot trigger.`;
+        console.warn(`[Pipeline] Anti-bot audit: ${antiBotMsg}`);
+        await db.prepare(`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`)
+          .run('antibot_status', JSON.stringify({
+            ts: new Date().toISOString(),
+            status: 'low_yield',
+            freshlyScraped,
+            keywords: titles.length,
+            expectedMin,
+            message: antiBotMsg,
+          }));
+      } else {
+        // Clear any previous anti-bot warning on a successful run
+        await db.prepare(`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`)
+          .run('antibot_status', JSON.stringify({ ts: new Date().toISOString(), status: 'ok', freshlyScraped }));
+      }
     } catch (e) {
       console.error('[Pipeline] Live scrape failed (non-fatal):', e.message);
     }

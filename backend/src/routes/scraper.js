@@ -131,7 +131,7 @@ async function storeScrapedJobs(scraperType, category, outDir) {
 // per-scraper via SCRAPER_CONFIGS[key].timeoutMs) since Playwright automation
 // has no other upper bound.
 
-function runScraperHeadless(scraper, body, onLog = () => {}) {
+function runScraperHeadless(scraper, body, onLog = () => {}, extraEnv = {}) {
   const cfg = SCRAPER_CONFIGS[scraper];
   if (!cfg) return Promise.reject(new Error(`Unknown scraper: ${scraper}. Valid: ${Object.keys(SCRAPER_CONFIGS).join(', ')}`));
 
@@ -143,7 +143,7 @@ function runScraperHeadless(scraper, body, onLog = () => {}) {
 
     const proc = spawn('node', args, {
       cwd,
-      env: { ...process.env, SCRAPER_NO_OPEN: '1', FORCE_COLOR: '0' },
+      env: { ...process.env, SCRAPER_NO_OPEN: '1', FORCE_COLOR: '0', ...extraEnv },
     });
 
     const timeoutMs = cfg.timeoutMs || 10 * 60_000;
