@@ -1,0 +1,112 @@
+{
+  "name": "04 - Error Log Alert (Hourly)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "cron-hourly",
+      "name": "Every Hour",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.BACKEND_URL }}/api/admin/logs?level=error&since=1h&limit=50",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "fetch-errors",
+      "name": "Fetch Recent Errors",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [460, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "1",
+          "name": "Backend Admin Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "has-errors",
+              "leftValue": "={{ $json.total }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ]
+        }
+      },
+      "id": "has-errors",
+      "name": "Any errors?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst count = data.total;\nconst sample = (data.logs || []).slice(0, 5).map(l => `  [${l.created_at}] ${l.message}`).join('\\n');\nconst summary = `⚠ ${count} backend error(s) in the last hour:\\n${sample}`;\nconsole.error('[n8n] Error alert:', summary);\nreturn [{ json: { count, summary, logs: data.logs } }];"
+      },
+      "id": "format-alert",
+      "name": "Format Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// No errors in the last hour — all clear\nreturn [{ json: { status: 'ok', total: 0 } }];"
+      },
+      "id": "no-errors",
+      "name": "No errors (no-op)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 420]
+    }
+  ],
+  "connections": {
+    "Every Hour": {
+      "main": [
+        [{ "node": "Fetch Recent Errors", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch Recent Errors": {
+      "main": [
+        [{ "node": "Any errors?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Any errors?": {
+      "main": [
+        [{ "node": "Format Alert", "type": "main", "index": 0 }],
+        [{ "node": "No errors (no-op)", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "notes": "Polls /api/admin/logs every hour for error-level entries. If any are found, the Format Alert node prepares a summary. Wire its output to an Email/Telegram/Slack node to get notified. Set 'Backend Admin Token' credential."
+}

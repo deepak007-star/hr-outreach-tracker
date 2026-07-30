@@ -1,0 +1,46 @@
+#!/bin/sh
+# Pre-push hook: runs backend + frontend tests before every push.
+# Install: git config core.hooksPath .githooks
+# Or run:  node scripts/setup-hooks.js
+
+set -e
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  Running tests before push…"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+# Backend tests (requires local postgres — skip with SKIP_BACKEND_TESTS=1)
+if [ "${SKIP_BACKEND_TESTS}" != "1" ]; then
+  echo "► Backend tests…"
+  cd "$REPO_ROOT/backend"
+  if npm test; then
+    echo "✓ Backend tests passed"
+  else
+    echo ""
+    echo "✗ Backend tests FAILED. Push aborted."
+    echo "  Fix the failures or set SKIP_BACKEND_TESTS=1 to bypass."
+    exit 1
+  fi
+fi
+
+# Frontend tests (vitest, no DB needed)
+echo ""
+echo "► Frontend tests…"
+cd "$REPO_ROOT/frontend"
+if npm test; then
+  echo "✓ Frontend tests passed"
+else
+  echo ""
+  echo "✗ Frontend tests FAILED. Push aborted."
+  exit 1
+fi
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  All tests passed — pushing."
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""

@@ -21,6 +21,11 @@ async function main() {
   await database.initialize();
   console.log('[DB] Ready');
 
+  // Wire structured logger to the DB now that it's ready
+  const logger = require('./lib/logger');
+  logger.setDb(database);
+  logger.info('Server starting', { port: PORT });
+
   // Log current user roles so we can verify data on startup
   try {
     const users = await database.prepare('SELECT email, role, plan FROM users ORDER BY created_at ASC').all();
@@ -68,6 +73,8 @@ async function main() {
   const paymentsRouter       = require('./routes/payments');
   const chatbotRouter        = require('./routes/chatbot');
   const jobIntelRouter       = require('./routes/job-intelligence');
+  const logsRouter           = require('./routes/logs');
+  const requestLogger        = require('./middleware/requestLogger');
   const { schedulePipeline, syncJobIntelContacts, runPipeline } = require('./agents/orchestrator');
   const { getSettings } = require('./routes/apify'); // getSettings supplies the search-query list used by all scrapers
   const { sendReminderEmail } = require('./routes/reminder');
@@ -121,6 +128,9 @@ async function main() {
   }));
   app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
+  // ── HTTP request logging ───────────────────────────────────────────────────
+  app.use(requestLogger);
+
   // ── Global API rate limiter + XSS body sanitizer ──────────────────────────
   app.use('/api', globalApiLimiter);
   app.use(bodySanitizer);
@@ -154,6 +164,7 @@ async function main() {
   app.use('/api/payments',        paymentsRouter);
   app.use('/api/chatbot',         chatbotRouter);
   app.use('/api/job-intel',       jobIntelRouter);
+  app.use('/api/admin/logs',      logsRouter);
   app.get('/api/health', (_, res) =>
     res.json({ status: 'ok', timestamp: new Date().toISOString() })
   );

@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext.jsx';
 import RolesPermissions from './RolesPermissions.jsx';
 import PasswordVault from './PasswordVault.jsx';
 import ApifySettingsModal from './ApifySettingsModal.jsx';
-import { Pencil, Trash2, Eye, EyeOff, Shield, Users, Lock, Search, Database, Settings, LayoutGrid, List, Handshake, Inbox, Copy, Bot, Zap, Play, CheckCircle } from 'lucide-react';
+import { Pencil, Trash2, Eye, EyeOff, Shield, Users, Lock, Search, Database, Settings, LayoutGrid, List, Handshake, Inbox, Copy, Bot, Zap, Play, CheckCircle, ScrollText, RefreshCw, XCircle, AlertTriangle, Info } from 'lucide-react';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const PLANS  = ['guest', 'demo', 'basic', 'advanced'];
@@ -1589,6 +1589,215 @@ function VartaBotSection() {
   );
 }
 
+// ── System Logs Section ────────────────────────────────────────────────────
+const LEVEL_META = {
+  error: { label: 'Error', color: 'text-red-600',    bg: 'bg-red-50 border-red-200',   Icon: XCircle },
+  warn:  { label: 'Warn',  color: 'text-amber-600',  bg: 'bg-amber-50 border-amber-200', Icon: AlertTriangle },
+  info:  { label: 'Info',  color: 'text-blue-600',   bg: 'bg-blue-50 border-blue-200',  Icon: Info },
+  debug: { label: 'Debug', color: 'text-gray-500',   bg: 'bg-gray-50 border-gray-200',  Icon: Info },
+};
+
+function LogsSection() {
+  const [logs, setLogs]         = useState([]);
+  const [total, setTotal]       = useState(0);
+  const [loading, setLoading]   = useState(false);
+  const [level, setLevel]       = useState('');
+  const [since, setSince]       = useState('24h');
+  const [search, setSearch]     = useState('');
+  const [offset, setOffset]     = useState(0);
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [expanded, setExpanded] = useState({});
+  const LIMIT = 100;
+
+  const fetchLogs = useCallback(async (resetOffset = false) => {
+    setLoading(true);
+    try {
+      const off = resetOffset ? 0 : offset;
+      if (resetOffset) setOffset(0);
+      const params = new URLSearchParams({ limit: LIMIT, offset: off, since });
+      if (level) params.set('level', level);
+      if (search.trim()) params.set('search', search.trim());
+      const res = await api.get(`/admin/logs?${params}`);
+      setLogs(res.data.logs || []);
+      setTotal(res.data.total || 0);
+    } catch (e) {
+      toast.error('Failed to load logs: ' + (e.response?.data?.error || e.message));
+    } finally {
+      setLoading(false);
+    }
+  }, [level, since, search, offset]);
+
+  useEffect(() => { fetchLogs(true); }, [level, since]);
+
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const id = setInterval(() => fetchLogs(true), 10_000);
+    return () => clearInterval(id);
+  }, [autoRefresh, fetchLogs]);
+
+  async function clearOldLogs(days) {
+    if (!window.confirm(`Delete logs older than ${days} day(s)?`)) return;
+    try {
+      const res = await api.delete(`/admin/logs?days=${days}`);
+      toast.success(`Deleted ${res.data.deleted} log entries`);
+      fetchLogs(true);
+    } catch (e) {
+      toast.error('Failed to clear logs');
+    }
+  }
+
+  function toggleExpand(id) {
+    setExpanded(prev => ({ ...prev, [id]: !prev[id] }));
+  }
+
+  function parseMeta(metaStr) {
+    try { return JSON.parse(metaStr); } catch { return null; }
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Controls */}
+      <div className="bg-white border rounded-md p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+            <Search size={14} className="text-gray-400 flex-shrink-0" />
+            <input
+              type="text"
+              placeholder="Search message or meta…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && fetchLogs(true)}
+              className="flex-1 text-xs border rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+            />
+          </div>
+          <select
+            value={level}
+            onChange={e => setLevel(e.target.value)}
+            className="text-xs border rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+          >
+            <option value="">All levels</option>
+            <option value="error">Error</option>
+            <option value="warn">Warn</option>
+            <option value="info">Info</option>
+          </select>
+          <select
+            value={since}
+            onChange={e => setSince(e.target.value)}
+            className="text-xs border rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+          >
+            <option value="1h">Last 1h</option>
+            <option value="6h">Last 6h</option>
+            <option value="24h">Last 24h</option>
+            <option value="7d">Last 7 days</option>
+          </select>
+          <button
+            onClick={() => fetchLogs(true)}
+            disabled={loading}
+            className="flex items-center gap-1.5 text-xs bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700 disabled:opacity-50"
+          >
+            <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+            Refresh
+          </button>
+          <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={autoRefresh}
+              onChange={e => setAutoRefresh(e.target.checked)}
+              className="rounded"
+            />
+            Auto 10s
+          </label>
+          <div className="flex items-center gap-1 ml-auto">
+            <button
+              onClick={() => clearOldLogs(1)}
+              className="text-[10px] text-red-500 hover:text-red-700 border border-red-200 rounded px-2 py-1"
+            >
+              Clear &gt;1d
+            </button>
+            <button
+              onClick={() => clearOldLogs(7)}
+              className="text-[10px] text-red-500 hover:text-red-700 border border-red-200 rounded px-2 py-1"
+            >
+              Clear &gt;7d
+            </button>
+          </div>
+        </div>
+        <p className="text-[11px] text-gray-400 mt-2">
+          {total} total entries matching filters · showing {logs.length}
+        </p>
+      </div>
+
+      {/* Log list */}
+      <div className="space-y-1.5">
+        {loading && logs.length === 0 && (
+          <div className="text-center py-10 text-gray-400 text-sm">Loading…</div>
+        )}
+        {!loading && logs.length === 0 && (
+          <div className="text-center py-10 text-gray-400 text-sm">No log entries found.</div>
+        )}
+        {logs.map(log => {
+          const meta   = parseMeta(log.meta);
+          const lm     = LEVEL_META[log.level] || LEVEL_META.info;
+          const LIcon  = lm.Icon;
+          const isOpen = expanded[log.id];
+          const hasMeta = meta && Object.keys(meta).length > 0 && !(Object.keys(meta).length === 1 && meta.service === 'http');
+          return (
+            <div key={log.id} className={`border rounded text-xs ${lm.bg}`}>
+              <div
+                className="flex items-start gap-2 px-3 py-2 cursor-pointer select-none"
+                onClick={() => hasMeta && toggleExpand(log.id)}
+              >
+                <LIcon size={13} className={`mt-0.5 flex-shrink-0 ${lm.color}`} />
+                <span className={`font-semibold uppercase w-10 flex-shrink-0 ${lm.color}`}>{log.level}</span>
+                <span className="text-gray-500 flex-shrink-0 w-36">
+                  {log.created_at?.slice(0, 19).replace('T', ' ')}
+                </span>
+                <span className="text-gray-800 flex-1 font-mono leading-snug break-all">{log.message}</span>
+                {meta?.service === 'http' && (
+                  <span className="flex-shrink-0 text-gray-500">
+                    {meta.method} {meta.status} {meta.ms}ms
+                  </span>
+                )}
+                {hasMeta && (
+                  <span className="flex-shrink-0 text-gray-400 text-[10px]">{isOpen ? '▲' : '▼'}</span>
+                )}
+              </div>
+              {isOpen && hasMeta && (
+                <pre className="px-3 pb-2 text-[11px] text-gray-600 whitespace-pre-wrap break-all font-mono border-t border-gray-200 pt-2">
+                  {JSON.stringify(meta, null, 2)}
+                </pre>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Pagination */}
+      {total > LIMIT && (
+        <div className="flex items-center justify-center gap-3 pt-2">
+          <button
+            disabled={offset === 0}
+            onClick={() => { setOffset(Math.max(0, offset - LIMIT)); fetchLogs(); }}
+            className="text-xs border rounded px-3 py-1.5 disabled:opacity-40 hover:bg-gray-50"
+          >
+            ← Prev
+          </button>
+          <span className="text-xs text-gray-500">
+            {offset + 1}–{Math.min(offset + LIMIT, total)} of {total}
+          </span>
+          <button
+            disabled={offset + LIMIT >= total}
+            onClick={() => { setOffset(offset + LIMIT); fetchLogs(); }}
+            className="text-xs border rounded px-3 py-1.5 disabled:opacity-40 hover:bg-gray-50"
+          >
+            Next →
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main AdminPanel ────────────────────────────────────────────────────────
 export default function AdminPanel() {
   const { user } = useAuth();
@@ -1613,6 +1822,7 @@ export default function AdminPanel() {
     { id: 'vartabot',  Icon: Bot,        label: 'VartaBot AI'          },
     { id: 'referrals', Icon: Handshake,  label: 'Referrals'            },
     { id: 'data',      Icon: Database,   label: 'Data & Backup'        },
+    { id: 'logs',      Icon: ScrollText, label: 'System Logs'          },
   ];
 
   return (
@@ -1674,6 +1884,7 @@ export default function AdminPanel() {
       {tab === 'vartabot'  && <VartaBotSection />}
       {tab === 'referrals' && <ReferralsSection />}
       {tab === 'data'      && <DataManagementSection />}
+      {tab === 'logs'      && <LogsSection />}
     </div>
   );
 }

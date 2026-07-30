@@ -1,0 +1,108 @@
+{
+  "name": "03 - Daily Scrape (7 AM IST)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 1 * * *"
+            }
+          ]
+        }
+      },
+      "id": "cron-7am-ist",
+      "name": "7 AM IST (1:30 UTC)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300],
+      "notes": "Cron: 30 1 * * * = 1:30 UTC = 7:00 AM IST"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/api/scraper/run",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "body": {
+          "bodyParameters": {
+            "parameters": [
+              { "name": "scraper", "value": "linkedin-feed" },
+              { "name": "limit", "value": 40 }
+            ]
+          }
+        },
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "run-linkedin-feed",
+      "name": "LinkedIn Feed Scraper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [460, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "1",
+          "name": "Backend Admin Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/api/job-intel/run",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "run-pipeline-after",
+      "name": "Run Job Intel Pipeline",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [680, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "1",
+          "name": "Backend Admin Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const scrapeResult  = $('LinkedIn Feed Scraper').first().json;\nconst pipelineResult = $('Run Job Intel Pipeline').first().json;\nconsole.log('[n8n] Daily scrape complete:', JSON.stringify({ scrapeResult, pipelineResult }));\nreturn [{ json: { scrapeResult, pipelineResult, timestamp: new Date().toISOString() } }];"
+      },
+      "id": "log-results",
+      "name": "Log Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    }
+  ],
+  "connections": {
+    "7 AM IST (1:30 UTC)": {
+      "main": [
+        [{ "node": "LinkedIn Feed Scraper", "type": "main", "index": 0 }]
+      ]
+    },
+    "LinkedIn Feed Scraper": {
+      "main": [
+        [{ "node": "Run Job Intel Pipeline", "type": "main", "index": 0 }]
+      ]
+    },
+    "Run Job Intel Pipeline": {
+      "main": [
+        [{ "node": "Log Results", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Kolkata"
+  },
+  "notes": "Triggers the LinkedIn Feed scraper at 7 AM IST, then immediately runs the Job Intel pipeline to extract HR contacts. Set 'Backend Admin Token' credential (HTTP Header: Authorization = Bearer <admin-jwt>). Activate after configuring credentials."
+}

@@ -127,6 +127,16 @@ async function initialize() {
       created_at TEXT NOT NULL DEFAULT (${NOW_EXPR})
     );
 
+    CREATE TABLE IF NOT EXISTS activity_logs (
+      id         SERIAL PRIMARY KEY,
+      level      TEXT NOT NULL DEFAULT 'info',
+      message    TEXT NOT NULL DEFAULT '',
+      meta       TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (${NOW_EXPR})
+    );
+    CREATE INDEX IF NOT EXISTS idx_activity_logs_created_at ON activity_logs (created_at);
+    CREATE INDEX IF NOT EXISTS idx_activity_logs_level ON activity_logs (level);
+
     CREATE TABLE IF NOT EXISTS linkedin_posts (
       id               TEXT PRIMARY KEY,
       raw_json         TEXT NOT NULL DEFAULT '{}',
