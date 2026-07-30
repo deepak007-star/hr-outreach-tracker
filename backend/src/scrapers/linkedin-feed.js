@@ -38,10 +38,13 @@ const {
   sleep, parseArgs, buildSuffix, saveCSV, saveHTML, saveRawCache, RUN_STAMP,
 } = require('../lib/common');
 const { detectBotChallenge, EngineState } = require('../lib/captchaDetector');
+const proxyRotator = require('../lib/proxyRotator');
 
 const OUTPUT_DIR    = path.join(__dirname, '..', 'output', 'linkedin-feed');
 const SCRAPER_TITLE = 'LinkedIn Feed — HR Posts';
-const PROXY_URL     = process.env.PROXY_URL || '';
+// Single-proxy fallback when no PROXY_URLS pool is configured.
+// Orchestrator passes PROXY_URL (initial round-robin pick) + PROXY_URLS (full pool).
+const PROXY_URL = process.env.PROXY_URL || '';
 
 // ── User-agent pool ────────────────────────────────────────────────────────────
 const USER_AGENTS = [
@@ -131,7 +134,7 @@ function isExcluded(url) {
 
 // ─── Browser ──────────────────────────────────────────────────────────────────
 
-async function launchBrowser() {
+async function launchBrowser(proxyUrl = '') {
   const noDisplay = process.platform === 'linux' && !process.env.DISPLAY;
   const headless  = process.env.HEADLESS === '0' ? false
                   : noDisplay || process.env.NODE_ENV === 'production' || process.env.HEADLESS === '1';
@@ -144,9 +147,9 @@ async function launchBrowser() {
     '--disable-backgrounding-occluded-windows',
     '--disable-renderer-backgrounding',
   ];
-  if (PROXY_URL) {
-    args.push(`--proxy-server=${PROXY_URL}`);
-    console.log(`[browser] Using proxy: ${PROXY_URL.replace(/:[^:@]+@/, ':***@')}`);
+  if (proxyUrl) {
+    args.push(`--proxy-server=${proxyUrl}`);
+    console.log(`[browser] Using proxy: ${proxyUrl.replace(/:[^:@]+@/, ':***@')}`);
   }
   // Try real browsers first (better fingerprint), fall back to bundled Chromium
   for (const channel of ['msedge', 'chrome']) {
@@ -780,23 +783,51 @@ async function main() {
   console.log(`\n${'='.repeat(60)}`);
   console.log(SCRAPER_TITLE);
   console.log(`${'='.repeat(60)}`);
+  // Load proxy pool from PROXY_URLS env var (set by orchestrator).
+  // Falls back to the single PROXY_URL if no pool is configured.
+  proxyRotator.loadFromEnv();
+  let currentProxy = proxyRotator.size > 0 ? (proxyRotator.next() || PROXY_URL) : PROXY_URL;
+
   console.log(`Keywords   : ${opts.titles.join(', ')}`);
   console.log(`Limit      : ${opts.limit}`);
   console.log(`Location   : ${opts.location || 'India'}`);
-  if (PROXY_URL) console.log(`Proxy      : ${PROXY_URL.replace(/:[^:@]+@/, ':***@')}`);
+  if (proxyRotator.total > 0) {
+    console.log(`Proxy pool : ${proxyRotator.total} configured, ${proxyRotator.size} alive`);
+    if (currentProxy) console.log(`Proxy      : ${currentProxy.replace(/:[^:@]+@/, ':***@')}`);
+  } else if (currentProxy) {
+    console.log(`Proxy      : ${currentProxy.replace(/:[^:@]+@/, ':***@')} (single)`);
+  }
   console.log(`Engines    : DDG → Google → Bing → Brave → Yahoo → Twitter/TG → Broad`);
   console.log(`${'='.repeat(60)}`);
 
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
   const engineState = new EngineState();
-  const browser     = await launchBrowser();
+  let browser       = await launchBrowser(currentProxy);
   const posts       = [];
   const seenUrls    = new Set();
 
   const broadShare     = Math.max(3, Math.round(opts.limit * 0.2));
   const perTitleBudget = Math.max(1, opts.limit - broadShare);
   const perTitle       = Math.ceil(perTitleBudget / opts.titles.length);
+
+  // Rotate to the next alive proxy and relaunch the browser.
+  // Called when one or more engines are blocked — a new IP clears the block.
+  // Returns true if a new proxy was picked and the browser was relaunched.
+  async function tryRotateProxy(reason) {
+    if (proxyRotator.size === 0) return false;
+    proxyRotator.markFailed(currentProxy);
+    const next = proxyRotator.next();
+    if (!next || next === currentProxy) {
+      console.log(`[proxy] No alternative proxy available — continuing with current IP`);
+      return false;
+    }
+    console.log(`[proxy] Rotating after ${reason} — new proxy: ${next.replace(/:[^:@]+@/, ':***@')}`);
+    await browser.close();
+    currentProxy = next;
+    browser = await launchBrowser(currentProxy);
+    return true;
+  }
 
   async function collectFromResults(searchResults, keyword, cap) {
     let found = 0;
@@ -872,6 +903,18 @@ async function main() {
   try {
     for (const keyword of opts.titles) {
       if (posts.length >= opts.limit) break;
+
+      // If any engines were blocked during the previous keyword, rotate proxy now
+      // so this keyword gets a fresh IP across all phases.
+      const blocked = ['google', 'bing', 'duckduckgo', 'brave', 'yahoo'].filter(e => engineState.isBlocked(e));
+      if (blocked.length > 0) {
+        const rotated = await tryRotateProxy(blocked.join('+') + ' blocked from prev keyword');
+        if (rotated) {
+          // Clear block states — new IP makes these engines available again
+          for (const e of blocked) engineState.markSuccess(e);
+        }
+      }
+
       console.log(`\n[keyword] "${keyword}" — target: ${perTitle} posts with contact`);
 
       const target   = Math.min(perTitle, opts.limit - posts.length);
@@ -952,6 +995,16 @@ async function main() {
     // ── Broad (title-agnostic) pass ──────────────────────────────────────────
     if (posts.length < opts.limit) {
       const remaining = opts.limit - posts.length;
+
+      // Rotate proxy before broad pass if multiple engines are still blocked
+      const blockedNow = ['google', 'bing', 'duckduckgo'].filter(e => engineState.isBlocked(e));
+      if (blockedNow.length >= 2) {
+        const rotated = await tryRotateProxy('multi-engine-block before broad pass');
+        if (rotated) {
+          for (const e of blockedNow) engineState.markSuccess(e);
+        }
+      }
+
       console.log(`\n[broad] title-agnostic hiring search — target: ${remaining} more posts`);
 
       const liFilter  = u => u.includes('linkedin.com/posts/') || u.includes('linkedin.com/pulse/');
@@ -986,7 +1039,7 @@ async function main() {
   console.log(`${'='.repeat(60)}`);
 
   if (!posts.length) {
-    console.log('Nothing found. Search engines may be blocking this IP — check PROXY_URL env var.');
+    console.log('Nothing found. Search engines may be blocking this IP — set PROXY_URLS (comma-sep pool) or PROXY_URL (single) env var, or configure the proxy list in Admin Panel → Job Intel.');
     return;
   }
 

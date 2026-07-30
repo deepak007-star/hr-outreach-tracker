@@ -85,9 +85,12 @@ function detectFromResume(text, key) {
       return m?.[0] || '';
     }
     case 'summary': {
-      // Primary: locate the PROFESSIONAL SUMMARY section header, grab lines until next header
+      // Primary: locate the PROFESSIONAL SUMMARY / SUMMARY / OBJECTIVE / PROFILE section
+      // header and grab lines until the next ALL-CAPS header.
       const lines = text.split('\n');
-      const headerIdx = lines.findIndex(l => /^(PROFESSIONAL\s+SUMMARY|SUMMARY|OBJECTIVE|PROFILE)\s*$/i.test(l.trim()));
+      const headerIdx = lines.findIndex(l =>
+        /^(PROFESSIONAL\s+SUMMARY|SUMMARY|OBJECTIVE|PROFILE|ABOUT\s+ME)\s*:?\s*$/i.test(l.trim())
+      );
       if (headerIdx >= 0) {
         const buf = [];
         for (let i = headerIdx + 1; i < lines.length; i++) {
@@ -100,10 +103,35 @@ function detectFromResume(text, key) {
         const result = buf.join(' ').trim();
         if (result.length > 40) return result.slice(0, 600);
       }
-      // Fallback: first paragraph >80 chars that doesn't start with a section keyword
-      const paras = text.split(/\n{2,}/).map(p => p.trim())
-        .filter(p => p.length > 80 && !/^(EDUCATION|EXPERIENCE|SKILLS|CERTIF|PROJECT|WORK|LANGUAGE|CONTACT|REFERENCE)/i.test(p));
-      return paras[0]?.slice(0, 600) || '';
+      // Fallback: scan lines individually — more reliable than splitting on \n{2,}
+      // for PDF-extracted text which rarely has blank-line paragraph separators.
+      // Skip the first 5 lines (name / contact / links block), then collect the
+      // first block of prose lines, stopping at a section header or blank line.
+      const CAPS_HEADER = /^[A-Z][A-Z\s&/]{3,}$/;
+      const CONTACT_LINE = /^https?:\/\/|@[\w.-]+\.[a-z]{2,}|\+?\d[\d\s().-]{7,}$|^[\w.+%-]+@[\w.-]+\.[a-z]{2,}$/i;
+      const SECTION_WORD = /^(EDUCATION|EXPERIENCE|SKILLS|CERTIF|PROJECT|WORK|LANGUAGE|CONTACT|REFERENCE|AWARD|PUBLICATION|VOLUNTEER|INTEREST|HOBBY)/i;
+      const buf = [];
+      let collecting = false;
+      for (let i = Math.min(5, lines.length); i < lines.length; i++) {
+        const l = lines[i].trim();
+        if (!l) {
+          if (collecting) break; // blank line ends the prose block
+          continue;
+        }
+        if (CAPS_HEADER.test(l) || SECTION_WORD.test(l)) {
+          if (collecting) break; // hit the next section
+          continue;              // skip section headers before the prose
+        }
+        if (CONTACT_LINE.test(l)) continue; // skip contact / URL lines
+        // Treat as prose if long enough and contains at least one space
+        if (l.length > 45 && l.includes(' ')) {
+          buf.push(l);
+          collecting = true;
+          if (buf.join(' ').length > 600) break;
+        }
+      }
+      const result = buf.join(' ').trim();
+      return result.length > 40 ? result.slice(0, 600) : '';
     }
     default: return '';
   }
