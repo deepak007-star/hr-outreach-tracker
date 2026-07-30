@@ -8,16 +8,27 @@ const TEST_EMAIL = `jest_auth_${Date.now()}@test.com`;
 const TEST_PASS  = 'TestPass1234!';
 let authToken;
 
+async function cleanupTestUser() {
+  const user = await database.prepare('SELECT id FROM users WHERE email = ?').get(TEST_EMAIL);
+  if (!user) return;
+  // Delete FK-dependent rows before deleting the user
+  await database.prepare('DELETE FROM profiles WHERE user_id = ?').run(user.id).catch(() => {});
+  await database.prepare('DELETE FROM oauth_accounts WHERE user_id = ?').run(user.id).catch(() => {});
+  await database.prepare('DELETE FROM email_log WHERE user_id = ?').run(user.id).catch(() => {});
+  await database.prepare('DELETE FROM notifications WHERE user_id = ?').run(user.id).catch(() => {});
+  await database.prepare('DELETE FROM users WHERE id = ?').run(user.id);
+}
+
 beforeAll(async () => {
   await database.initialize();
   const authRouter = require('../src/routes/auth');
   app = buildApp(a => a.use('/api/auth', authRouter));
-  // Clean up any residual test user from previous run
-  await database.prepare('DELETE FROM users WHERE email = ?').run(TEST_EMAIL);
+  // Remove any residual user from a previously-failed test run
+  await cleanupTestUser();
 });
 
 afterAll(async () => {
-  await database.prepare('DELETE FROM users WHERE email = ?').run(TEST_EMAIL);
+  await cleanupTestUser();
 });
 
 describe('POST /api/auth/register', () => {
@@ -34,14 +45,14 @@ describe('POST /api/auth/register', () => {
   it('rejects duplicate registration', async () => {
     const res = await request(app)
       .post('/api/auth/register')
-      .send({ email: TEST_EMAIL, password: TEST_PASS });
+      .send({ email: TEST_EMAIL, password: TEST_PASS, name: 'Jest Auth User' });
     expect(res.status).toBe(409);
   });
 
   it('rejects missing password', async () => {
     const res = await request(app)
       .post('/api/auth/register')
-      .send({ email: `other_${Date.now()}@test.com` });
+      .send({ email: `other_${Date.now()}@test.com`, name: 'Ghost' });
     expect(res.status).toBeGreaterThanOrEqual(400);
   });
 });
