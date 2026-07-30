@@ -1212,16 +1212,23 @@ function ScraperSection() {
 
 // ── Job Intel Pipeline Config Section ─────────────────────────────────────
 function JobIntelConfigSection() {
-  const [cfg,       setCfg]       = useState(null);
-  const [saving,    setSaving]    = useState(false);
-  const [running,   setRunning]   = useState(false);
-  const [fullRun,   setFullRun]   = useState(false);
-  const [runs,      setRuns]      = useState([]);
-  const [runMsg,    setRunMsg]    = useState('');
+  const [cfg,          setCfg]          = useState(null);
+  const [saving,       setSaving]       = useState(false);
+  const [running,      setRunning]      = useState(false);
+  const [fullRun,      setFullRun]      = useState(false);
+  const [runs,         setRuns]         = useState([]);
+  const [runMsg,       setRunMsg]       = useState('');
+  const [proxyList,    setProxyList]    = useState('');
+  const [savingProxy,  setSavingProxy]  = useState(false);
+  const [antiBotStatus, setAntiBotStatus] = useState(null);
 
   useEffect(() => {
     api.get('/job-intel/config').then(r => setCfg(r)).catch(() => {});
     api.get('/job-intel/runs').then(r => setRuns(Array.isArray(r) ? r : [])).catch(() => {});
+    api.get('/settings').then(s => {
+      setProxyList(s.proxy_list || '');
+      try { setAntiBotStatus(JSON.parse(s.antibot_status || 'null')); } catch {}
+    }).catch(() => {});
   }, []);
 
   async function save() {
@@ -1233,6 +1240,16 @@ function JobIntelConfigSection() {
     } catch (e) {
       toast.error(e.response?.data?.error || 'Save failed');
     } finally { setSaving(false); }
+  }
+
+  async function saveProxy() {
+    setSavingProxy(true);
+    try {
+      await api.put('/settings', { proxy_list: proxyList });
+      toast.success('Proxy list saved');
+    } catch (e) {
+      toast.error(e.response?.data?.error || 'Save failed');
+    } finally { setSavingProxy(false); }
   }
 
   async function triggerRun() {
@@ -1370,6 +1387,45 @@ function JobIntelConfigSection() {
           <p className="text-[11px] text-gray-400">Uses Groq (same key as VartaBot) to score relevance. Requires VartaBot key to be set.</p>
         </div>
       </label>
+
+      {/* Proxy rotation */}
+      <div className="border border-gray-100 rounded-md p-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs font-semibold text-gray-700">Proxy / IP Rotation</p>
+            <p className="text-[11px] text-gray-400 mt-0.5">
+              One proxy URL per line. Activated automatically when Google + DDG block your IP.
+              Formats: <code className="bg-gray-100 px-1 rounded">http://user:pass@host:port</code> or <code className="bg-gray-100 px-1 rounded">socks5://host:port</code>
+            </p>
+          </div>
+          {antiBotStatus && (
+            <span className={`ml-3 shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-semibold ${
+              antiBotStatus.status === 'ok'              ? 'bg-green-100 text-green-700' :
+              antiBotStatus.status === 'low_yield'       ? 'bg-amber-100 text-amber-700' :
+              antiBotStatus.status === 'proxy_pool_dead' ? 'bg-red-100 text-red-600'    :
+                                                          'bg-gray-100 text-gray-500'
+            }`}>
+              {antiBotStatus.status === 'ok'              && <><CheckCircle size={11} /> Scraper OK</>}
+              {antiBotStatus.status === 'low_yield'       && <>&#9888; Low yield — possible IP block</>}
+              {antiBotStatus.status === 'proxy_pool_dead' && <>&#9888; All proxies dead</>}
+            </span>
+          )}
+        </div>
+        <textarea
+          rows={4}
+          value={proxyList}
+          onChange={e => setProxyList(e.target.value)}
+          placeholder={'http://user:pass@proxy1.example.com:8080\nsocks5://proxy2.example.com:1080\nhttp://proxy3.example.com:3128'}
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500 font-mono"
+        />
+        {antiBotStatus?.status === 'low_yield' && antiBotStatus.message && (
+          <p className="text-[11px] text-amber-600">{antiBotStatus.message}</p>
+        )}
+        <button onClick={saveProxy} disabled={savingProxy}
+          className="px-3 py-1.5 text-xs font-semibold bg-gray-700 text-white rounded-md hover:bg-gray-800 disabled:opacity-50">
+          {savingProxy ? 'Saving…' : 'Save Proxy List'}
+        </button>
+      </div>
 
       {/* Buttons */}
       <div className="flex flex-wrap gap-3 pt-2 border-t border-gray-100">
