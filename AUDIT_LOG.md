@@ -2,6 +2,151 @@
 
 ---
 
+## 2026-07-30 — Test suite bug fixes (Commit: d576a1e)
+
+### BUG FIX — 3 test assumption errors discovered when running against Supabase
+
+Three bugs in the initial test suite were caught on first real run:
+
+1. **Duplicate-register test sent no `name` field** → hit the 400 "Name is required" guard before reaching the 409 duplicate-email check. Fixed by including `name` in the second registration payload.
+
+2. **`afterAll` / `beforeAll` cleanup violated `profiles_user_id_fkey`** — `DELETE FROM users WHERE email = ?` failed because the register route automatically creates a `profiles` row. Fixed: replaced the direct DELETE with a `cleanupTestUser()` helper that deletes `profiles`, `oauth_accounts`, `email_log`, `notifications` in dependency order before deleting the user.
+
+3. **Contacts cleanup used wrong column name `added_by`** (does not exist; column is `user_id`). Also, `status: 'new'` was rejected by `VALID_STATUSES` which requires title-case `'New'`. Also, test contact name `'Jest Test HR'` was cleaned to `'Jest'` by `cleanContactName` (expected first-token extraction). Fixed: use `user_id`, `'New'`, and name `'Priya'`.
+
+Additionally, `tests/setup.js` and `tests/globalSetup.js` were updated to load `backend/.env` via `dotenv` so `DATABASE_URL` falls back to Supabase when `TEST_DATABASE_URL` is not set — no local postgres installation needed for development; CI still uses the `TEST_DATABASE_URL` env var pointing to the postgres service container.
+
+**Result: 17/17 backend tests passing against Supabase.**
+
+- **Files changed:** `backend/tests/auth.test.js`, `backend/tests/contacts.test.js`, `backend/tests/setup.js`, `backend/tests/globalSetup.js`
+
+---
+
+## 2026-07-30 — Centralized logging, automated tests (Jest/Vitest), CI/CD, n8n automation (Commit: 4e7f01f)
+
+### FEATURE — Three new systems added in a single commit
+
+---
+
+#### 1. Centralized Logging System
+
+**Problem:** All server activity was `console.log`/`console.error` scattered across route files. No way to see API activity, errors, or audit what happened from the Admin Panel.
+
+**Fix:**
+
+- **`backend/src/lib/logger.js`** — Lightweight structured logger with zero extra npm dependencies. Writes to three sinks simultaneously:
+  1. **Console** (colored, human-readable): `[ERROR]` red, `[WARN]` yellow, `[INFO]` cyan, `[DEBUG]` gray. Skipped in `NODE_ENV=test`.
+  2. **Files**: `backend/logs/app.log` (all levels, JSON-lines) and `backend/logs/error.log` (errors only). Skipped in `NODE_ENV=test`.
+  3. **DB `activity_logs` table** (info/warn/error, fire-and-forget — never blocks, never throws). DB sink is disabled until `logger.setDb(db)` is called after `database.initialize()`.
+  - Exports: `logger.setDb(db)`, `logger.info/warn/error/debug(message, meta)`.
+
+- **`backend/src/db/database.js`** — Added `activity_logs` table:
+  ```sql
+  CREATE TABLE IF NOT EXISTS activity_logs (
+    id         SERIAL PRIMARY KEY,
+    level      TEXT NOT NULL DEFAULT 'info',
+    message    TEXT NOT NULL DEFAULT '',
+    meta       TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (NOW_EXPR)
+  );
+  CREATE INDEX IF NOT EXISTS idx_activity_logs_created_at ON activity_logs (created_at);
+  CREATE INDEX IF NOT EXISTS idx_activity_logs_level      ON activity_logs (level);
+  ```
+
+- **`backend/src/middleware/requestLogger.js`** — Logs every HTTP request on `res.finish`. Skips `/api/health`. Level is `error` for 5xx, `warn` for 4xx, `info` for 2xx/3xx. Meta includes `method`, `path`, `status`, `ms`, `userId`, `ip`.
+
+- **`backend/src/routes/logs.js`** — Admin-only log API:
+  - `GET /api/admin/logs?level=error&search=auth&since=24h&limit=100&offset=0` — returns `{logs, total, limit, offset}`. `since` values: `1h`, `6h`, `24h`, `7d`. Supports `ILIKE` search on `message` and `meta`.
+  - `DELETE /api/admin/logs?days=7` — purges logs older than N days.
+
+- **`backend/src/index.js`** changes:
+  - Requires `logsRouter` and `requestLogger` inside `main()`.
+  - `logger.setDb(database)` called immediately after `await database.initialize()`.
+  - `app.use(requestLogger)` mounted before all route middleware.
+  - `app.use('/api/admin/logs', logsRouter)` mounted after all other routes.
+
+- **`frontend/src/components/AdminPanel.jsx`** — New **System Logs** tab (10th tab, `ScrollText` icon):
+  - **LogsSection** component: level filter dropdown (all/error/warn/info), time-range filter (1h/6h/24h/7d), keyword search, Refresh button, auto-refresh checkbox (10-second interval).
+  - Color-coded log rows: red for error, amber for warn, blue for info.
+  - HTTP request logs show inline `METHOD STATUS ms` summary without needing to expand.
+  - Click to expand non-HTTP logs and show full `meta` JSON.
+  - Pagination (100 per page).
+  - "Clear >1d" and "Clear >7d" buttons (with confirmation prompt) call `DELETE /api/admin/logs`.
+
+---
+
+#### 2. Automated Testing (Jest + Vitest + GitHub Actions CI)
+
+**Problem:** No tests existed. Every new feature risked silently breaking existing functionality (auth, contacts CRUD, resume utils) with no automated check before push.
+
+**Fix:**
+
+**Backend — Jest + supertest (`npm test` in `backend/`):**
+
+- `backend/jest.config.js` — `testEnvironment: node`, `setupFiles: ['./tests/setup.js']`, `globalSetup` + `globalTeardown`, `testTimeout: 30000`.
+- `backend/tests/setup.js` — Sets env vars (`NODE_ENV=test`, `DATABASE_URL` with Supabase fallback, `JWT_SECRET`, `OAUTH_TOKEN_ENCRYPTION_KEY`) before any module loads. Loads `backend/.env` via dotenv so no local postgres is required.
+- `backend/tests/globalSetup.js` — Calls `database.initialize()` once before all tests (creates tables if they don't exist).
+- `backend/tests/helpers.js` — `buildApp(routeSetup)` builds a minimal Express app for supertest, `generateToken(payload)` and `generateAdminToken(payload)` mint signed JWTs without DB access.
+- `backend/tests/health.test.js` — `GET /api/health` smoke test (1 test).
+- `backend/tests/auth.test.js` — register (create + reject duplicate + reject missing password), login (valid + wrong password + unknown email), me endpoint (valid + no token + tampered token). 9 tests.
+- `backend/tests/contacts.test.js` — create (with required fields + reject missing email + reject unauthenticated), list (returns array + reject unauthenticated), update status, delete. 7 tests.
+
+**Frontend — Vitest (`npm test` in `frontend/`):**
+
+- `frontend/vite.config.js` — Added `test: { environment: 'node', globals: true, include: ['src/**/*.test.{js,jsx}'] }`.
+- `frontend/src/__tests__/resumeUtils.test.js` — Mocks `jspdf` and `docx` (browser-only deps), then tests `normalizeResumeText` (empty input, consecutive blank lines, lowercase continuation join, ALL-CAPS header not joined, page-number stripping, CRLF normalization) and `modifyResume` (no-op with empty arrays, no-op with empty text, adds to existing SKILLS section, appends new SKILLS section when none exists, marks added skills with `[ADDED]`). **11 tests**.
+
+**CI — GitHub Actions (`.github/workflows/ci.yml`):**
+
+Triggers on `push` to `main`/`dev` and `pull_request` to `main`. Two parallel jobs:
+- `backend-tests`: `ubuntu-latest` + `postgres:16-alpine` service container with health-check. Sets `TEST_DATABASE_URL` pointing to the container. Runs `cd backend && npm ci && npm test`.
+- `frontend-tests`: `ubuntu-latest`. Runs `cd frontend && npm ci && npm test`.
+
+**Pre-push hook (`.githooks/pre-push` + `scripts/setup-hooks.js`):**
+
+- Runs `backend/npm test` then `frontend/npm test` before every `git push`. If either fails, push is aborted with a clear message.
+- `SKIP_BACKEND_TESTS=1` env var bypasses the DB-dependent backend tests (useful when pushing from a machine without network access to Supabase).
+- One-time setup: `node scripts/setup-hooks.js` (sets `core.hooksPath = .githooks`).
+
+---
+
+#### 3. n8n Workflow Automation
+
+**Problem:** The Job Intel pipeline, daily scraper, and health monitoring all relied on internal `setInterval` timers that restart with the server, have no dashboard, and produce no alerts on failure.
+
+**Fix:**
+
+- **`docker-compose.yml`** — Added `n8n` as a 4th service:
+  - Image: `n8nio/n8n:latest`
+  - Port: `5678` (web UI — `http://localhost:5678`)
+  - Auth: HTTP Basic Auth (`admin` / `change-me-in-production`)
+  - Timezone: `Asia/Kolkata` (IST, matching the existing scrape schedule)
+  - Volume: `n8n_data` (persistent workflow/credential storage)
+  - Read-only bind-mount: `./n8n-workflows:/opt/workflows:ro`
+  - Depends on `backend`
+
+- **`n8n-workflows/01-job-intel-pipeline.json`** — Triggers `POST /api/job-intel/run` every 6 hours. On success logs result; on failure logs error. Requires `Backend Admin Token` HTTP Header credential.
+
+- **`n8n-workflows/02-health-monitor.json`** — Polls `GET /api/health` every 5 minutes. If response is not `{status: "ok"}`, routes to an Alert node (wire to email/Slack/Telegram for notifications).
+
+- **`n8n-workflows/03-daily-scrape.json`** — Cron `30 1 * * *` (1:30 UTC = 7 AM IST). Triggers LinkedIn Feed scraper (`POST /api/scraper/run`), then runs the Job Intel pipeline. Logs combined result.
+
+- **`n8n-workflows/04-log-alert.json`** — Polls `GET /api/admin/logs?level=error&since=1h` every hour. If `total > 0`, formats an error summary and routes to an Alert node. Wire to email/Slack to get hourly error digests.
+
+**Setup:** Import each JSON from n8n UI → Workflows → Import. Create credential "Backend Admin Token" (HTTP Header Auth: `Authorization: Bearer <admin-jwt>`). Activate workflows.
+
+---
+
+#### Known Remaining Gaps
+
+| Gap | Description | Status |
+|---|---|---|
+| G | n8n workflows need real admin JWT to function; credential setup is manual | OPEN |
+| H | Backend tests run against Supabase dev DB (no isolated test DB in local dev) | OPEN — acceptable; tests clean up after themselves |
+| I | `--forceExit` in Jest is a workaround for pg.Pool keeping connections alive; pool should be explicitly ended in globalTeardown | OPEN |
+
+---
+
 ## 2026-07-30 — Proxy list UI + anti-bot status badge (Commit: 1e37f66)
 
 ### FEATURE — Admin Panel → Job Intel Pipeline: Proxy / IP Rotation card
