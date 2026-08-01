@@ -2,6 +2,33 @@
 
 ---
 
+## 2026-08-01 — Analyzer "Add to Vault" saved plain text; tab switch wiped analyzer state
+
+### BUG FIX — Modified resume saved to vault as text-only
+
+**Symptom:** Modifying a resume in **Resume Analyzer & Maker** (add skills / generalize) and clicking **Add to Vault** saved a text-only version, so the vault preview showed raw text instead of a formatted document. (Direct file upload to the vault already worked.)
+
+**Cause:** `JobAnalyzer.handleSaveVault` posted `{ resumeText }` to the JSON `POST /resume-versions` endpoint with no file, so `file_id` was null → `has_file` false → text fallback.
+
+**Fix:** The analyzer now renders the modified resume to a formatted PDF client-side and uploads it as a real file.
+- `resumeUtils.js`: extracted `buildResumePdfDoc()` and added `resumeTextToPdfBlob()` (reuses the existing jsPDF layout used by the PDF download).
+- `JobAnalyzer.handleSaveVault` builds the PDF Blob and POSTs it (multipart) to `/resume-versions/upload` with `label`, `targetRole`, and `skills`.
+- Backend `/resume-versions/upload` + `saveVaultVersion` now accept an optional `skills` array (JSON) so the analyzer's job+resume skills are preserved for vault match-suggestions (previously the upload path always used the profile's skills).
+
+### BUG FIX — Switching tabs cleared unsaved analyzer work
+
+**Symptom:** Opening the Resume Vault (or any tab) from the Resume Analyzer and returning cleared all analyzer inputs/state.
+
+**Cause:** `App.jsx` conditionally rendered each tab (`{activeTab === 'jobs' && <JobAnalyzer />}`), so leaving a tab unmounted the component and dropped its local `useState`.
+
+**Fix:** Added a `KeepAlive` wrapper that mounts a tab on first visit and then keeps it mounted (hidden via `display:none`). Applied to the **Resume Analyzer** (`jobs`) and **Bulk Apply** (`bulk`) tabs so their unsaved work survives tab switches.
+
+- **Files changed:** `frontend/src/utils/resumeUtils.js`, `frontend/src/components/JobAnalyzer.jsx`, `frontend/src/App.jsx`, `backend/src/routes/resume-versions.js`
+
+**Noted follow-up (not fixed here):** editing resume text in `PostWorkflowModal` / `ResumeTemplateModal` / `TemplatesPage` saves via `PUT /profile { resume_text }` without regenerating the stored profile file, so the Profile's formatted preview can lag behind text edits until a new file is uploaded.
+
+---
+
 ## 2026-08-01 — Resume Vault previews showed raw text instead of original file
 
 ### BUG FIX — Resume files stored on ephemeral local disk, lost on redeploy

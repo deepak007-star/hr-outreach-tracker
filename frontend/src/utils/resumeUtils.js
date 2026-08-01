@@ -405,8 +405,9 @@ export function cleanResumeText(text) {
     .replace(/\[ADDED\]/g, '');
 }
 
-// ── PDF download ──────────────────────────────────────────────────────────────
-export function downloadAsPdf(rawText, filename = 'modified_resume') {
+// ── PDF build (shared by download + vault upload) ───────────────────────────────
+// Returns a jsPDF doc so callers can either .save() it or take .output('blob').
+export function buildResumePdfDoc(rawText) {
   // Normalize then strip markers so continuation lines are joined before rendering
   const text  = cleanResumeText(normalizeResumeText(rawText));
   const lines = text.split('\n');
@@ -480,7 +481,17 @@ export function downloadAsPdf(rawText, filename = 'modified_resume') {
     wrapped.forEach(wl => { checkY(); doc.text(wl, x, y); y += LH; });
   });
 
-  doc.save(`${filename}.pdf`);
+  return doc;
+}
+
+export function downloadAsPdf(rawText, filename = 'modified_resume') {
+  buildResumePdfDoc(rawText).save(`${filename}.pdf`);
+}
+
+// Formatted PDF as a Blob — used to store a modified/generated resume in the vault
+// so its preview renders the real document instead of raw text.
+export function resumeTextToPdfBlob(rawText) {
+  return buildResumePdfDoc(rawText).output('blob');
 }
 
 // ── Word download ─────────────────────────────────────────────────────────────

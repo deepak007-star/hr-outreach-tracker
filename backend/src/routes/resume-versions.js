@@ -83,15 +83,16 @@ function fetchUrl(urlStr, redirects = 5) {
   });
 }
 
-async function saveVaultVersion(userId, text, storedPath, mimeType, label, targetRole, isAtsTemplate = false, fileId = null) {
+async function saveVaultVersion(userId, text, storedPath, mimeType, label, targetRole, isAtsTemplate = false, fileId = null, skills = null) {
   const { cnt } = await db.prepare(
     'SELECT COUNT(*) AS cnt FROM resume_versions WHERE user_id = ?'
   ).get(userId);
   if (cnt >= MAX_VERSIONS) await pruneOldest(userId);
   const id = crypto.randomUUID();
-  const profileSkills = (await db.prepare(
-    'SELECT skills FROM profiles WHERE user_id = ?'
-  ).get(userId))?.skills || '[]';
+  // Use explicit skills when supplied (e.g. Analyzer's job+resume skills), else the profile's
+  const profileSkills = Array.isArray(skills)
+    ? JSON.stringify(skills)
+    : ((await db.prepare('SELECT skills FROM profiles WHERE user_id = ?').get(userId))?.skills || '[]');
   await db.prepare(`
     INSERT INTO resume_versions (id, user_id, label, resume_text, target_role, skills, auto_saved, file_path, mime_type, is_ats_template, file_id, created_at)
     VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
@@ -262,7 +263,9 @@ router.delete('/:id', async (req, res) => {
 // POST /api/resume-versions/upload  — upload a resume file from device
 router.post('/upload', upload.single('resume'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-  const { label = '', targetRole = '', isAtsTemplate = '0' } = req.body;
+  const { label = '', targetRole = '', isAtsTemplate = '0', skills: skillsRaw } = req.body;
+  let skills = null;
+  if (skillsRaw) { try { const p = JSON.parse(skillsRaw); if (Array.isArray(p)) skills = p; } catch {} }
   const userId = req.user.userId;
   const tmpPath = req.file.path;
   const ext = path.extname(req.file.originalname || '').toLowerCase();
@@ -289,7 +292,7 @@ router.post('/upload', upload.single('resume'), async (req, res) => {
     cleanup();
     const storedFileId = await putResumeFile(userId, fileBuffer, mimeType, req.file.originalname);
     const finalLabel = (label.trim() || req.file.originalname || 'Uploaded Resume').slice(0, 80);
-    const saved = await saveVaultVersion(userId, text, storedPath, mimeType, finalLabel, targetRole, isAtsTemplate === '1', storedFileId);
+    const saved = await saveVaultVersion(userId, text, storedPath, mimeType, finalLabel, targetRole, isAtsTemplate === '1', storedFileId, skills);
     res.json(saved);
   } catch (err) {
     cleanup();

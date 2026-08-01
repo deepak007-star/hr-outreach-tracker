@@ -61,6 +61,14 @@ class TabErrorBoundary extends Component {
   }
 }
 
+// Renders children once the tab has been visited, then keeps them mounted (hidden
+// via display:none) so component state survives switching to another tab and back.
+function KeepAlive({ active, name, visitedRef, children }) {
+  if (active) visitedRef.current[name] = true;
+  if (!visitedRef.current[name]) return null;
+  return <div style={{ display: active ? 'block' : 'none' }}>{children}</div>;
+}
+
 const PLAN_LIMITS = { guest: 5, demo: 10, basic: 100, advanced: 999999 };
 const PLAN_NAMES  = { guest: 'Guest', demo: 'Demo', basic: 'Basic', advanced: 'Advanced' };
 
@@ -114,6 +122,10 @@ export default function App() {
   const profileDirtyRef   = useRef(false);
   const [showUnsavedModal, setShowUnsavedModal] = useState(false);
   const pendingTabRef      = useRef(null);
+
+  // Keep-alive: which analyzer tabs have been opened at least once. They stay
+  // mounted (hidden) afterwards so switching tabs doesn't wipe unsaved work.
+  const analyzerVisitedRef = useRef({});
 
   // Low-level navigate: updates state + pushes URL
   const goTo = useCallback((tabId) => {
@@ -525,10 +537,15 @@ export default function App() {
         )}
 
         {/* ── Resume Analyzer & Maker tab ───────────────────────── */}
-        {activeTab === 'jobs' && <JobAnalyzer />}
+        {/* Kept mounted after first visit so switching tabs doesn't lose unsaved work */}
+        <KeepAlive active={activeTab === 'jobs'} name="jobs" visitedRef={analyzerVisitedRef}>
+          <JobAnalyzer />
+        </KeepAlive>
 
         {/* ── Bulk Apply tab ────────────────────────────────────── */}
-        {activeTab === 'bulk' && <BulkJobAnalyzer />}
+        <KeepAlive active={activeTab === 'bulk'} name="bulk" visitedRef={analyzerVisitedRef}>
+          <BulkJobAnalyzer />
+        </KeepAlive>
 
         {/* ── Contacts tab ──────────────────────────────────────── */}
         {activeTab === 'contacts' && <>

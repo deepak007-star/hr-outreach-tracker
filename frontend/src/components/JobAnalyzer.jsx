@@ -1,9 +1,9 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { toast } from 'react-hot-toast';
-import { api } from '../api/client.js';
+import { api, API_ROOT } from '../api/client.js';
 import { extractSkills } from '../data/techSkills.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
-import { modifyResume, downloadAsPdf, downloadAsWord, normalizeResumeText } from '../utils/resumeUtils.js';
+import { modifyResume, downloadAsPdf, downloadAsWord, normalizeResumeText, resumeTextToPdfBlob } from '../utils/resumeUtils.js';
 import ResumePreview from './ResumePreview.jsx';
 import StepGuide from './StepGuide.jsx';
 
@@ -199,19 +199,28 @@ export default function JobAnalyzer() {
     if (!modifiedText.trim()) return;
     setSavingVault(true);
     try {
-      await api.post('/resume-versions', {
-        label:      saveVaultLabel.trim() || `${jobTitle || 'Modified Resume'} — ${new Date().toLocaleDateString('en-IN')}`,
-        resumeText: modifiedText,
-        targetRole: saveVaultRole.trim() || jobTitle,
-        skills:     [...resumeSkills, ...addedSkills],
-        autoSaved:  false,
+      const label = saveVaultLabel.trim() || `${jobTitle || 'Modified Resume'} — ${new Date().toLocaleDateString('en-IN')}`;
+      // Render the modified resume to a formatted PDF and upload it, so the vault
+      // preview shows the real document instead of raw text.
+      const pdfBlob = resumeTextToPdfBlob(modifiedText);
+      const fd = new FormData();
+      fd.append('resume', new File([pdfBlob], `${label.replace(/[^\w.-]+/g, '_')}.pdf`, { type: 'application/pdf' }));
+      fd.append('label', label);
+      fd.append('targetRole', saveVaultRole.trim() || jobTitle || '');
+      fd.append('skills', JSON.stringify([...resumeSkills, ...addedSkills]));
+      const token = localStorage.getItem('hr_token');
+      const res = await fetch(`${API_ROOT}/api/resume-versions/upload`, {
+        method:  'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body:    fd,
       });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed to save to vault');
       toast.success('Saved to Resume Vault!');
       setShowSaveVault(false);
       setSaveVaultLabel('');
       setSaveVaultRole('');
     } catch (e) {
-      toast.error(e.response?.data?.error || 'Failed to save to vault');
+      toast.error(e.response?.data?.error || e.message || 'Failed to save to vault');
     } finally {
       setSavingVault(false);
     }
