@@ -42,7 +42,15 @@ function Field({ label, fkey, type, placeholder, hint, form, errors, set, showPa
 
 // ── Main modal ──────────────────────────────────────────────────────────────
 export default function AuthModal({ onClose }) {
-  const { login } = useAuth();
+  const { login, enableDevBypass, bypassAvailable } = useAuth();
+  const [bypassing, setBypassing] = useState(false);
+
+  const handleDevBypass = async () => {
+    setBypassing(true);
+    const ok = await enableDevBypass();
+    setBypassing(false);
+    if (ok) onClose();
+  };
   const [tab,      setTab]      = useState('login');
   const [loading,  setLoading]  = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
@@ -229,6 +237,25 @@ export default function AuthModal({ onClose }) {
             {loading ? '…' : tab === 'login' ? 'Sign In' : 'Create Account'}
           </button>
         </form>
+
+        {bypassAvailable && (
+          <div className="px-5 pb-4">
+            <div className="flex items-center justify-between gap-3 rounded-sm border border-amber-200 bg-amber-50 px-3 py-2.5">
+              <div>
+                <p className="text-xs font-semibold text-amber-800">Developer mode</p>
+                <p className="text-[11px] text-amber-600 leading-snug">Skip login — enter as admin with all features.</p>
+              </div>
+              <button
+                type="button"
+                onClick={handleDevBypass}
+                disabled={bypassing}
+                className="shrink-0 px-3 py-1.5 bg-amber-500 text-white rounded-sm text-xs font-semibold hover:bg-amber-600 disabled:opacity-50 transition"
+              >
+                {bypassing ? '…' : 'Enter'}
+              </button>
+            </div>
+          </div>
+        )}
 
         <p className="text-center text-xs text-gray-400 pb-5">
           {tab === 'login' ? "Don't have an account? " : 'Already have an account? '}

@@ -2,6 +2,28 @@
 
 ---
 
+## 2026-08-01 — Dev login bypass (skip auth, enter as admin)
+
+### FEATURE — Toggle to disable login/signup and enter as admin
+
+Adds a developer bypass so the whole app can be used without logging in, with full admin access and no plan restriction.
+
+**Backend (`routes/auth.js`):**
+- `DEV_BYPASS_ENABLED` flag — defaults **on when `NODE_ENV !== 'production'`**, and is forced by `DEV_LOGIN_BYPASS=true|false`. Off by default in production. Documented in `backend/.env.example`.
+- `GET /api/auth/dev-status` (public) — reports whether the bypass is available, so the UI only shows the toggle when it's allowed.
+- `POST /api/auth/dev-login` — gated by the flag; issues a real 30-day admin JWT (same cookie/token path as normal login). `ensureDevAdmin()` logs into the **oldest existing admin** (so real data shows) and bumps its plan to `advanced`; only creates a dedicated `dev-bypass@local.host` admin when the DB has no admin at all.
+
+**Frontend:**
+- `AuthContext` — `devBypass` state (persisted in `localStorage['hr_dev_bypass']`), `bypassAvailable` (from `/auth/dev-status`), and `enableDevBypass()`. On load, if the flag is on and there's no token, it silently calls `/auth/dev-login`. `logout()` also clears the bypass flag so signing out fully exits dev mode (no auto re-login on reload).
+- `AuthModal` — amber "Developer mode → Enter" panel (shown only when available) that signs in as admin and closes the modal.
+- `Header` — guest view shows a "Dev Login" button; the signed-in view shows a **DEV** pill and relabels Sign Out to **Exit Dev** while bypass is active.
+
+**Security note:** enabling `DEV_LOGIN_BYPASS` on a public/internet-facing server grants anyone full admin access. Keep it off there (production defaults off).
+
+- **Files changed:** `backend/src/routes/auth.js`, `backend/.env.example`, `frontend/src/contexts/AuthContext.jsx`, `frontend/src/components/AuthModal.jsx`, `frontend/src/components/Header.jsx`
+
+---
+
 ## 2026-08-01 — Analyzer "Add to Vault" saved plain text; tab switch wiped analyzer state
 
 ### BUG FIX — Modified resume saved to vault as text-only

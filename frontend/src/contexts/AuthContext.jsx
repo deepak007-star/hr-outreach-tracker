@@ -9,6 +9,18 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const syncRef = useRef(null);
 
+  // ── Dev login bypass ──────────────────────────────────────────────────────
+  // When on, the app auto-signs in as an admin (all features) with no login.
+  const [devBypass,       setDevBypass]       = useState(() => localStorage.getItem('hr_dev_bypass') === 'on');
+  const [bypassAvailable, setBypassAvailable] = useState(false);
+
+  // Is the bypass allowed by the server? Controls whether the toggle is shown.
+  useEffect(() => {
+    api.get('/auth/dev-status')
+      .then(r => setBypassAvailable(!!r?.enabled))
+      .catch(() => setBypassAvailable(false));
+  }, []);
+
   // ── Core sync: fetch fresh user from /auth/me ────────────────────────────
   // Also receives a fresh JWT from the server and updates localStorage so
   // the session rolls forward on every active use (never expires mid-session).
@@ -74,7 +86,20 @@ export function AuthProvider({ children }) {
   // ── Initial session restore ──────────────────────────────────────────────
   useEffect(() => {
     const token = localStorage.getItem('hr_token');
-    if (!token) { setLoading(false); return; }
+    if (!token) {
+      // No session — if dev bypass is on, silently sign in as admin
+      if (localStorage.getItem('hr_dev_bypass') === 'on') {
+        api.post('/auth/dev-login')
+          .then(data => {
+            if (data?.token) { localStorage.setItem('hr_token', data.token); return sync(); }
+          })
+          .catch(() => { localStorage.removeItem('hr_dev_bypass'); setDevBypass(false); })
+          .finally(() => setLoading(false));
+      } else {
+        setLoading(false);
+      }
+      return;
+    }
     sync().finally(() => setLoading(false));
 
     // Refresh when user comes back to the tab
@@ -140,13 +165,40 @@ export function AuthProvider({ children }) {
     } catch {
       // Even if the server call fails, clear local state
     }
+    // Signing out also exits dev-bypass so it doesn't auto-log back in on reload
+    localStorage.removeItem('hr_dev_bypass');
+    setDevBypass(false);
     localStorage.removeItem('hr_token');
     invalidateCache();
     setUser(null);
   }, []);
 
+  // ── enable dev bypass ─────────────────────────────────────────────────────
+  // Turns login off: signs in as admin now, and persists so reloads stay in.
+  const enableDevBypass = useCallback(async () => {
+    try {
+      const data = await api.post('/auth/dev-login');
+      if (data?.token) {
+        localStorage.setItem('hr_token', data.token);
+        localStorage.setItem('hr_dev_bypass', 'on');
+        setDevBypass(true);
+        await sync();
+        toast.success('Login disabled — signed in as admin');
+        return true;
+      }
+      toast.error('Dev login failed');
+      return false;
+    } catch (err) {
+      toast.error(err?.response?.data?.error || 'Dev login is disabled on the server');
+      return false;
+    }
+  }, [sync]);
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, refreshUser: sync }}>
+    <AuthContext.Provider value={{
+      user, loading, login, logout, refreshUser: sync,
+      devBypass, bypassAvailable, enableDevBypass,
+    }}>
       {children}
     </AuthContext.Provider>
   );

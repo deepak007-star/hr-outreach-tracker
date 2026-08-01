@@ -19,6 +19,38 @@ const COOKIE_OPTS = {
 };
 const CLEAR_COOKIE_OPTS = { httpOnly: true, secure: isProd, sameSite: isProd ? 'none' : 'lax', path: '/' };
 
+// ── Dev login bypass ───────────────────────────────────────────────────────
+// Lets you enter the app as an admin (all features, no restriction) without any
+// credentials. Enabled by default OUTSIDE production; set DEV_LOGIN_BYPASS=true
+// or =false to force it either way. WARNING: enabling this on a public server
+// grants anyone full admin access — keep it off (NODE_ENV=production or
+// DEV_LOGIN_BYPASS=false) on anything internet-facing.
+const DEV_BYPASS_ENABLED = process.env.DEV_LOGIN_BYPASS
+  ? process.env.DEV_LOGIN_BYPASS === 'true'
+  : process.env.NODE_ENV !== 'production';
+const DEV_ADMIN_EMAIL = 'dev-bypass@local.host';
+
+async function ensureDevAdmin() {
+  // Prefer the real first admin so the app shows actual data. Only spin up a
+  // dedicated dev admin when the DB has no admin yet (fresh install).
+  let admin = await db.prepare("SELECT * FROM users WHERE role = 'admin' ORDER BY created_at ASC LIMIT 1").get();
+  if (!admin) {
+    const id   = crypto.randomUUID();
+    const hash = await bcrypt.hash(crypto.randomUUID(), 10); // random, unusable password
+    await db.prepare(
+      "INSERT INTO users (id, name, email, password_hash, role, plan) VALUES (?, ?, ?, ?, 'admin', 'advanced')"
+    ).run(id, 'Dev Admin', DEV_ADMIN_EMAIL, hash);
+    await db.prepare('INSERT INTO profiles (user_id, full_name) VALUES (?, ?) ON CONFLICT (user_id) DO NOTHING')
+      .run(id, 'Dev Admin');
+    admin = await db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  } else if (admin.plan !== 'advanced') {
+    // Unlock all features for the dev session (persists on the account)
+    await db.prepare("UPDATE users SET plan = 'advanced' WHERE id = ?").run(admin.id);
+    admin.plan = 'advanced';
+  }
+  return admin;
+}
+
 // ── Per-IP auth rate limiter (10 attempts / 15 min) ───────────────────────
 const _authAttempts = new Map(); // ip -> { count, resetAt }
 function checkAuthRate(ip) {
@@ -139,6 +171,35 @@ router.get('/me', requireAuth, async (req, res) => {
   // Strip token_version from the client-facing payload — it's an internal revocation field.
   const { token_version: _tv, ...publicUser } = user;
   res.json({ ...publicUser, _token: freshToken });
+});
+
+// ── GET /api/auth/dev-status ───────────────────────────────────────────────
+// Public: tells the frontend whether the login bypass is available here.
+router.get('/dev-status', (req, res) => res.json({ enabled: DEV_BYPASS_ENABLED }));
+
+// ── POST /api/auth/dev-login ───────────────────────────────────────────────
+// Issues an admin session with no credentials. Gated by DEV_BYPASS_ENABLED.
+router.post('/dev-login', async (req, res) => {
+  if (!DEV_BYPASS_ENABLED) {
+    return res.status(403).json({ error: 'Login bypass is disabled on this server. Set DEV_LOGIN_BYPASS=true to enable it.' });
+  }
+  try {
+    const admin = await ensureDevAdmin();
+    const token = jwt.sign(
+      { userId: admin.id, plan: admin.plan || 'advanced', role: 'admin', tokenVersion: admin.token_version ?? 0 },
+      SECRET,
+      { expiresIn: '30d' }
+    );
+    res.cookie('hr_session', token, COOKIE_OPTS);
+    res.json({
+      token,
+      user: { id: admin.id, name: admin.name, email: admin.email, plan: admin.plan || 'advanced', role: 'admin' },
+      bypass: true,
+    });
+  } catch (e) {
+    console.error('[auth] dev-login failed:', e);
+    res.status(500).json({ error: 'Dev login failed.' });
+  }
 });
 
 // ── POST /api/auth/logout ──────────────────────────────────────────────────
