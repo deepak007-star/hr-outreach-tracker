@@ -320,6 +320,17 @@ async function initialize() {
       auto_saved  INTEGER NOT NULL DEFAULT 0,
       created_at  TEXT NOT NULL DEFAULT (${NOW_EXPR})
     );
+
+    -- Original uploaded resume bytes, stored in the DB so previews/attachments
+    -- survive redeploys and ephemeral-disk wipes (local disk paths do not).
+    CREATE TABLE IF NOT EXISTS resume_files (
+      id         TEXT PRIMARY KEY,
+      user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      data       BYTEA NOT NULL,
+      mime_type  TEXT,
+      filename   TEXT,
+      created_at TEXT NOT NULL DEFAULT (${NOW_EXPR})
+    );
   `);
 
   const defaults = {
@@ -370,6 +381,8 @@ async function initialize() {
   await addCol('resume_versions', 'file_path',        `TEXT`);
   await addCol('resume_versions', 'mime_type',        `TEXT`);
   await addCol('resume_versions', 'is_ats_template',  `INTEGER NOT NULL DEFAULT 0`);
+  await addCol('resume_versions', 'file_id',          `TEXT`);   // -> resume_files.id (DB-stored original bytes)
+  await addCol('profiles',        'resume_file_id',   `TEXT`);   // -> resume_files.id (DB-stored original bytes)
   await addCol('email_templates', 'attachment_json',  `TEXT`);
   // scraped_jobs index for fast date-range queries
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_scraped_jobs_created_at ON scraped_jobs (created_at)`);

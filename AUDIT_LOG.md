@@ -2,6 +2,27 @@
 
 ---
 
+## 2026-08-01 — Resume Vault previews showed raw text instead of original file
+
+### BUG FIX — Resume files stored on ephemeral local disk, lost on redeploy
+
+**Symptom:** Every resume in the Resume Vault (and the Profile preview) rendered as raw pdf-parse text instead of the formatted original document.
+
+**Root cause:** Original resume files were saved to the backend container's **local disk** (`/app/uploads/resumes/...`) while their paths were stored in the remote Supabase DB. On ephemeral/redeployed hosting the container filesystem is wiped on restart, so the bytes vanished while the DB rows survived with dangling absolute paths. `fs.existsSync(file_path)` was therefore false everywhere → `has_file: false` → the preview modal and email attachment resolvers silently fell back to extracted text. Confirmed: all 6 existing vault rows pointed at `/app/uploads/...` paths whose files no longer exist on any reachable disk.
+
+**Fix:** Store the original bytes in Postgres so they persist with the DB.
+
+- New `resume_files` table (`BYTEA`) + `backend/src/services/resumeFiles.js` (`putResumeFile` / `getResumeFile` / `copyResumeFile` / `deleteResumeFile`).
+- New FK columns `profiles.resume_file_id` and `resume_versions.file_id`.
+- All write paths (profile upload + auto-save-to-vault, vault upload, Google-Drive import, save-from-profile) now persist bytes to the DB. Save-from-profile makes an independent copy so lifecycles don't entangle.
+- All read paths (`profile.js` `GET /resume/file`, `resume-versions.js` `GET /:id/file`, and the email attachment resolvers in `email.js` + `scraped-jobs.js`) prefer DB bytes → legacy disk path → `.txt` text fallback. `has_file` is now true when either DB bytes or a disk file exist. `POST /resume-versions` now returns `has_file` so freshly-saved cards preview correctly without a reload.
+- Deleting/pruning a vault version and replacing the profile resume now free the old `resume_files` row; `resume_files.user_id` is `ON DELETE CASCADE`.
+- **Legacy rows:** bytes were already lost with the wiped disk — those versions can only preview as text until re-uploaded.
+
+- **Files changed:** `backend/src/db/database.js`, `backend/src/services/resumeFiles.js` (new), `backend/src/routes/profile.js`, `backend/src/routes/resume-versions.js`, `backend/src/routes/email.js`, `backend/src/routes/scraped-jobs.js`, `CLAUDE.md`
+
+---
+
 ## 2026-07-30 — Test suite bug fixes (Commit: d576a1e)
 
 ### BUG FIX — 3 test assumption errors discovered when running against Supabase

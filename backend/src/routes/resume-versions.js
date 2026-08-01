@@ -10,6 +10,7 @@ const http    = require('http');
 const multer  = require('multer');
 const db      = require('../db/database');
 const { requireAuth } = require('../middleware/auth');
+const { putResumeFile, getResumeFile, copyResumeFile, deleteResumeFile } = require('../services/resumeFiles');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -82,30 +83,35 @@ function fetchUrl(urlStr, redirects = 5) {
   });
 }
 
-async function saveVaultVersion(userId, text, storedPath, mimeType, label, targetRole, isAtsTemplate = false) {
+async function saveVaultVersion(userId, text, storedPath, mimeType, label, targetRole, isAtsTemplate = false, fileId = null) {
   const { cnt } = await db.prepare(
     'SELECT COUNT(*) AS cnt FROM resume_versions WHERE user_id = ?'
   ).get(userId);
-  if (cnt >= MAX_VERSIONS) {
-    const oldest = await db.prepare(
-      'SELECT id FROM resume_versions WHERE user_id = ? ORDER BY created_at ASC LIMIT 1'
-    ).get(userId);
-    if (oldest) await db.prepare('DELETE FROM resume_versions WHERE id = ?').run(oldest.id);
-  }
+  if (cnt >= MAX_VERSIONS) await pruneOldest(userId);
   const id = crypto.randomUUID();
   const profileSkills = (await db.prepare(
     'SELECT skills FROM profiles WHERE user_id = ?'
   ).get(userId))?.skills || '[]';
   await db.prepare(`
-    INSERT INTO resume_versions (id, user_id, label, resume_text, target_role, skills, auto_saved, file_path, mime_type, is_ats_template, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
-  `).run(id, userId, label.slice(0, 80), text.trim(), (targetRole || '').slice(0, 80), profileSkills, storedPath, mimeType, isAtsTemplate ? 1 : 0, NOW());
+    INSERT INTO resume_versions (id, user_id, label, resume_text, target_role, skills, auto_saved, file_path, mime_type, is_ats_template, file_id, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+  `).run(id, userId, label.slice(0, 80), text.trim(), (targetRole || '').slice(0, 80), profileSkills, storedPath, mimeType, isAtsTemplate ? 1 : 0, fileId, NOW());
   const saved = await db.prepare(
     'SELECT id, user_id, label, target_role, skills, auto_saved, created_at, mime_type, is_ats_template FROM resume_versions WHERE id = ?'
   ).get(id);
   saved.skills = parseSkills(saved.skills);
-  saved.has_file = !!(storedPath && fs.existsSync(storedPath));
+  saved.has_file = !!fileId || !!(storedPath && fs.existsSync(storedPath));
   return saved;
+}
+
+// Delete the oldest vault version for a user, including its stored file bytes.
+async function pruneOldest(userId) {
+  const oldest = await db.prepare(
+    'SELECT id, file_id FROM resume_versions WHERE user_id = ? ORDER BY created_at ASC LIMIT 1'
+  ).get(userId);
+  if (!oldest) return;
+  await db.prepare('DELETE FROM resume_versions WHERE id = ?').run(oldest.id);
+  await deleteResumeFile(oldest.file_id);
 }
 
 function parseSkills(json) {
@@ -117,12 +123,13 @@ function parseSkills(json) {
 router.get('/', async (req, res) => {
   try {
     const rows = await db.prepare(
-      'SELECT id, user_id, label, target_role, skills, auto_saved, created_at, mime_type, file_path, is_ats_template FROM resume_versions WHERE user_id = ? ORDER BY created_at DESC'
+      'SELECT id, user_id, label, target_role, skills, auto_saved, created_at, mime_type, file_path, file_id, is_ats_template FROM resume_versions WHERE user_id = ? ORDER BY created_at DESC'
     ).all(req.user.userId);
     rows.forEach(r => {
       r.skills   = parseSkills(r.skills);
-      r.has_file = !!(r.file_path && fs.existsSync(r.file_path));
+      r.has_file = !!r.file_id || !!(r.file_path && fs.existsSync(r.file_path));
       delete r.file_path;
+      delete r.file_id;
     });
     res.json(rows);
   } catch (err) {
@@ -154,34 +161,33 @@ router.post('/', async (req, res) => {
 
     const userId = req.user.userId;
 
-    // When saving from the profile's current resume, look up the stored file server-side
+    // When saving from the profile's current resume, carry over its stored file
+    // (DB bytes preferred; legacy disk path kept for backward-compat).
     let actualFilePath = filePath || null;
     let actualMimeType = mimeType || null;
+    let fileId         = null;
     if (fromProfile) {
-      const prof = await db.prepare('SELECT resume_file_path, resume_mime_type FROM profiles WHERE user_id = ?').get(userId);
+      const prof = await db.prepare('SELECT resume_file_path, resume_mime_type, resume_file_id FROM profiles WHERE user_id = ?').get(userId);
+      if (prof?.resume_file_id) {
+        fileId = await copyResumeFile(prof.resume_file_id, userId);   // independent copy for this version
+        actualMimeType = prof.resume_mime_type || actualMimeType;
+      }
       if (prof?.resume_file_path && fs.existsSync(prof.resume_file_path)) {
         actualFilePath = prof.resume_file_path;
-        actualMimeType = prof.resume_mime_type;
+        actualMimeType = prof.resume_mime_type || actualMimeType;
       }
     }
 
-    // Count existing versions
+    // Auto-prune oldest when at cap (also frees its stored bytes)
     const { cnt } = await db.prepare(
       'SELECT COUNT(*) AS cnt FROM resume_versions WHERE user_id = ?'
     ).get(userId);
-
-    // Auto-prune oldest when at cap
-    if (cnt >= MAX_VERSIONS) {
-      const oldest = await db.prepare(
-        'SELECT id FROM resume_versions WHERE user_id = ? ORDER BY created_at ASC LIMIT 1'
-      ).get(userId);
-      if (oldest) await db.prepare('DELETE FROM resume_versions WHERE id = ?').run(oldest.id);
-    }
+    if (cnt >= MAX_VERSIONS) await pruneOldest(userId);
 
     const id = crypto.randomUUID();
     await db.prepare(`
-      INSERT INTO resume_versions (id, user_id, label, resume_text, target_role, skills, auto_saved, file_path, mime_type, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO resume_versions (id, user_id, label, resume_text, target_role, skills, auto_saved, file_path, mime_type, file_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id, userId,
       (label || 'Untitled Version').slice(0, 80),
@@ -191,13 +197,15 @@ router.post('/', async (req, res) => {
       autoSaved ? 1 : 0,
       actualFilePath,
       actualMimeType,
+      fileId,
       NOW(),
     );
 
     const saved = await db.prepare(
       'SELECT id, user_id, label, target_role, skills, auto_saved, created_at, mime_type FROM resume_versions WHERE id = ?'
     ).get(id);
-    saved.skills = parseSkills(saved.skills);
+    saved.skills   = parseSkills(saved.skills);
+    saved.has_file = !!fileId || !!(actualFilePath && fs.existsSync(actualFilePath));
     res.json(saved);
   } catch (err) {
     console.error('[resume-versions] POST / error:', err);
@@ -236,10 +244,14 @@ router.put('/:id', async (req, res) => {
 // DELETE /api/resume-versions/:id
 router.delete('/:id', async (req, res) => {
   try {
+    const row = await db.prepare(
+      'SELECT file_id FROM resume_versions WHERE id = ? AND user_id = ?'
+    ).get(req.params.id, req.user.userId);
     const result = await db.prepare(
       'DELETE FROM resume_versions WHERE id = ? AND user_id = ?'
     ).run(req.params.id, req.user.userId);
     if (result.changes === 0) return res.status(404).json({ error: 'Version not found' });
+    await deleteResumeFile(row?.file_id);
     res.json({ ok: true });
   } catch (err) {
     console.error('[resume-versions] DELETE /:id error:', err);
@@ -272,10 +284,12 @@ router.post('/upload', upload.single('resume'), async (req, res) => {
         : ext === '.doc'  ? 'application/msword'
         : 'text/plain';
     }
+    const fileBuffer = fs.readFileSync(tmpPath);
     const storedPath = storeVaultFile(tmpPath, userId, ext);
     cleanup();
+    const storedFileId = await putResumeFile(userId, fileBuffer, mimeType, req.file.originalname);
     const finalLabel = (label.trim() || req.file.originalname || 'Uploaded Resume').slice(0, 80);
-    const saved = await saveVaultVersion(userId, text, storedPath, mimeType, finalLabel, targetRole, isAtsTemplate === '1');
+    const saved = await saveVaultVersion(userId, text, storedPath, mimeType, finalLabel, targetRole, isAtsTemplate === '1', storedFileId);
     res.json(saved);
   } catch (err) {
     cleanup();
@@ -303,7 +317,8 @@ router.post('/from-drive', async (req, res) => {
     if (!text?.trim()) return res.status(400).json({ error: 'Could not extract text. Make sure the file is a PDF or DOCX and publicly shared.' });
     const storedPath = storeVaultFile(tmpPath, userId, ext);
     const finalLabel = (label.trim() || 'Drive Import').slice(0, 80);
-    const saved = await saveVaultVersion(userId, text, storedPath, mimeType, finalLabel, targetRole);
+    const storedFileId = await putResumeFile(userId, buffer, mimeType, finalLabel + ext);
+    const saved = await saveVaultVersion(userId, text, storedPath, mimeType, finalLabel, targetRole, false, storedFileId);
     res.json(saved);
   } catch (err) {
     res.status(500).json({ error: `Drive import failed: ${err.message}` });
@@ -353,18 +368,24 @@ router.post('/suggest', async (req, res) => {
 router.get('/:id/file', async (req, res) => {
   try {
     const row = await db.prepare(
-      'SELECT file_path, mime_type, label FROM resume_versions WHERE id = ? AND user_id = ?'
+      'SELECT file_path, mime_type, label, file_id FROM resume_versions WHERE id = ? AND user_id = ?'
     ).get(req.params.id, req.user.userId);
+    if (!row) return res.status(404).json({ error: 'No file stored for this version' });
 
-    if (!row?.file_path || !fs.existsSync(row.file_path)) {
+    // Prefer DB-stored bytes (portable across redeploys); fall back to legacy disk file.
+    const blob = await getResumeFile(row.file_id, req.user.userId);
+    const hasDisk = row.file_path && fs.existsSync(row.file_path);
+    if (!blob && !hasDisk) {
       return res.status(404).json({ error: 'No file stored for this version' });
     }
 
-    const mime = row.mime_type || '';
+    const mime = blob?.mime_type || row.mime_type || '';
 
     if (mime.includes('wordprocessingml') || mime.includes('msword')) {
       const mammoth = require('mammoth');
-      const result  = await mammoth.convertToHtml({ path: row.file_path });
+      const result  = blob
+        ? await mammoth.convertToHtml({ buffer: blob.data })
+        : await mammoth.convertToHtml({ path: row.file_path });
       const html    = wrapDocxHtml(result.value);
       res.set('Content-Type', 'text/html; charset=utf-8');
       return res.send(html);
@@ -372,6 +393,7 @@ router.get('/:id/file', async (req, res) => {
 
     res.set('Content-Type', mime || 'application/octet-stream');
     res.set('Content-Disposition', `inline; filename="${encodeURIComponent(row.label || 'resume')}"`);
+    if (blob) return res.send(blob.data);
     fs.createReadStream(row.file_path).pipe(res);
   } catch (err) {
     console.error('[resume-versions] GET /:id/file error:', err);

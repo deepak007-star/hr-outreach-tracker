@@ -6,6 +6,7 @@ const fs       = require('fs');
 const crypto   = require('crypto');
 const db       = require('../db/database');
 const { requireAuth } = require('../middleware/auth');
+const { putResumeFile, getResumeFile, deleteResumeFile } = require('../services/resumeFiles');
 
 const MAX_VAULT = 5;
 
@@ -22,7 +23,7 @@ function storeResumeFile(tmpPath, userId, ext) {
   return dest;
 }
 
-async function autoSaveToVault(userId, resumeText, filename, filePath, mimeType) {
+async function autoSaveToVault(userId, resumeText, filename, filePath, mimeType, fileBuffer) {
   try {
     const { cnt } = await db.prepare(
       'SELECT COUNT(*) AS cnt FROM resume_versions WHERE user_id = ?'
@@ -35,10 +36,14 @@ async function autoSaveToVault(userId, resumeText, filename, filePath, mimeType)
     const label = `Upload #${cnt + 1}${filename ? ' — ' + filename : ''}`.slice(0, 80);
     const now   = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
+    // Give the vault version its own independent copy of the bytes so deleting
+    // it (or the profile) never affects the other.
+    const fileId = await putResumeFile(userId, fileBuffer, mimeType, filename);
+
     await db.prepare(`
-      INSERT INTO resume_versions (id, user_id, label, resume_text, target_role, skills, auto_saved, file_path, mime_type, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
-    `).run(crypto.randomUUID(), userId, label, resumeText.trim(), '', skills, filePath || null, mimeType || null, now);
+      INSERT INTO resume_versions (id, user_id, label, resume_text, target_role, skills, auto_saved, file_path, mime_type, file_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+    `).run(crypto.randomUUID(), userId, label, resumeText.trim(), '', skills, filePath || null, mimeType || null, fileId, now);
   } catch (e) {
     console.warn('[profile] auto-save to vault failed (non-fatal):', e.message);
   }
@@ -54,9 +59,10 @@ router.get('/', async (req, res) => {
   const profile = await db.prepare('SELECT * FROM profiles WHERE user_id = ?').get(req.user.userId);
   if (!profile) return res.json({});
   try { profile.skills = JSON.parse(profile.skills || '[]'); } catch { profile.skills = []; }
-  // Expose whether a stored file exists (don't expose the raw server path)
-  profile.has_resume_file = !!(profile.resume_file_path && fs.existsSync(profile.resume_file_path));
+  // Expose whether an original file is available (DB bytes first, then legacy disk)
+  profile.has_resume_file = !!profile.resume_file_id || !!(profile.resume_file_path && fs.existsSync(profile.resume_file_path));
   delete profile.resume_file_path;
+  delete profile.resume_file_id;
   res.json(profile);
 });
 
@@ -99,21 +105,23 @@ router.post('/resume', upload.single('resume'), async (req, res) => {
   const cleanup  = () => { try { fs.unlinkSync(tmpPath); } catch {} };
 
   try {
+    const userId     = req.user.userId;
+    const fileBuffer = fs.readFileSync(tmpPath);
     let text     = '';
     let mimeType = req.file.mimetype || 'application/octet-stream';
 
     if (ext === '.pdf') {
       const pdfParse = require('pdf-parse');
-      const data = await pdfParse(fs.readFileSync(tmpPath));
+      const data = await pdfParse(fileBuffer);
       text = data.text;
       mimeType = 'application/pdf';
     } else if (ext === '.docx' || ext === '.doc') {
       const mammoth = require('mammoth');
-      const result  = await mammoth.extractRawText({ path: tmpPath });
+      const result  = await mammoth.extractRawText({ buffer: fileBuffer });
       text = result.value;
       mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
     } else if (ext === '.txt') {
-      text = fs.readFileSync(tmpPath, 'utf8');
+      text = fileBuffer.toString('utf8');
       mimeType = 'text/plain';
     } else {
       cleanup();
@@ -122,24 +130,30 @@ router.post('/resume', upload.single('resume'), async (req, res) => {
 
     text = text.replace(/\r\n/g, '\n').trim();
 
-    // Persist to permanent storage
-    const storedPath = storeResumeFile(tmpPath, req.user.userId, ext);
+    // Persist bytes to the DB (survives redeploys) + keep a local-disk copy (legacy/cache)
+    const storedPath = storeResumeFile(tmpPath, userId, ext);
     cleanup();
+    const fileId = await putResumeFile(userId, fileBuffer, mimeType, req.file.originalname);
+
+    // Drop the previously stored profile file bytes, if any
+    const prev = await db.prepare('SELECT resume_file_id FROM profiles WHERE user_id = ?').get(userId);
+    if (prev?.resume_file_id) await deleteResumeFile(prev.resume_file_id);
 
     const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
     await db.prepare(`
-      INSERT INTO profiles (user_id, resume_text, resume_filename, resume_uploaded_at, resume_file_path, resume_mime_type, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO profiles (user_id, resume_text, resume_filename, resume_uploaded_at, resume_file_path, resume_mime_type, resume_file_id, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(user_id) DO UPDATE SET
         resume_text = excluded.resume_text,
         resume_filename = excluded.resume_filename,
         resume_uploaded_at = excluded.resume_uploaded_at,
         resume_file_path = excluded.resume_file_path,
         resume_mime_type = excluded.resume_mime_type,
+        resume_file_id = excluded.resume_file_id,
         updated_at = excluded.updated_at
-    `).run(req.user.userId, text, req.file.originalname, now, storedPath, mimeType, now);
+    `).run(userId, text, req.file.originalname, now, storedPath, mimeType, fileId, now);
 
-    autoSaveToVault(req.user.userId, text, req.file.originalname, storedPath, mimeType);
+    autoSaveToVault(userId, text, req.file.originalname, storedPath, mimeType, fileBuffer);
 
     res.json({ text, filename: req.file.originalname, mimeType });
   } catch (err) {
@@ -153,28 +167,34 @@ router.post('/resume', upload.single('resume'), async (req, res) => {
 router.get('/resume/file', async (req, res) => {
   try {
     const profile = await db.prepare(
-      'SELECT resume_file_path, resume_mime_type, resume_filename FROM profiles WHERE user_id = ?'
+      'SELECT resume_file_path, resume_mime_type, resume_filename, resume_file_id FROM profiles WHERE user_id = ?'
     ).get(req.user.userId);
 
-    if (!profile?.resume_file_path) {
+    if (!profile) return res.status(404).json({ error: 'No resume file stored.' });
+
+    // Prefer DB-stored bytes (portable across redeploys); fall back to legacy disk file.
+    const blob = await getResumeFile(profile.resume_file_id, req.user.userId);
+    const hasDisk = profile.resume_file_path && fs.existsSync(profile.resume_file_path);
+    if (!blob && !hasDisk) {
       return res.status(404).json({ error: 'No resume file stored.' });
     }
-    if (!fs.existsSync(profile.resume_file_path)) {
-      return res.status(404).json({ error: 'Resume file not found on server.' });
-    }
 
-    const mime = profile.resume_mime_type || '';
+    const mime     = (blob?.mime_type || profile.resume_mime_type || '');
+    const filename = profile.resume_filename || blob?.filename || 'resume';
 
     if (mime.includes('wordprocessingml') || mime.includes('msword')) {
       const mammoth = require('mammoth');
-      const result  = await mammoth.convertToHtml({ path: profile.resume_file_path });
+      const result  = blob
+        ? await mammoth.convertToHtml({ buffer: blob.data })
+        : await mammoth.convertToHtml({ path: profile.resume_file_path });
       const html    = wrapDocxHtml(result.value);
       res.set('Content-Type', 'text/html; charset=utf-8');
       return res.send(html);
     }
 
     res.set('Content-Type', mime || 'application/octet-stream');
-    res.set('Content-Disposition', `inline; filename="${encodeURIComponent(profile.resume_filename || 'resume')}"`);
+    res.set('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
+    if (blob) return res.send(blob.data);
     fs.createReadStream(profile.resume_file_path).pipe(res);
   } catch (err) {
     res.status(500).json({ error: `Failed to serve resume: ${err.message}` });

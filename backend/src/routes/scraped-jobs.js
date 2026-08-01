@@ -8,6 +8,7 @@ const http     = require('http');
 const db       = require('../db/database');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { getTransportForUser } = require('../services/mailTransport');
+const { getResumeFile } = require('../services/resumeFiles');
 const sanitizeHtml = require('sanitize-html');
 const { extractContacts } = require('../lib/contactExtract');
 const { cleanContactName, guessFirstNameFromEmail } = require('../lib/nameUtils');
@@ -77,15 +78,24 @@ async function resolveFeedAttachment(attachment, userId) {
   try {
     if (attachment.type === 'profile') {
       const profile = await db.prepare(
-        'SELECT resume_file_path, resume_mime_type, resume_filename FROM profiles WHERE user_id = ?'
+        'SELECT resume_file_path, resume_mime_type, resume_filename, resume_file_id FROM profiles WHERE user_id = ?'
       ).get(userId);
+      const blob = await getResumeFile(profile?.resume_file_id, userId);
+      if (blob) {
+        return [{ filename: profile.resume_filename || blob.filename || 'resume', content: blob.data, contentType: blob.mime_type || profile.resume_mime_type || 'application/octet-stream' }];
+      }
       if (profile?.resume_file_path && fs.existsSync(profile.resume_file_path)) {
         return [{ filename: profile.resume_filename || 'resume', path: profile.resume_file_path, contentType: profile.resume_mime_type || 'application/octet-stream' }];
       }
     } else if (attachment.type === 'vault' && attachment.vaultId) {
       const version = await db.prepare(
-        'SELECT file_path, mime_type, label, resume_text FROM resume_versions WHERE id = ? AND user_id = ?'
+        'SELECT file_path, mime_type, label, resume_text, file_id FROM resume_versions WHERE id = ? AND user_id = ?'
       ).get(attachment.vaultId, userId);
+      const blob = await getResumeFile(version?.file_id, userId);
+      if (blob) {
+        const ext = blob.mime_type?.includes('pdf') ? '.pdf' : blob.mime_type?.includes('word') ? '.docx' : '';
+        return [{ filename: (version.label || 'resume') + ext, content: blob.data, contentType: blob.mime_type || version.mime_type || 'application/octet-stream' }];
+      }
       if (version?.file_path && fs.existsSync(version.file_path)) {
         const ext = version.mime_type?.includes('pdf') ? '.pdf' : version.mime_type?.includes('word') ? '.docx' : '';
         return [{ filename: (version.label || 'resume') + ext, path: version.file_path, contentType: version.mime_type || 'application/octet-stream' }];
