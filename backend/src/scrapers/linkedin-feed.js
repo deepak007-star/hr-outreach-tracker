@@ -161,9 +161,24 @@ async function launchBrowser(proxyUrl = '') {
 async function newStealthPage(browser) {
   const ua   = randomUA();
   const vp   = randomVP();
-  const page = await browser.newPage();
+  // Playwright sets user-agent / viewport / locale / headers on the browser
+  // CONTEXT, not the page (page.setUserAgent is a Puppeteer-only API and throws
+  // "page.setUserAgent is not a function" here). Create a fresh stealth context
+  // per page so each request rotates its fingerprint.
+  const context = await browser.newContext({
+    userAgent: ua,
+    viewport:  vp,
+    locale:    'en-IN',
+    extraHTTPHeaders: {
+      'Accept-Language':           'en-IN,en-US;q=0.9,en;q=0.8,hi;q=0.7',
+      'sec-ch-ua':                 '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+      'sec-ch-ua-mobile':          '?0',
+      'sec-ch-ua-platform':        '"Windows"',
+      'Upgrade-Insecure-Requests': '1',
+    },
+  });
 
-  await page.addInitScript(() => {
+  await context.addInitScript(() => {
     // Hide webdriver
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
     // Fake Chrome runtime so navigator.chrome exists
@@ -188,16 +203,10 @@ async function newStealthPage(browser) {
     delete window.__pw_manual;
   });
 
-  await page.setUserAgent(ua);
-  await page.setViewportSize(vp);
-  await page.setExtraHTTPHeaders({
-    'Accept-Language':           'en-IN,en-US;q=0.9,en;q=0.8,hi;q=0.7',
-    'sec-ch-ua':                 '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
-    'sec-ch-ua-mobile':          '?0',
-    'sec-ch-ua-platform':        '"Windows"',
-    'Upgrade-Insecure-Requests': '1',
-  });
-
+  const page = await context.newPage();
+  // Callers only call page.close(); tear the context down with it so contexts
+  // don't accumulate across keywords / phases / retries.
+  page.once('close', () => { context.close().catch(() => {}); });
   return page;
 }
 

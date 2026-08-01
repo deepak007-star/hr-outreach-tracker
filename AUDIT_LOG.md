@@ -2,6 +2,20 @@
 
 ---
 
+## 2026-08-01 — LinkedIn Feed scraper crashed: "page.setUserAgent is not a function"
+
+### BUG FIX — Puppeteer API used against a Playwright page
+
+**Symptom:** Admin → Job Scraper (and the CLI `linkedin-feed.js`) died immediately on the first keyword with `Fatal: page.setUserAgent is not a function`.
+
+**Cause:** `newStealthPage()` launches **Playwright** (`chromium.launch`) but configured the page with Puppeteer's `page.setUserAgent(ua)` — a method Playwright's `Page` doesn't have. In Playwright the user-agent is set on the browser **context**, not the page.
+
+**Fix (`backend/src/scrapers/linkedin-feed.js`):** `newStealthPage()` now creates a fresh `browser.newContext({ userAgent, viewport, locale, extraHTTPHeaders })`, adds the stealth init script on the context, and opens the page from it — so each page still rotates its UA/viewport/headers. The context is torn down on `page.close()` (`page.once('close', …)`) so contexts don't accumulate across keywords/phases/retries. Verified: the scraper now runs the full DDG→Google→Bing→Brave→Yahoo cascade; UA rotation + `navigator.webdriver` masking confirmed applied.
+
+- **Files changed:** `backend/src/scrapers/linkedin-feed.js`
+
+---
+
 ## 2026-08-01 — Dev login bypass (skip auth, enter as admin)
 
 ### FEATURE — Toggle to disable login/signup and enter as admin
