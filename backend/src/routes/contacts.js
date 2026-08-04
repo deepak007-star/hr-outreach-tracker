@@ -8,9 +8,23 @@ const db       = require('../db/database');
 const { syncExcel } = require('../services/excelSync');
 const { requireAuth } = require('../middleware/auth');
 const { cleanContactName } = require('../lib/nameUtils');
+const { canSeePool, upsertContactState: upsertState } = require('../lib/contactVisibility');
 
 const router = express.Router();
 router.use(requireAuth);
+
+// Shape a joined row (contacts c + this user's state s) into the API contact,
+// overlaying the viewer's own status/notes onto the shared identity.
+function shapeContact(r, userId) {
+  const { my_status, my_notes, ...c } = r;
+  return {
+    ...c,
+    status:    my_status || 'New',
+    notes:     my_notes ?? null,
+    tags:      JSON.parse(c.tags || '[]'),
+    is_shared: c.user_id !== userId,   // added by another user
+  };
+}
 
 const UPLOADS_DIR = path.join(__dirname, '../../../uploads');
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -30,37 +44,53 @@ const VALID_STATUSES = ['New', 'Drafted', 'Sent', 'Opened', 'Replied', 'Intervie
 router.get('/', async (req, res) => {
   const { status, search, source, tag } = req.query;
   const userId = req.user.userId;
+  const pool   = canSeePool(req.user);   // subscribers/admins see everyone's contacts
 
-  let q = 'SELECT * FROM contacts WHERE user_id = ?';
+  // Join this user's own state so status/notes reflect the viewer, not the owner
+  let q = `
+    SELECT c.*, s.status AS my_status, s.notes AS my_notes
+    FROM contacts c
+    LEFT JOIN contact_user_state s ON s.contact_id = c.id AND s.user_id = ?
+  `;
   const p = [userId];
+  const where = [];
 
-  if (status) { q += ' AND status = ?'; p.push(status); }
-  if (source) { q += ' AND email_source = ?'; p.push(source); }
-  if (search) {
-    q += ' AND (name ILIKE ? OR company ILIKE ? OR email ILIKE ? OR title ILIKE ?)';
+  if (!pool)   { where.push('c.user_id = ?'); p.push(userId); }
+  if (status)  { where.push(`COALESCE(s.status, 'New') = ?`); p.push(status); }
+  if (source)  { where.push('c.email_source = ?'); p.push(source); }
+  if (search)  {
+    where.push('(c.name ILIKE ? OR c.company ILIKE ? OR c.email ILIKE ? OR c.title ILIKE ?)');
     const s = `%${search}%`;
     p.push(s, s, s, s);
   }
-  if (tag) { q += ' AND tags ILIKE ?'; p.push(`%"${tag}"%`); }
+  if (tag)     { where.push('c.tags ILIKE ?'); p.push(`%"${tag}"%`); }
 
-  q += ' ORDER BY date_added DESC';
+  if (where.length) q += ' WHERE ' + where.join(' AND ');
+  q += ' ORDER BY c.date_added DESC';
 
   try {
     const rows = await db.prepare(q).all(...p);
-    res.json(rows.map(r => ({ ...r, tags: JSON.parse(r.tags || '[]') })));
+    res.json(rows.map(r => shapeContact(r, userId)));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // ── GET /api/contacts/export  ──────────────────────────────────────────────
-// Generates the Excel on-demand for the requesting user's contacts only.
+// Generates the Excel on-demand for the contacts the user can see, with the
+// viewer's own status/notes overlaid.
 router.get('/export', async (req, res) => {
   const userId = req.user.userId;
+  const pool   = canSeePool(req.user);
   try {
-    const contacts = await db.prepare(
-      'SELECT * FROM contacts WHERE user_id = ? ORDER BY date_added DESC'
-    ).all(userId);
+    const rows = await db.prepare(`
+      SELECT c.*, s.status AS my_status, s.notes AS my_notes
+      FROM contacts c
+      LEFT JOIN contact_user_state s ON s.contact_id = c.id AND s.user_id = ?
+      ${pool ? '' : 'WHERE c.user_id = ?'}
+      ORDER BY c.date_added DESC
+    `).all(...(pool ? [userId] : [userId, userId]));
+    const contacts = rows.map(r => shapeContact(r, userId));
     const fp = await syncExcel(contacts);
     res.download(fp, 'HR_Outreach_Tracker.xlsx');
   } catch (err) {
@@ -138,12 +168,15 @@ router.post('/import', upload.single('file'), async (req, res) => {
 
     for (const r of parsedRows) {
       try {
+        const id = crypto.randomUUID();
         const result = await stmt.run(
-          crypto.randomUUID(), userId, r.name, r.title, r.company,
+          id, userId, r.name, r.title, r.company,
           r.email, r.status, r.notes, JSON.stringify(r.tags), r.source_url
         );
-        if (result.changes > 0) imported++;
-        else skipped++;
+        if (result.changes > 0) {
+          imported++;
+          await upsertState(id, userId, { status: r.status, notes: r.notes });
+        } else skipped++;
       } catch (e) {
         errors.push({ row: r.rowNum, email: r.email, error: e.message });
       }
@@ -186,11 +219,15 @@ router.post('/bulk-status', async (req, res) => {
     return res.status(400).json({ error: 'Invalid status' });
 
   const userId = req.user.userId;
+  const pool   = canSeePool(req.user);
   try {
-    await db.prepare(
-      `UPDATE contacts SET status = ? WHERE id IN (${ids.map(() => '?').join(',')}) AND user_id = ?`
-    ).run(status, ...ids, userId);
-    res.json({ ok: true, updated: ids.length });
+    // Only touch contacts the user can actually see, then set THEIR status
+    const ph = ids.map(() => '?').join(',');
+    const visible = await db.prepare(
+      `SELECT id FROM contacts WHERE id IN (${ph}) ${pool ? '' : 'AND user_id = ?'}`
+    ).all(...ids, ...(pool ? [] : [userId]));
+    for (const { id } of visible) await upsertState(id, userId, { status });
+    res.json({ ok: true, updated: visible.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -198,12 +235,17 @@ router.post('/bulk-status', async (req, res) => {
 
 // ── GET /api/contacts/:id  ─────────────────────────────────────────────────
 router.get('/:id', async (req, res) => {
+  const userId = req.user.userId;
+  const pool   = canSeePool(req.user);
   try {
-    const c = await db.prepare(
-      'SELECT * FROM contacts WHERE id = ? AND user_id = ?'
-    ).get(req.params.id, req.user.userId);
-    if (!c) return res.status(404).json({ error: 'Not found' });
-    res.json({ ...c, tags: JSON.parse(c.tags || '[]') });
+    const r = await db.prepare(`
+      SELECT c.*, s.status AS my_status, s.notes AS my_notes
+      FROM contacts c
+      LEFT JOIN contact_user_state s ON s.contact_id = c.id AND s.user_id = ?
+      WHERE c.id = ? ${pool ? '' : 'AND c.user_id = ?'}
+    `).get(...(pool ? [userId, req.params.id] : [userId, req.params.id, userId]));
+    if (!r) return res.status(404).json({ error: 'Not found' });
+    res.json(shapeContact(r, userId));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -231,8 +273,10 @@ router.post('/', async (req, res) => {
     `).run(id, userId, cleanedName, title || null, company || null, email.toLowerCase(),
         email_source, email_confidence, source_url || null, status, notes || null, JSON.stringify(tags));
 
+    await upsertState(id, userId, { status, notes: notes || null });
+
     const c = await db.prepare('SELECT * FROM contacts WHERE id = ?').get(id);
-    res.status(201).json({ ...c, tags: JSON.parse(c.tags) });
+    res.status(201).json({ ...c, status, notes: notes || null, tags: JSON.parse(c.tags), is_shared: false });
   } catch (err) {
     if (err.code === '23505')
       return res.status(409).json({ error: 'A contact with this email already exists' });
@@ -242,30 +286,58 @@ router.post('/', async (req, res) => {
 
 // ── PUT /api/contacts/:id  ─────────────────────────────────────────────────
 router.put('/:id', async (req, res) => {
-  const { id } = req.params;
+  const { id }  = req.params;
   const userId  = req.user.userId;
-  const allowed = ['name', 'title', 'company', 'email', 'email_source', 'email_confidence',
-    'source_url', 'status', 'notes', 'tags', 'date_last_contacted'];
+  const pool    = canSeePool(req.user);
 
-  const sets = [], params = [];
-  for (const f of allowed) {
-    if (req.body[f] !== undefined) {
-      sets.push(`${f} = ?`);
-      params.push(f === 'tags' ? JSON.stringify(req.body[f]) : req.body[f]);
-    }
-  }
-  if (sets.length === 0) return res.status(400).json({ error: 'No valid fields to update' });
   if (req.body.status && !VALID_STATUSES.includes(req.body.status))
     return res.status(400).json({ error: 'Invalid status' });
 
-  params.push(id, userId);
+  // status + notes are the viewer's own state; everything else is shared identity
+  // that only the contact's owner may edit.
+  const IDENTITY = ['name', 'title', 'company', 'email', 'email_source', 'email_confidence',
+    'source_url', 'tags', 'date_last_contacted'];
+
   try {
-    const r = await db.prepare(
-      `UPDATE contacts SET ${sets.join(', ')} WHERE id = ? AND user_id = ?`
-    ).run(...params);
-    if (r.changes === 0) return res.status(404).json({ error: 'Not found' });
-    const c = await db.prepare('SELECT * FROM contacts WHERE id = ?').get(id);
-    res.json({ ...c, tags: JSON.parse(c.tags) });
+    const contact = await db.prepare(
+      `SELECT * FROM contacts WHERE id = ? ${pool ? '' : 'AND user_id = ?'}`
+    ).get(...(pool ? [id] : [id, userId]));
+    if (!contact) return res.status(404).json({ error: 'Not found' });
+    const isOwner = contact.user_id === userId;
+
+    // Collect shared-identity edits (owner only) and per-user state edits (anyone)
+    const sets = [], params = [];
+    for (const f of IDENTITY) {
+      if (req.body[f] !== undefined) {
+        sets.push(`${f} = ?`);
+        params.push(f === 'tags' ? JSON.stringify(req.body[f]) : req.body[f]);
+      }
+    }
+    const stateUpdate = {};
+    if (req.body.status !== undefined) stateUpdate.status = req.body.status;
+    if (req.body.notes  !== undefined) stateUpdate.notes  = req.body.notes;
+
+    if (!sets.length && !Object.keys(stateUpdate).length)
+      return res.status(400).json({ error: 'No valid fields to update' });
+
+    // Reject identity edits by non-owners up front (no partial writes)
+    if (sets.length && !isOwner) return res.status(403).json({
+      error: "This contact was added by another user — you can set your own status/notes and email it, but not edit its details.",
+    });
+
+    if (Object.keys(stateUpdate).length) await upsertState(id, userId, stateUpdate);
+    if (sets.length) {
+      params.push(id, userId);
+      await db.prepare(`UPDATE contacts SET ${sets.join(', ')} WHERE id = ? AND user_id = ?`).run(...params);
+    }
+
+    const r = await db.prepare(`
+      SELECT c.*, s.status AS my_status, s.notes AS my_notes
+      FROM contacts c
+      LEFT JOIN contact_user_state s ON s.contact_id = c.id AND s.user_id = ?
+      WHERE c.id = ?
+    `).get(userId, id);
+    res.json(shapeContact(r, userId));
   } catch (err) {
     if (err.code === '23505')
       return res.status(409).json({ error: 'Email already in use by another contact' });

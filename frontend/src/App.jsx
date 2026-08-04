@@ -92,6 +92,11 @@ function getTabFromPath(pathname) {
 }
 
 const STATUSES = ['New','Drafted','Sent','Opened','Replied','Interview','Rejected','Do Not Contact'];
+// "Contacted" = an email has gone out (or the contact is closed). Everything else
+// (New / Drafted) counts as "not contacted yet".
+const CONTACTED_STATUSES = new Set(['Sent','Opened','Replied','Interview','Rejected','Do Not Contact']);
+const isContacted    = c => CONTACTED_STATUSES.has(c.status);
+const isNotContacted = c => !CONTACTED_STATUSES.has(c.status);
 
 export default function App() {
   const [contacts,       setContacts]       = useState([]);
@@ -101,6 +106,7 @@ export default function App() {
   const [statusFilter,   setStatusFilter]   = useState('');
   const [sourceFilter,   setSourceFilter]   = useState('');
   const [titleFilter,    setTitleFilter]    = useState('');
+  const [segment,        setSegment]        = useState('all'); // all | not_contacted | contacted
   const [selected,       setSelected]       = useState([]);
   const [editingContact,   setEditingContact]   = useState(null);
   const [showForm,         setShowForm]         = useState(false);
@@ -627,8 +633,8 @@ export default function App() {
                 <option value="csv">CSV Import</option>
                 <option value="apify">Apify</option>
               </select>
-              {(searchInput || statusFilter || sourceFilter || titleFilter) && (
-                <button onClick={() => { setSearchInput(''); setSearch(''); setStatusFilter(''); setSourceFilter(''); setTitleFilter(''); }}
+              {(searchInput || statusFilter || sourceFilter || titleFilter || segment !== 'all') && (
+                <button onClick={() => { setSearchInput(''); setSearch(''); setStatusFilter(''); setSourceFilter(''); setTitleFilter(''); setSegment('all'); }}
                   className="text-xs text-gray-400 hover:text-gray-600 underline">
                   Clear
                 </button>
@@ -674,10 +680,46 @@ export default function App() {
             </div>
           </div>
 
+          {/* ── Segment: Not contacted / Contacted / All ─────────────── */}
+          <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-gray-100 bg-white">
+            {[
+              { id: 'not_contacted', label: 'Not contacted', count: contacts.filter(isNotContacted).length, active: 'bg-slate-800 text-white border-slate-800', dot: 'bg-slate-400' },
+              { id: 'contacted',     label: 'Already mailed', count: contacts.filter(isContacted).length,   active: 'bg-amber-500 text-white border-amber-500', dot: 'bg-amber-500' },
+              { id: 'all',           label: 'All',            count: contacts.length,                        active: 'bg-brand-600 text-white border-brand-600', dot: 'bg-brand-500' },
+            ].map(seg => (
+              <button
+                key={seg.id}
+                onClick={() => setSegment(seg.id)}
+                className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border transition ${
+                  segment === seg.id ? seg.active : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${segment === seg.id ? 'bg-white/80' : seg.dot}`} />
+                {seg.label}
+                <span className={`ml-0.5 tabular-nums ${segment === seg.id ? 'text-white/80' : 'text-gray-400'}`}>{seg.count}</span>
+              </button>
+            ))}
+            <span className="text-[11px] text-gray-400 ml-1 hidden sm:inline">
+              “Not contacted” = you haven’t emailed them yet
+            </span>
+          </div>
+
           {/* ── Quick-select + bulk action bar ──────────────────────── */}
           <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-gray-100">
             {/* Quick-select buttons — always visible */}
             <span className="text-xs text-gray-400 font-medium">Select:</span>
+            {(() => {
+              const pickable = contacts.filter(isNotContacted).filter(c => !selected.includes(c.id)).map(c => c.id);
+              return pickable.length > 0 && (
+                <button
+                  onClick={() => setSelected(prev => [...new Set([...prev, ...pickable])])}
+                  className="text-xs px-2.5 py-1 border border-slate-300 bg-slate-50 rounded-sm text-slate-700 hover:bg-slate-100 hover:border-slate-400 font-semibold transition"
+                  title={`Select all ${pickable.length} not-contacted HRs`}
+                >
+                  All not contacted ({pickable.length})
+                </button>
+              );
+            })()}
             {[5, 10].map(n => {
               const SENT_STATUSES = new Set(['Sent','Opened','Replied','Interview','Rejected','Do Not Contact']);
               const unsentIds = contacts
@@ -741,7 +783,9 @@ export default function App() {
           </div>
 
           <ContactTable
-            contacts={titleFilter ? contacts.filter(c => (c.title || '').toLowerCase().includes(titleFilter.toLowerCase())) : contacts}
+            contacts={contacts
+              .filter(c => segment === 'all' ? true : segment === 'contacted' ? isContacted(c) : isNotContacted(c))
+              .filter(c => titleFilter ? (c.title || '').toLowerCase().includes(titleFilter.toLowerCase()) : true)}
             loading={loading}
             selected={selected}
             onSelect={setSelected}

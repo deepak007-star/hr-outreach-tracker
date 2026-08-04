@@ -331,6 +331,19 @@ async function initialize() {
       filename   TEXT,
       created_at TEXT NOT NULL DEFAULT (${NOW_EXPR})
     );
+
+    -- Per-user application state over the SHARED contact pool. Contact identity
+    -- (name/email/company) lives in the contacts table; each user's own status +
+    -- notes for a contact live here, so one user applying never changes another's view.
+    CREATE TABLE IF NOT EXISTS contact_user_state (
+      contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+      user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      status     TEXT NOT NULL DEFAULT 'New',
+      notes      TEXT,
+      updated_at TEXT NOT NULL DEFAULT (${NOW_EXPR}),
+      PRIMARY KEY (contact_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_contact_user_state_user ON contact_user_state (user_id);
   `);
 
   const defaults = {
@@ -384,6 +397,25 @@ async function initialize() {
   await addCol('resume_versions', 'file_id',          `TEXT`);   // -> resume_files.id (DB-stored original bytes)
   await addCol('profiles',        'resume_file_id',   `TEXT`);   // -> resume_files.id (DB-stored original bytes)
   await addCol('email_templates', 'attachment_json',  `TEXT`);
+
+  // One-time: seed per-user contact state from existing contacts so every owner
+  // keeps their current status/notes as their own state when the shared pool +
+  // per-user-status model goes live. Idempotent (ON CONFLICT DO NOTHING), but
+  // gated by a sentinel so we don't run the full-table insert on every boot.
+  const contactStateSeedKey = 'migration_contact_user_state_seeded';
+  const contactStateSeeded = await db.prepare('SELECT value FROM settings WHERE key = ?').get(contactStateSeedKey);
+  if (!contactStateSeeded) {
+    await db.exec(`
+      INSERT INTO contact_user_state (contact_id, user_id, status, notes, updated_at)
+      SELECT id, user_id, COALESCE(status, 'New'), notes,
+             COALESCE(date_last_contacted, date_added, ${NOW_EXPR})
+      FROM contacts
+      ON CONFLICT (contact_id, user_id) DO NOTHING
+    `);
+    await db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING')
+      .run(contactStateSeedKey, new Date().toISOString());
+  }
+
   // scraped_jobs index for fast date-range queries
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_scraped_jobs_created_at ON scraped_jobs (created_at)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_scraped_jobs_category ON scraped_jobs (job_category)`);

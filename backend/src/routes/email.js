@@ -9,6 +9,19 @@ const { middleware: rlMiddleware } = require('../middleware/rateLimiter');
 const { requireAuth } = require('../middleware/auth');
 const { getTransportForUser, createLegacyTransport } = require('../services/mailTransport');
 const { getResumeFile } = require('../services/resumeFiles');
+const { canSeePool, upsertContactState } = require('../lib/contactVisibility');
+
+// Load a contact the user is allowed to email (own, or any pooled contact for
+// subscribers) plus the viewer's own status for this contact.
+async function loadContactForUser(id, user) {
+  const pool = canSeePool(user);
+  return db.prepare(`
+    SELECT c.*, s.status AS my_status
+    FROM contacts c
+    LEFT JOIN contact_user_state s ON s.contact_id = c.id AND s.user_id = ?
+    WHERE c.id = ? ${pool ? '' : 'AND c.user_id = ?'}
+  `).get(...(pool ? [user.userId, id] : [user.userId, id, user.userId]));
+}
 const sanitizeHtml = require('sanitize-html');
 const { scrapeLimiter } = require('../middleware/security');
 const { cleanContactName } = require('../lib/nameUtils');
@@ -250,13 +263,15 @@ async function getDailyCap() {
   return parseInt(row?.value || '20');
 }
 
-async function wasRecentlySent(contactId) {
+// Per-user 14-day guard: each user can apply to a shared contact independently,
+// but not spam the same one twice within 14 days.
+async function wasRecentlySent(contactId, userId) {
   const cutoff = new Date(Date.now() - 14 * 86_400_000).toISOString().replace('T', ' ').slice(0, 19);
   const row = await db.prepare(`
     SELECT id FROM email_log
-    WHERE contact_id = ? AND sent_at > ? AND delivery_status = 'sent'
+    WHERE contact_id = ? AND user_id = ? AND sent_at > ? AND delivery_status = 'sent'
     LIMIT 1
-  `).get(contactId, cutoff);
+  `).get(contactId, userId, cutoff);
   return !!row;
 }
 
@@ -307,18 +322,18 @@ router.post('/preview', async (req, res) => {
   let budgetLeft  = isAdmin ? Infinity : Math.max(0, cap - sentToday);
 
   for (const id of contactIds) {
-    const contact = await db.prepare('SELECT * FROM contacts WHERE id = ? AND user_id = ?').get(id, req.user.userId);
+    const contact = await loadContactForUser(id, req.user);
     if (!contact) continue;
 
     let blocked = false, blockReason = null, blockType = null;
 
-    if (contact.status === 'Do Not Contact') {
+    if (contact.my_status === 'Do Not Contact') {
       blocked = true; blockReason = 'Marked Do Not Contact'; blockType = 'do_not_contact';
     } else if (contact.email_deliverable === 'hard_bounce') {
       blocked = true; blockReason = 'Hard bounce — address does not exist'; blockType = 'hard_bounce';
     } else if (contact.email_deliverable === 'flagged') {
       blocked = true; blockReason = 'Flagged undeliverable (bounced for another user)'; blockType = 'flagged';
-    } else if (await wasRecentlySent(id)) {
+    } else if (await wasRecentlySent(id, req.user.userId)) {
       blocked = true; blockReason = 'Already emailed in the last 14 days'; blockType = 'recently_sent';
     } else if (budgetLeft <= 0) {
       blocked = true; blockReason = `Daily cap of ${cap} reached`; blockType = 'cap_reached';
@@ -382,16 +397,16 @@ router.post('/send', rlMiddleware('email'), async (req, res) => {
       const contactId    = sends[i].contactId;
       const subject      = sends[i].subject.replace(/\{\{\s*[\w.]+\s*\}\}/g, '');
       const body         = sends[i].body.replace(/\{\{\s*[\w.]+\s*\}\}/g, '');
-      const contact = await db.prepare('SELECT * FROM contacts WHERE id = ? AND user_id = ?').get(contactId, userId);
+      const contact = await loadContactForUser(contactId, req.user);
       if (!contact) { results.push({ contactId, ok: false, error: 'Contact not found' }); continue; }
 
-      if (contact.status === 'Do Not Contact') {
+      if (contact.my_status === 'Do Not Contact') {
         results.push({ contactId, ok: false, error: 'Do Not Contact' }); continue;
       }
       if (contact.email_deliverable === 'hard_bounce' || contact.email_deliverable === 'flagged') {
         results.push({ contactId, ok: false, error: 'Email undeliverable', deliverable: false }); continue;
       }
-      if (await wasRecentlySent(contactId)) {
+      if (await wasRecentlySent(contactId, userId)) {
         results.push({ contactId, ok: false, error: 'Already emailed in the last 14 days' }); continue;
       }
       if (!isAdmin && sentCount >= cap) {
@@ -437,9 +452,13 @@ router.post('/send', rlMiddleware('email'), async (req, res) => {
           await db.prepare(`UPDATE contacts SET email_deliverable = 'valid' WHERE id = ?`).run(contactId);
         }
 
-        const newStatus = ['New', 'Drafted'].includes(contact.status) ? 'Sent' : contact.status;
-        await db.prepare(`UPDATE contacts SET status = ?, date_last_contacted = ? WHERE id = ?`)
-          .run(newStatus, now, contactId);
+        // Advance THIS user's own status (never another user's view of the contact)
+        const curStatus = contact.my_status || 'New';
+        if (['New', 'Drafted'].includes(curStatus)) {
+          await upsertContactState(contactId, userId, { status: 'Sent' });
+        }
+        // Keep a shared "last contacted" touch for reference (identity-level)
+        await db.prepare(`UPDATE contacts SET date_last_contacted = ? WHERE id = ?`).run(now, contactId);
 
         await upsertBillingStats(userId, 'emails_sent');
         sentCount++;
@@ -486,6 +505,8 @@ router.post('/send', rlMiddleware('email'), async (req, res) => {
             WHERE LOWER(email) = LOWER(?) AND id != ? AND email_deliverable NOT IN ('hard_bounce', 'flagged')
           `).run(now, 'Flagged: hard bounce reported by another user', contact.email, contactId);
 
+          // reflect the dead address in the sender's own view
+          await upsertContactState(contactId, userId, { status: 'Do Not Contact' });
           await upsertBillingStats(userId, 'emails_bounced');
 
         } else if (bounceType === 'soft_bounce') {
@@ -509,7 +530,13 @@ router.post('/send', rlMiddleware('email'), async (req, res) => {
       if (i < sends.length - 1) await new Promise(r => setTimeout(r, 1000));
     }
 
-    const userContacts = await db.prepare('SELECT * FROM contacts WHERE user_id = ? ORDER BY date_added DESC').all(userId);
+    const userRows = await db.prepare(`
+      SELECT c.*, s.status AS my_status
+      FROM contacts c
+      LEFT JOIN contact_user_state s ON s.contact_id = c.id AND s.user_id = ?
+      WHERE c.user_id = ? ORDER BY c.date_added DESC
+    `).all(userId, userId);
+    const userContacts = userRows.map(({ my_status, ...c }) => ({ ...c, status: my_status || c.status || 'New' }));
     await syncExcel(userContacts);
 
     const sent   = results.filter(r => r.ok).length;

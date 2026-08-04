@@ -2,6 +2,25 @@
 
 ---
 
+## 2026-08-04 — Shared contact pool + per-user status; "not contacted" segmentation
+
+### FEATURE — Contacts are now a shared pool with per-user application state
+
+Previously every contact was private to its `user_id`; a subscriber couldn't see anyone else's HR list. Now:
+
+- **Shared pool:** subscribed users (plan `basic`/`advanced`) and admins see **all** users' contacts. Free/demo users still see only their own. Gated by `lib/contactVisibility.js` → `canSeePool(user)`.
+- **Per-user status:** new `contact_user_state (contact_id, user_id, status, notes)` table holds each user's own status/notes/send-history over the shared contact identity. One user applying or re-labelling never changes another's view. One-time migration seeds a state row per existing contact from its owner's current status (settings sentinel `migration_contact_user_state_seeded`).
+- **contacts.js:** list/get/export join the viewer's state (effective `status`/`notes`); `POST`/import seed the creator's state; `bulk-status` and `PUT` (status/notes) upsert per-user state; **identity edits** (name/email/company/…) remain owner-only (403 for others, checked before any write); each contact carries `is_shared` (added by someone else).
+- **email.js (apply):** any pooled contact is emailable by subscribers; the 14-day duplicate guard is now **per-user** (`wasRecentlySent(contactId, userId)`); Do-Not-Contact is per-user; a successful send advances the **sender's** state to `Sent` (not the shared row); hard bounces still flag the address globally (`email_deliverable`) so a dead email blocks everyone, and also set the sender's state to `Do Not Contact`.
+
+### FEATURE — "Not contacted / Already mailed" segmentation in the HR list
+
+`App.jsx` Contacts view adds a segment control — **Not contacted (N)** · **Already mailed (N)** · **All (N)** — plus a one-click **"All not contacted (N)"** selector to bulk-pick every un-emailed HR for outreach. "Contacted" = any of Sent/Opened/Replied/Interview/Rejected/Do Not Contact (per the viewer's own status); everything else (New/Drafted) is "not contacted." Counts/segmentation reflect the per-user status above.
+
+- **Files changed:** `backend/src/db/database.js`, `backend/src/lib/contactVisibility.js` (new), `backend/src/routes/contacts.js`, `backend/src/routes/email.js`, `frontend/src/App.jsx`
+
+---
+
 ## 2026-08-01 — LinkedIn Feed scraper crashed: "page.setUserAgent is not a function"
 
 ### BUG FIX — Puppeteer API used against a Playwright page
