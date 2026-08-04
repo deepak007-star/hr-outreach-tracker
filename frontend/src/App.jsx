@@ -160,9 +160,10 @@ export default function App() {
     return () => clearTimeout(t);
   }, [searchInput]);
 
-  const fetchContacts = useCallback(async () => {
+  // silent=true → background auto-refresh (no loading spinner / no error toast)
+  const fetchContacts = useCallback(async ({ silent = false } = {}) => {
     if (!user) { setLoading(false); return; } // guests land on LandingPage, not the contacts table
-    setLoading(true);
+    if (!silent) setLoading(true);
     try {
       const params = {};
       if (search)       params.search = search;
@@ -171,11 +172,20 @@ export default function App() {
       const data = await api.get('/contacts', { params });
       setContacts(data);
     } catch {
-      toast.error('Could not reach backend — is it running on port 3001?');
+      if (!silent) toast.error('Could not reach backend — is it running on port 3001?');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [search, statusFilter, sourceFilter, user]);
+
+  const fetchEmailStats = useCallback(() => {
+    if (!user) return;
+    api.get('/email/stats')
+      // keep the same object reference when nothing changed, so dependent effects
+      // (e.g. the reminder timer) don't reset on every background refresh
+      .then(data => setEmailStats(prev => JSON.stringify(prev) === JSON.stringify(data) ? prev : data))
+      .catch(() => {});
+  }, [user]);
 
   useEffect(() => { fetchContacts(); }, [fetchContacts]);
 
@@ -195,9 +205,40 @@ export default function App() {
     // Razorpay uses an inline modal — no redirect callbacks needed
   }, []);
 
+  useEffect(() => { fetchEmailStats(); }, [activityKey, fetchEmailStats]);
+
+  // ── Live auto-refresh ──────────────────────────────────────────────────────
+  // Keep the dashboard, counts and contact list current without a manual reload:
+  // poll periodically, and refresh whenever the user returns to the tab/window
+  // or switches to the Dashboard/Contacts view. Uses silent refreshes so there's
+  // no spinner flicker.
   useEffect(() => {
-    api.get('/email/stats').then(setEmailStats).catch(() => {});
-  }, [activityKey]); // refresh only after explicit actions (send, delete), not on every search keystroke
+    if (!user) return;
+    const refresh = () => {
+      if (document.visibilityState !== 'visible') return;
+      fetchContacts({ silent: true });
+      fetchEmailStats();
+    };
+    const interval = setInterval(refresh, 30_000);
+    const onFocus   = () => refresh();
+    const onVisible = () => { if (document.visibilityState === 'visible') refresh(); };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [user, fetchContacts, fetchEmailStats]);
+
+  // Refresh immediately when returning to the Dashboard or Contacts view
+  useEffect(() => {
+    if (!user) return;
+    if (activeTab === 'home' || activeTab === 'contacts') {
+      fetchContacts({ silent: true });
+      fetchEmailStats();
+    }
+  }, [activeTab, user, fetchContacts, fetchEmailStats]);
 
   // Session-expired event: show toast so user knows why they got logged out
   useEffect(() => {

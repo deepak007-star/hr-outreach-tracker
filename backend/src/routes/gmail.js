@@ -55,6 +55,11 @@ router.get('/status', requireAuth, async (req, res) => {
 // ─── Helper: get authenticated Gmail client for a user ───────────────────────
 
 async function getGmailClient(userId) {
+  if (!isGoogleConfigured()) {
+    const e = new Error('Google OAuth is not configured on the server. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in backend/.env (from your Google Cloud Console OAuth client), then restart the backend.');
+    e.notConfigured = true;
+    throw e;
+  }
   const row = await db.prepare(
     "SELECT refresh_token FROM oauth_accounts WHERE user_id = ? AND provider = 'google'"
   ).get(userId);

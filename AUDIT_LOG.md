@@ -2,6 +2,34 @@
 
 ---
 
+## 2026-08-04 — Gmail sync failing + dashboard not auto-updating
+
+### CONFIG + BUG FIX — Gmail sync
+
+**Symptom:** "Sync Now" failed with a generic error; Gmail data never updated.
+
+**Root cause (config):** `backend/.env` had **empty** `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, even though 5 Google accounts were already connected (tokens minted by a prior deployment). Without the client credentials the OAuth2 client can't refresh the access token, so every Gmail API call (sync — and OAuth email sending) fails. `GOOGLE_REDIRECT_URI` was also wrong (`/api/gmail/callback`; the real callback is `/api/oauth/google/callback`).
+
+**Actions:**
+- Fixed `GOOGLE_REDIRECT_URI` in `backend/.env` to `http://localhost:3001/api/oauth/google/callback` (the actual route; `.env.example` was already correct).
+- `routes/gmail.js`: `getGmailClient()` now fails fast with a clear message — *"Google OAuth is not configured on the server. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in backend/.env…"* — instead of a generic failure.
+- **Still required from the user:** put the real `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (Google Cloud Console OAuth client) into `backend/.env`, register the redirect URI, restart the backend, then reconnect Google.
+
+### FEATURE — Live dashboard / contacts auto-refresh
+
+**Symptom:** dashboard counts and the contact list were static until a full page reload.
+
+**Cause:** data was only refetched on explicit local actions (filter change, or `activityKey` bump after send/delete). No polling, no refresh on focus/visibility, no refresh on returning to a view.
+
+**Fix (`App.jsx`):**
+- `fetchContacts({ silent })` supports background refresh (no spinner / no error toast).
+- New auto-refresh: **30s poll** + refresh on **window focus** and **tab becoming visible**, plus an immediate refresh when switching to the **Dashboard/Contacts** view. All silent.
+- `fetchEmailStats()` keeps the same object reference when data is unchanged, so dependent effects (e.g. the daily-reminder timer) don't reset on every poll.
+
+- **Files changed:** `backend/src/routes/gmail.js`, `frontend/src/App.jsx` (+ local `backend/.env`, gitignored)
+
+---
+
 ## 2026-08-04 — Shared contact pool + per-user status; "not contacted" segmentation
 
 ### FEATURE — Contacts are now a shared pool with per-user application state
