@@ -438,6 +438,29 @@ async function main() {
   }
   setTimeout(downgradeExpiredSubscriptions, 20_000);
   setInterval(downgradeExpiredSubscriptions, 24 * 3_600_000);
+
+  // ── Auto-proxy pool refresh (startup + on its configured cadence) ─────────
+  // Keeps a large, validated free-proxy pool warm in the background so the Job
+  // Intel scraper always has fresh IPs to rotate through (better yield) without
+  // blocking pipeline runs on a live fetch+validate.
+  const proxyFetcher = require('./services/proxyFetcher');
+  async function refreshProxyPoolIfDue(force = false) {
+    try {
+      const cfg = await proxyFetcher.getConfig(database);
+      if (!cfg.enabled) return;
+      if (!force) {
+        const cache = await proxyFetcher.getCache(database);
+        const ageMin = cache.ts ? (Date.now() - new Date(cache.ts.replace(' ', 'T') + 'Z').getTime()) / 60000 : Infinity;
+        if (cache.proxies?.length && ageMin < cfg.refreshIntervalMin) return; // still fresh
+      }
+      const c = await proxyFetcher.refresh(database);
+      console.log(`[Auto-proxy] refreshed: ${c.stats.validated}/${c.stats.tested} validated (of ${c.stats.totalFetched} fetched) in ${(c.stats.durationMs / 1000) | 0}s`);
+    } catch (e) {
+      console.error('[Auto-proxy] refresh failed:', e.message);
+    }
+  }
+  setTimeout(() => refreshProxyPoolIfDue(true), 90_000);      // warm up ~90s after boot
+  setInterval(() => refreshProxyPoolIfDue(false), 10 * 60_000); // check staleness every 10 min
 }
 
 main().catch(err => { console.error('Startup failed:', err); process.exit(1); });

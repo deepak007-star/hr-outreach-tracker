@@ -1221,6 +1221,10 @@ function JobIntelConfigSection() {
   const [proxyList,    setProxyList]    = useState('');
   const [savingProxy,  setSavingProxy]  = useState(false);
   const [antiBotStatus, setAntiBotStatus] = useState(null);
+  const [autoProxy,    setAutoProxy]    = useState(null); // { config, lastRefresh, count, stats }
+  const [proxyBusy,    setProxyBusy]    = useState(false);
+
+  const loadAutoProxy = () => api.get('/job-intel/proxy-auto').then(setAutoProxy).catch(() => {});
 
   useEffect(() => {
     api.get('/job-intel/config').then(r => setCfg(r)).catch(() => {});
@@ -1229,7 +1233,31 @@ function JobIntelConfigSection() {
       setProxyList(s.proxy_list || '');
       try { setAntiBotStatus(JSON.parse(s.antibot_status || 'null')); } catch {}
     }).catch(() => {});
+    loadAutoProxy();
   }, []);
+
+  async function toggleAutoProxy(enabled) {
+    setProxyBusy(true);
+    try { const r = await api.put('/job-intel/proxy-auto', { enabled }); setAutoProxy(a => ({ ...a, config: r.config })); toast.success(`Auto-proxy ${enabled ? 'enabled' : 'disabled'}`); }
+    catch (e) { toast.error(e.response?.data?.error || 'Failed'); }
+    finally { setProxyBusy(false); }
+  }
+
+  async function saveWebshareKey(key) {
+    try { const r = await api.put('/job-intel/proxy-auto', { webshareApiKey: key }); setAutoProxy(a => ({ ...a, config: r.config })); toast.success('Saved'); }
+    catch (e) { toast.error(e.response?.data?.error || 'Failed'); }
+  }
+
+  async function refreshAutoProxy() {
+    setProxyBusy(true);
+    toast.loading('Fetching + validating proxies…', { id: 'apx' });
+    try {
+      const r = await api.post('/job-intel/proxy-auto/refresh');
+      setAutoProxy(a => ({ ...a, lastRefresh: r.lastRefresh, count: r.count, stats: r.stats }));
+      toast.success(`${r.count} live proxies validated (of ${r.stats?.tested || 0} tested)`, { id: 'apx' });
+    } catch (e) { toast.error(e.response?.data?.error || 'Refresh failed', { id: 'apx' }); }
+    finally { setProxyBusy(false); }
+  }
 
   async function save() {
     if (!cfg) return;
@@ -1425,6 +1453,49 @@ function JobIntelConfigSection() {
           className="px-3 py-1.5 text-xs font-semibold bg-gray-700 text-white rounded-md hover:bg-gray-800 disabled:opacity-50">
           {savingProxy ? 'Saving…' : 'Save Proxy List'}
         </button>
+      </div>
+
+      {/* Auto-proxy — fetch + validate free proxies automatically */}
+      <div className="border border-brand-100 bg-brand-50/40 rounded-md p-3 space-y-2">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold text-gray-700">Auto Proxy Pool <span className="text-[10px] font-normal text-brand-600">(free, self-updating)</span></p>
+            <p className="text-[11px] text-gray-400 mt-0.5">
+              Fetches thousands of proxies from free sources (ProxyScrape, Geonode, GitHub lists),
+              validates the live ones, and rotates them into the scraper automatically. Merged with your manual list above.
+            </p>
+          </div>
+          <label className="inline-flex items-center gap-2 shrink-0 cursor-pointer">
+            <input type="checkbox" className="sr-only peer" disabled={proxyBusy}
+              checked={!!autoProxy?.config?.enabled}
+              onChange={e => toggleAutoProxy(e.target.checked)} />
+            <span className="w-9 h-5 bg-gray-300 peer-checked:bg-brand-600 rounded-full relative transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4 after:bg-white after:rounded-full after:transition-all peer-checked:after:translate-x-4" />
+            <span className="text-[11px] font-medium text-gray-600">{autoProxy?.config?.enabled ? 'On' : 'Off'}</span>
+          </label>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 text-[11px] text-gray-500">
+          <span><strong className="text-gray-800">{autoProxy?.count ?? 0}</strong> live in pool</span>
+          {autoProxy?.stats && <span>· {autoProxy.stats.validated}/{autoProxy.stats.tested} validated of {autoProxy.stats.totalFetched} fetched</span>}
+          {autoProxy?.lastRefresh && <span>· updated {String(autoProxy.lastRefresh).slice(0, 16)}</span>}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={refreshAutoProxy} disabled={proxyBusy}
+            className="px-3 py-1.5 text-xs font-semibold bg-brand-600 text-white rounded-md hover:bg-brand-700 disabled:opacity-50">
+            {proxyBusy ? 'Working…' : 'Refresh pool now'}
+          </button>
+          <input
+            type="password"
+            defaultValue={autoProxy?.config?.webshareApiKey || ''}
+            placeholder="Optional: Webshare API key (free tier — more reliable)"
+            onBlur={e => { if (e.target.value !== (autoProxy?.config?.webshareApiKey || '')) saveWebshareKey(e.target.value); }}
+            className="flex-1 min-w-[200px] px-3 py-1.5 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500 font-mono"
+          />
+        </div>
+        <p className="text-[10px] text-gray-400">
+          Free proxies are inherently unstable — validation + frequent refresh keeps yield up, but a Webshare key or an official search API is far more reliable.
+        </p>
       </div>
 
       {/* Buttons */}

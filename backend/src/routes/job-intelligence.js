@@ -217,4 +217,38 @@ router.patch('/postings/:id/review', requireAuth, requireAdmin, async (req, res)
   }
 });
 
+// ── Auto-proxy: fetch + validate free proxies for the scraper ────────────────
+const proxyFetcher = require('../services/proxyFetcher');
+
+// GET /api/job-intel/proxy-auto — config + last-refresh stats (admin)
+router.get('/proxy-auto', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const config = await proxyFetcher.getConfig(db);
+    const cache  = await proxyFetcher.getCache(db);
+    res.json({ config, lastRefresh: cache.ts || null, count: cache.proxies?.length || 0, stats: cache.stats || null });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// PUT /api/job-intel/proxy-auto — update config (enabled, sources, webshareApiKey…) (admin)
+router.put('/proxy-auto', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const config = await proxyFetcher.saveConfig(db, req.body || {});
+    res.json({ ok: true, config });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/job-intel/proxy-auto/refresh — fetch + validate now (admin)
+router.post('/proxy-auto/refresh', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const cache = await proxyFetcher.refresh(db);
+    res.json({ ok: true, lastRefresh: cache.ts, count: cache.proxies.length, stats: cache.stats });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;

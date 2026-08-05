@@ -75,7 +75,21 @@ async function runPipeline(triggeredBy = 'scheduler') {
     let scraperExtraEnv = {};
     try {
       const proxyRow = await db.prepare(`SELECT value FROM settings WHERE key = 'proxy_list'`).get().catch(() => null);
-      const proxyStr = proxyRow?.value || '';
+      const manualList = (proxyRow?.value || '').split('\n').map(l => l.trim()).filter(Boolean);
+
+      // Merge in auto-sourced + validated proxies (fetched from free providers,
+      // refreshed on a schedule) so the pool stays large and fresh automatically.
+      let autoProxies = [];
+      try {
+        const { getFreshProxies } = require('../services/proxyFetcher');
+        const auto = await getFreshProxies(db);
+        autoProxies = auto.proxies || [];
+        if (autoProxies.length) console.log(`[Pipeline] Auto-proxy: +${autoProxies.length} validated (cache ${auto.ts || 'n/a'})`);
+      } catch (e) {
+        console.warn('[Pipeline] auto-proxy fetch failed (non-fatal):', e.message);
+      }
+
+      const proxyStr = [...new Set([...manualList, ...autoProxies])].join('\n');
       if (proxyStr.trim()) {
         const loaded = proxyRotator.loadFromString(proxyStr);
         console.log(`[Pipeline] Proxy pool: ${loaded} configured — health-checking…`);

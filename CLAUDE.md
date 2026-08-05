@@ -72,7 +72,9 @@ Tables: `contacts`, `email_log`, `settings` (key/value store — see **Settings 
 | `reminder_<userId>` | Reminder scheduler | JSON: send time, days, template |
 | `reminder_email_sent_<userId>_<YYYY-MM-DD>` | Reminder scheduler | Dedup sentinel; deleted when user deleted |
 | `job_intel_config` | Job Intel config panel | Full pipeline config JSON (see `DEFAULT_CONFIG` in orchestrator.js) |
-| `proxy_list` | Job Intel proxy panel | Newline-separated proxy URLs (`http://` or `socks5://`) |
+| `proxy_list` | Job Intel proxy panel | Newline-separated proxy URLs (`http://` or `socks5://`) — the **manual** pool |
+| `proxy_auto_config` | Admin auto-proxy panel | JSON: `{enabled, sources, webshareApiKey, maxCandidates, concurrency, refreshIntervalMin}` for the auto proxy fetcher (`services/proxyFetcher.js`) |
+| `proxy_auto_cache` | `proxyFetcher.refresh` (auto) | JSON: `{ts, proxies: [validated urls], stats}` — free proxies fetched from providers + validated; merged with `proxy_list` by the orchestrator |
 | `antibot_status` | Orchestrator (auto) | JSON: `{ts, status: 'ok'\|'low_yield'\|'proxy_pool_dead', freshlyScraped, …}` — written after every scrape |
 | `purge_config` | Admin panel | JSON: auto-purge rules |
 | `unsubscribe_footer_text` | Settings modal | Plain text appended to every outbound email |

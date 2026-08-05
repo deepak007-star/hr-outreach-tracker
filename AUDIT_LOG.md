@@ -2,6 +2,25 @@
 
 ---
 
+## 2026-08-05 — Auto proxy pool for Job Intel scraper (better yield)
+
+### FEATURE — Self-updating, validated free-proxy pool
+
+Low scraper yield was largely IP blocking with no/dead proxies. Added an automatic proxy sourcing + validation layer so the scraper always has a large, fresh pool of working IPs to rotate through.
+
+- **`services/proxyFetcher.js`** — fetches candidates from multiple free sources (ProxyScrape API, Geonode API, and the monosans / TheSpeedX GitHub raw lists; optional **Webshare** free-tier via API key), dedupes, caps, then **validates** each: real HTTP-through-proxy GET for http/https proxies, TCP reachability for socks (no new deps). Live test: ~8,000 candidates fetched, **271 validated** from a 1,000 sample in ~49s. Writes validated URLs to `proxy_auto_cache`.
+- **Config** in `proxy_auto_config` (enabled, sources, webshareApiKey, maxCandidates, concurrency, refreshIntervalMin). Defaults enabled.
+- **Orchestrator Stage 0a** now merges the manual `proxy_list` with `proxyFetcher.getFreshProxies()` (auto-refreshes the cache when stale) before loading + health-checking the rotator.
+- **Background refresh** in `index.js` — warms the pool ~90s after boot, then re-validates on the configured cadence (staleness-checked every 10 min) so pipeline runs read a warm cache instead of blocking on a live fetch.
+- **Admin API** (`routes/job-intelligence.js`): `GET/PUT /job-intel/proxy-auto`, `POST /job-intel/proxy-auto/refresh`.
+- **Admin UI** (`AdminPanel.jsx`): "Auto Proxy Pool" panel under Proxy/IP Rotation — on/off toggle, live count + validated/tested/fetched stats + last-updated, "Refresh pool now", and an optional Webshare API-key field.
+
+Note: free proxies are inherently unstable; validation + frequent refresh keeps yield up, but a Webshare key or an official search API is materially more reliable.
+
+- **Files changed:** `backend/src/services/proxyFetcher.js` (new), `backend/src/agents/orchestrator.js`, `backend/src/index.js`, `backend/src/routes/job-intelligence.js`, `frontend/src/components/AdminPanel.jsx`, `CLAUDE.md`
+
+---
+
 ## 2026-08-04 — Gmail sync failing + dashboard not auto-updating
 
 ### CONFIG + BUG FIX — Gmail sync
