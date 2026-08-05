@@ -44,15 +44,18 @@ function needsFetch(job) {
 
 // Fetch + scan apply pages concurrently. Mutates jobs in place (sets the
 // _pre_contact_email / _pre_all_contacts fast-path fields extractFromJob reads).
-async function enrichWithPageEmails(jobs, { cap = 150, concurrency = 8, timeoutMs = 12000 } = {}) {
+async function enrichWithPageEmails(jobs, { cap = 150, concurrency = 8, timeoutMs = 10000, budgetMs = 90000 } = {}) {
   const targets = jobs.filter(needsFetch).slice(0, cap);
   let enriched = 0, jsFallbackList = [], idx = 0;
+  const deadline = Date.now() + budgetMs;   // hard overall cap so a run never bogs down
 
   async function worker() {
-    while (idx < targets.length) {
+    while (idx < targets.length && Date.now() < deadline) {
       const job = targets[idx++];
       try {
-        const html = await common.get(job.apply_url, { delay: 0, timeout: timeoutMs });
+        // Direct (noProxy): apply pages don't IP-block, and routing them through
+        // slow free proxies is what stalled the pipeline.
+        const html = await common.get(job.apply_url, { delay: 0, timeout: timeoutMs, noProxy: true });
         const emails = pageEmails(html);
         if (emails.length) {
           job._pre_contact_email = emails[0];

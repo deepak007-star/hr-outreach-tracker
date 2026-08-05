@@ -2,6 +2,23 @@
 
 ---
 
+## 2026-08-05 — Deep-fetch stalled the pipeline; make it direct + time-boxed
+
+### BUG FIX — deep-fetch bogged the run down
+
+The first full run after adding deep-fetch stalled (`status='running'`, `total_new=0`) because Stage 3.5 fetched up to 200 apply pages **through the slow free-proxy pool** — each page hit a proxy timeout then a direct retry, so the run never reached the store stage.
+
+**Fix:**
+- `lib/common.get()` gained a `noProxy` option (forces a direct request).
+- `deepFetch.enrichWithPageEmails` now fetches apply pages **direct** (they don't IP-block, unlike search engines) and enforces a hard overall **`budgetMs` (default 90s)** so it can never bog a run down; concurrency raised to 15.
+- The in-process **Playwright fallback is now opt-in** (`cfg.deep_fetch_browser === true`) — launching Chromium inside the backend process is heavy/risky.
+
+**Verified:** a re-run completed cleanly — `status=success`, scrape stored 30 fresh LinkedIn posts, deep-fetch ran direct within budget. (`total_new` was low that cycle only because repeated same-day test runs had already harvested the available page-emails into `job_postings`, so they were deduped out; a fresh run over new listings yields more.)
+
+- **Files changed:** `backend/src/lib/common.js`, `backend/src/agents/deepFetch.js`, `backend/src/agents/orchestrator.js`
+
+---
+
 ## 2026-08-05 — Fix scraper stalls on bad proxies (prefer HTTP + probe/direct-fallback)
 
 ### BUG FIX — a dead proxy could hang the whole scrape

@@ -200,12 +200,13 @@ async function runPipeline(triggeredBy = 'scheduler') {
         const { enrichWithPageEmails, enrichWithBrowser } = require('./deepFetch');
         const http = await enrichWithPageEmails(unique, {
           cap:         cfg.deep_fetch_cap || 200,
-          concurrency: cfg.deep_fetch_concurrency || 10,
-          timeoutMs:   cfg.deep_fetch_timeout_ms || 12000,
+          concurrency: cfg.deep_fetch_concurrency || 15,
+          timeoutMs:   cfg.deep_fetch_timeout_ms || 10000,
+          budgetMs:    cfg.deep_fetch_budget_ms || 90000, // hard overall cap
         });
         console.log(`[Pipeline] Deep-fetch (http): enriched ${http.enriched}/${http.attempted} apply pages`);
-        // Bounded Playwright fallback for JS-rendered pages (opt-out via cfg.deep_fetch_browser=false)
-        if (cfg.deep_fetch_browser !== false && http.jsFallback?.length) {
+        // Playwright fallback for JS-rendered pages — opt-IN only (heavy in-process)
+        if (cfg.deep_fetch_browser === true && http.jsFallback?.length) {
           const br = await enrichWithBrowser(http.jsFallback, { cap: cfg.deep_fetch_browser_cap || 25 });
           if (br.enriched) console.log(`[Pipeline] Deep-fetch (browser): enriched ${br.enriched}/${br.attempted} JS pages`);
         }

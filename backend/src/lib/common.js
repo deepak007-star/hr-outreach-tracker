@@ -93,7 +93,7 @@ const BASE_HEADERS = {
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-async function get(url, { json = false, delay = 2000, headers = {}, lenient = false, timeout = 20000 } = {}) {
+async function get(url, { json = false, delay = 2000, headers = {}, lenient = false, timeout = 20000, noProxy = false } = {}) {
   await sleep(delay);
   const cfg = {
     headers: { ...BASE_HEADERS, ...headers, Accept: json ? 'application/json' : 'text/html,application/xhtml+xml,*/*;q=0.9' },
@@ -101,6 +101,10 @@ async function get(url, { json = false, delay = 2000, headers = {}, lenient = fa
     maxRedirects: 5,
     ...(lenient ? { httpsAgent: LENIENT_AGENT } : {}),
   };
+
+  // noProxy: force a direct request (used by deep-fetch of apply pages, which
+  // don't IP-block and are much faster/more reliable without a flaky free proxy).
+  if (noProxy) return (await axios.get(url, { ...cfg, proxy: false })).data;
 
   ensureProxyPool();
   const proxyUrl   = proxyRotator.next();               // null when pool empty/all dead
