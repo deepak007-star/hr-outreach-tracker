@@ -101,9 +101,10 @@ async function runPipeline(triggeredBy = 'scheduler') {
           // Pass the full pool as comma-sep to the scraper child process;
           // it calls proxyRotator.loadFromEnv() to reconstruct the pool.
           scraperExtraEnv.PROXY_URLS = proxyRotator.toCsvEnv();
-          // Also provide a single PROXY_URL (the next round-robin pick) as
-          // the initial proxy for the Playwright browser --proxy-server arg.
-          scraperExtraEnv.PROXY_URL  = proxyRotator.next() || '';
+          // Also provide a single PROXY_URL for the Playwright browser
+          // --proxy-server arg. Prefer an HTTP-validated proxy — socks entries
+          // only get a TCP check and often hang the browser with no fallback.
+          scraperExtraEnv.PROXY_URL  = proxyRotator.nextHttp() || proxyRotator.next() || '';
           console.log(`[Pipeline] Proxy injection: PROXY_URL=${scraperExtraEnv.PROXY_URL.replace(/:[^:@]+@/, ':***@')}`);
         } else {
           console.warn('[Pipeline] All proxies dead — scraping without proxy (may hit IP blocks)');

@@ -35,7 +35,7 @@ const path = require('path');
 const fs   = require('fs');
 const { chromium } = require('playwright');
 const {
-  resolveRelativeDate, applyFilters, parseArgs, proxyLaunchArgs,
+  resolveRelativeDate, applyFilters, parseArgs, proxyLaunchArgs, ensureBrowserReachable,
   saveRawCache, buildSuffix, saveCSV, saveHTML,
   RUN_STAMP,
 } = require('../lib/common');
@@ -166,7 +166,8 @@ async function main() {
   console.log(`Since: ${opts.since} | Limit: ${opts.limit}\n`);
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
-  const browser = await launchBrowser();
+  let browser = await launchBrowser();
+  browser = await ensureBrowserReachable(browser, launchBrowser);
   const fetched = [];
 
   try {

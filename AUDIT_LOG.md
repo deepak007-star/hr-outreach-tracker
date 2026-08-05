@@ -2,6 +2,24 @@
 
 ---
 
+## 2026-08-05 — Fix scraper stalls on bad proxies (prefer HTTP + probe/direct-fallback)
+
+### BUG FIX — a dead proxy could hang the whole scrape
+
+A full pipeline run stalled because the browser scrape got injected a bad `socks5://…:3128` proxy (a socks entry on an HTTP port). Socks proxies only get a **TCP** check in `proxyFetcher` (no dep to validate them properly), so non-functional ones stay "alive" and the browser — which has no per-request fallback — hangs on every navigation.
+
+**Change 1 — prefer HTTP for the single browser proxy.** New `proxyRotator.nextHttp()` returns the next alive **http/https** proxy (which *are* real-HTTP-validated), rotating within that subset. Used for the browser `PROXY_URL` in the orchestrator Stage 0a, `proxyFetcher.buildScraperProxyEnv`, and linkedin-feed's initial pick + `tryRotateProxy` (`nextHttp() || next()` so socks is still a last resort).
+
+**Change 2 — probe + direct fallback in the scrapers.** After launching a proxied browser, a quick reachability probe (navigate to a light page, 9s timeout) runs:
+- **linkedin-feed** (`ensureWorkingBrowser`): probe → on failure rotate through other proxies (http-first) → if none work, relaunch **DIRECT**. Also runs after each `tryRotateProxy`.
+- **naukri / foundit / jora**: shared `common.ensureBrowserReachable(browser, launchFn)` — probe → clear `PROXY_URL` and relaunch direct on failure.
+
+**Tested:** ran linkedin-feed with a deliberately dead `socks5://127.0.0.1:3128` → it logged `failed reachability probe → relaunching DIRECT` and proceeded to scrape (found LinkedIn posts via Brave) instead of hanging. `nextHttp()` unit-verified to return only http proxies (and null on a socks-only pool).
+
+- **Files changed:** `backend/src/lib/proxyRotator.js`, `backend/src/lib/common.js`, `backend/src/agents/orchestrator.js`, `backend/src/services/proxyFetcher.js`, `backend/src/scrapers/{linkedin-feed,naukri,foundit,jora}.js`
+
+---
+
 ## 2026-08-05 — Job Intel low yield: deep-fetch apply pages for emails
 
 ### FEATURE — Deep-fetch step (the real yield fix)

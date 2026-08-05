@@ -47,6 +47,26 @@ function proxyLaunchArgs() {
   return /^(https?|socks[45]):\/\//i.test(url) ? [`--proxy-server=${url}`] : [];
 }
 
+// Probe a launched browser's proxy by loading a light page; if it fails (dead
+// proxy), clear PROXY_URL and relaunch DIRECT via the caller's launchFn so a bad
+// proxy can never hang the whole run. Returns the browser to use.
+async function ensureBrowserReachable(browser, launchFn, { timeoutMs = 9000, testUrl = 'https://duckduckgo.com/' } = {}) {
+  if (!process.env.PROXY_URL) return browser; // already direct
+  let page;
+  let ok = false;
+  try {
+    page = await browser.newPage();
+    await page.goto(testUrl, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+    ok = true;
+  } catch { ok = false; }
+  finally { if (page) try { await page.close(); } catch {} }
+  if (ok) return browser;
+  console.warn(`[proxy] ${(process.env.PROXY_URL || '').replace(/:[^:@]+@/, ':***@')} unreachable — relaunching DIRECT`);
+  try { await browser.close(); } catch {}
+  process.env.PROXY_URL = '';                 // proxyLaunchArgs() now returns []
+  return launchFn();
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 // Ceiling only — actual yield still depends on each source's real available
@@ -551,7 +571,7 @@ ${cards}
 }
 
 module.exports = {
-  sleep, get, proxyLaunchArgs, stripHtml, escH,
+  sleep, get, proxyLaunchArgs, ensureBrowserReachable, stripHtml, escH,
   TODAY, RUN_STAMP, parseSince, sinceToSeconds, sinceToDays, resolveRelativeDate, jobDate,
   isRemote, matchesLocation,
   applyFilters, parseArgs,

@@ -241,7 +241,8 @@ async function buildScraperProxyEnv(db) {
   proxyRotator.loadFromString(all.join('\n'));
   const health = await proxyRotator.healthCheckAll(8000);
   if (health.alive > 0) {
-    return { env: { PROXY_URLS: proxyRotator.toCsvEnv(), PROXY_URL: proxyRotator.next() || '' }, alive: health.alive, total: health.total };
+    // Prefer an HTTP-validated proxy for the single browser PROXY_URL
+    return { env: { PROXY_URLS: proxyRotator.toCsvEnv(), PROXY_URL: proxyRotator.nextHttp() || proxyRotator.next() || '' }, alive: health.alive, total: health.total };
   }
   return { env: {}, alive: 0, total: health.total };
 }

@@ -795,7 +795,9 @@ async function main() {
   // Load proxy pool from PROXY_URLS env var (set by orchestrator).
   // Falls back to the single PROXY_URL if no pool is configured.
   proxyRotator.loadFromEnv();
-  let currentProxy = proxyRotator.size > 0 ? (proxyRotator.next() || PROXY_URL) : PROXY_URL;
+  // Prefer an HTTP-validated proxy — socks entries only get a TCP check and
+  // often hang the browser (which has no per-request fallback).
+  let currentProxy = proxyRotator.size > 0 ? (proxyRotator.nextHttp() || proxyRotator.next() || PROXY_URL) : PROXY_URL;
 
   console.log(`Keywords   : ${opts.titles.join(', ')}`);
   console.log(`Limit      : ${opts.limit}`);
@@ -816,6 +818,42 @@ async function main() {
   const posts       = [];
   const seenUrls    = new Set();
 
+  // Quick reachability probe: navigate to a light page through the current proxy.
+  // A dead proxy (common with TCP-only-validated socks) otherwise hangs every
+  // phase's first navigation until timeout.
+  async function probeBrowser(timeoutMs = 9000) {
+    let page;
+    try {
+      page = await browser.newPage();
+      await page.goto('https://duckduckgo.com/', { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+      return true;
+    } catch { return false; }
+    finally { if (page) try { await page.close(); } catch {} }
+  }
+
+  // Ensure we start on a WORKING browser: probe the current proxy; if dead, try
+  // other proxies (http-first), and if none work, relaunch DIRECT so a bad
+  // proxy can never stall the whole run.
+  async function ensureWorkingBrowser() {
+    if (!currentProxy) return;               // already direct
+    if (await probeBrowser()) return;        // current proxy works
+    console.log(`[proxy] ${currentProxy.replace(/:[^:@]+@/, ':***@')} failed reachability probe — switching`);
+    for (let i = 0; i < 3; i++) {
+      proxyRotator.markFailed(currentProxy);
+      const next = proxyRotator.nextHttp() || proxyRotator.next();
+      if (!next || next === currentProxy) break;
+      try { await browser.close(); } catch {}
+      currentProxy = next;
+      browser = await launchBrowser(currentProxy);
+      if (await probeBrowser()) { console.log(`[proxy] using working proxy ${currentProxy.replace(/:[^:@]+@/, ':***@')}`); return; }
+    }
+    console.log('[proxy] no working proxy — relaunching DIRECT (no proxy) to avoid stalling');
+    try { await browser.close(); } catch {}
+    currentProxy = '';
+    browser = await launchBrowser('');
+  }
+  await ensureWorkingBrowser();
+
   const broadShare     = Math.max(3, Math.round(opts.limit * 0.2));
   const perTitleBudget = Math.max(1, opts.limit - broadShare);
   const perTitle       = Math.ceil(perTitleBudget / opts.titles.length);
@@ -825,16 +863,18 @@ async function main() {
   // Returns true if a new proxy was picked and the browser was relaunched.
   async function tryRotateProxy(reason) {
     if (proxyRotator.size === 0) return false;
-    proxyRotator.markFailed(currentProxy);
-    const next = proxyRotator.next();
+    if (currentProxy) proxyRotator.markFailed(currentProxy);
+    const next = proxyRotator.nextHttp() || proxyRotator.next();
     if (!next || next === currentProxy) {
       console.log(`[proxy] No alternative proxy available — continuing with current IP`);
       return false;
     }
     console.log(`[proxy] Rotating after ${reason} — new proxy: ${next.replace(/:[^:@]+@/, ':***@')}`);
-    await browser.close();
+    try { await browser.close(); } catch {}
     currentProxy = next;
     browser = await launchBrowser(currentProxy);
+    // If the freshly-picked proxy is itself dead, probe + fall back to direct
+    await ensureWorkingBrowser();
     return true;
   }
 

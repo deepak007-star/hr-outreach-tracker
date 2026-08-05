@@ -61,6 +61,22 @@ class ProxyRotator {
     return proxy.url;
   }
 
+  /**
+   * Next alive http/https proxy, or null. Preferred for the single browser
+   * PROXY_URL because http proxies are HTTP-validated by proxyFetcher, whereas
+   * socks proxies only get a TCP check (many "alive" socks are non-functional
+   * and hang a browser that has no per-request fallback).
+   */
+  nextHttp() {
+    const alive = this._pool.filter(p => p.failures < MAX_FAILURES && /^https?:\/\//i.test(p.url));
+    if (!alive.length) return null;
+    this._httpIdx = (this._httpIdx || 0) % alive.length;
+    const proxy = alive[this._httpIdx];
+    this._httpIdx = (this._httpIdx + 1) % alive.length;
+    proxy.lastUsed = Date.now();
+    return proxy.url;
+  }
+
   markFailed(url) {
     const p = this._pool.find(x => x.url === url);
     if (!p) return;

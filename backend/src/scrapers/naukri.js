@@ -33,7 +33,7 @@ const fs   = require('fs');
 const { chromium } = require('playwright');
 const {
   sleep, stripHtml, resolveRelativeDate, sinceToDays,
-  applyFilters, parseArgs, proxyLaunchArgs,
+  applyFilters, parseArgs, proxyLaunchArgs, ensureBrowserReachable,
   saveRawCache, buildSuffix, saveCSV, saveHTML,
   TODAY, RUN_STAMP,
 } = require('../lib/common');
@@ -228,7 +228,8 @@ async function main() {
   console.log(`Note     : Browser window will open briefly per keyword (auto-closes when done)\n`);
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
-  const browser = await launchBrowser();
+  let browser = await launchBrowser();
+  browser = await ensureBrowserReachable(browser, launchBrowser);
   const fetched = [];
 
   try {
