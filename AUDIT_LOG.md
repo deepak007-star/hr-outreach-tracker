@@ -2,6 +2,16 @@
 
 ---
 
+## 2026-08-05 — Proactive IP rotation in the browser Job Scrapers
+
+### FEATURE — naukri / foundit / jora now rotate IPs mid-run
+
+Extended proactive rotation to the browser Job Scrapers. New shared `common.rotateBrowserProxy(browser, launchFn)` picks the next pool IP (http-preferred), relaunches the browser on it, and probes it with a direct fallback (`ensureBrowserReachable`). naukri/foundit/jora call it every `ROTATE_EVERY_KEYWORDS` keywords (default 3). No-op when no pool is configured (`proxyRotator.size <= 1` guard) — verified it returns the same browser without relaunching.
+
+- **Files changed:** `backend/src/lib/common.js`, `backend/src/scrapers/{naukri,foundit,jora}.js`
+
+---
+
 ## 2026-08-05 — Proactive IP rotation in the LinkedIn-feed scrape
 
 ### FEATURE — spread a long scrape across multiple IPs

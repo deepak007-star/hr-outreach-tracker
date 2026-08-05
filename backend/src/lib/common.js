@@ -67,6 +67,20 @@ async function ensureBrowserReachable(browser, launchFn, { timeoutMs = 9000, tes
   return launchFn();
 }
 
+// Proactive rotation for browser scrapers: relaunch on the next pool IP
+// (http-preferred), probed with a direct fallback. Returns the original browser
+// unchanged when no proxy pool is configured. Call every N keywords.
+async function rotateBrowserProxy(browser, launchFn, { onLog = console.log } = {}) {
+  ensureProxyPool();                          // loads proxyRotator from PROXY_URLS (once)
+  if (proxyRotator.size <= 1) return browser; // nothing to rotate to
+  const next = proxyRotator.nextHttp() || proxyRotator.next();
+  if (!next || next === process.env.PROXY_URL) return browser;
+  onLog(`[proxy] proactive rotation → ${next.replace(/:[^:@]+@/, ':***@')}`);
+  process.env.PROXY_URL = next;               // proxyLaunchArgs() reads this
+  try { await browser.close(); } catch {}
+  return ensureBrowserReachable(await launchFn(), launchFn);
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 // Ceiling only — actual yield still depends on each source's real available
@@ -575,7 +589,7 @@ ${cards}
 }
 
 module.exports = {
-  sleep, get, proxyLaunchArgs, ensureBrowserReachable, stripHtml, escH,
+  sleep, get, proxyLaunchArgs, ensureBrowserReachable, rotateBrowserProxy, stripHtml, escH,
   TODAY, RUN_STAMP, parseSince, sinceToSeconds, sinceToDays, resolveRelativeDate, jobDate,
   isRemote, matchesLocation,
   applyFilters, parseArgs,

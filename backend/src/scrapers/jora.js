@@ -35,7 +35,7 @@ const path = require('path');
 const fs   = require('fs');
 const { chromium } = require('playwright');
 const {
-  resolveRelativeDate, applyFilters, parseArgs, proxyLaunchArgs, ensureBrowserReachable,
+  resolveRelativeDate, applyFilters, parseArgs, proxyLaunchArgs, ensureBrowserReachable, rotateBrowserProxy,
   saveRawCache, buildSuffix, saveCSV, saveHTML,
   RUN_STAMP,
 } = require('../lib/common');
@@ -170,9 +170,15 @@ async function main() {
   browser = await ensureBrowserReachable(browser, launchBrowser);
   const fetched = [];
 
+  const ROTATE_EVERY = Math.max(0, parseInt(process.env.ROTATE_EVERY_KEYWORDS || '3'));
+  let n = 0;
   try {
     for (const countryKey of countryKeys) {
       for (const keyword of opts.titles) {
+        if (ROTATE_EVERY > 0 && n > 0 && n % ROTATE_EVERY === 0) {
+          browser = await rotateBrowserProxy(browser, launchBrowser);
+        }
+        n++;
         process.stdout.write(`  [jora:${countryKey}] "${keyword}" ... `);
         const jobs = await fetchCountry(browser, countryKey, keyword);
         process.stdout.write(`${jobs.length} jobs\n`);

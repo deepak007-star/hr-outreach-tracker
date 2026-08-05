@@ -33,7 +33,7 @@ const fs   = require('fs');
 const { chromium } = require('playwright');
 const {
   sleep, stripHtml, resolveRelativeDate, sinceToDays,
-  applyFilters, parseArgs, proxyLaunchArgs, ensureBrowserReachable,
+  applyFilters, parseArgs, proxyLaunchArgs, ensureBrowserReachable, rotateBrowserProxy,
   saveRawCache, buildSuffix, saveCSV, saveHTML,
   TODAY, RUN_STAMP,
 } = require('../lib/common');
@@ -232,8 +232,13 @@ async function main() {
   browser = await ensureBrowserReachable(browser, launchBrowser);
   const fetched = [];
 
+  const ROTATE_EVERY = Math.max(0, parseInt(process.env.ROTATE_EVERY_KEYWORDS || '3'));
   try {
     for (let i = 0; i < opts.titles.length; i++) {
+      // Proactively rotate to a fresh IP every N keywords
+      if (ROTATE_EVERY > 0 && i > 0 && i % ROTATE_EVERY === 0) {
+        browser = await rotateBrowserProxy(browser, launchBrowser);
+      }
       const jobs = await scrapeKeyword(browser, opts.titles[i], opts);
       fetched.push(...jobs);
       if (i < opts.titles.length - 1) await sleep(2500);
