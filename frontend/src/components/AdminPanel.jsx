@@ -1462,7 +1462,9 @@ function JobIntelConfigSection() {
             <p className="text-xs font-semibold text-gray-700">Auto Proxy Pool <span className="text-[10px] font-normal text-brand-600">(free, self-updating)</span></p>
             <p className="text-[11px] text-gray-400 mt-0.5">
               Fetches thousands of proxies from free sources (ProxyScrape, Geonode, GitHub lists),
-              validates the live ones, and rotates them into the scraper automatically. Merged with your manual list above.
+              validates the live ones, and rotates them automatically. Merged with your manual list above and
+              used by <strong>both the Job Intel pipeline and the Job Scraper</strong> (HTTP sources rotate per-request
+              with a direct fallback; browser sources use one live proxy per run).
             </p>
           </div>
           <label className="inline-flex items-center gap-2 shrink-0 cursor-pointer">

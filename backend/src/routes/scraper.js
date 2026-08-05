@@ -131,9 +131,24 @@ async function storeScrapedJobs(scraperType, category, outDir) {
 // per-scraper via SCRAPER_CONFIGS[key].timeoutMs) since Playwright automation
 // has no other upper bound.
 
-function runScraperHeadless(scraper, body, onLog = () => {}, extraEnv = {}) {
+async function runScraperHeadless(scraper, body, onLog = () => {}, extraEnv = {}) {
   const cfg = SCRAPER_CONFIGS[scraper];
-  if (!cfg) return Promise.reject(new Error(`Unknown scraper: ${scraper}. Valid: ${Object.keys(SCRAPER_CONFIGS).join(', ')}`));
+  if (!cfg) throw new Error(`Unknown scraper: ${scraper}. Valid: ${Object.keys(SCRAPER_CONFIGS).join(', ')}`);
+
+  // Auto-inject the merged (manual + auto-validated) proxy pool so the Job
+  // Scraper rotates IPs for better yield — unless the caller already supplied a
+  // pool (e.g. the Job Intel orchestrator computes its own in Stage 0a).
+  let proxyEnv = {};
+  if (!extraEnv.PROXY_URLS) {
+    try {
+      const { buildScraperProxyEnv } = require('../services/proxyFetcher');
+      const r = await buildScraperProxyEnv(db);
+      proxyEnv = r.env;
+      if (r.alive) onLog('log', `[proxy] rotating ${r.alive}/${r.total} live proxies\n`);
+    } catch (e) {
+      onLog('err', `[proxy] setup failed (scraping direct): ${e.message}\n`);
+    }
+  }
 
   return new Promise((resolve) => {
     const args = buildArgs(cfg.script, body);
@@ -143,7 +158,7 @@ function runScraperHeadless(scraper, body, onLog = () => {}, extraEnv = {}) {
 
     const proc = spawn('node', args, {
       cwd,
-      env: { ...process.env, SCRAPER_NO_OPEN: '1', FORCE_COLOR: '0', ...extraEnv },
+      env: { ...process.env, SCRAPER_NO_OPEN: '1', FORCE_COLOR: '0', ...proxyEnv, ...extraEnv },
     });
 
     const timeoutMs = cfg.timeoutMs || 10 * 60_000;

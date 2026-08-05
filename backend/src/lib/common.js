@@ -8,9 +8,44 @@ const axios   = require('axios');
 const https   = require('https');
 const fs      = require('fs');
 const path    = require('path');
+const proxyRotator = require('./proxyRotator');
 
 // Used only for sites with broken intermediate cert chains (e.g. TimesJobs)
 const LENIENT_AGENT = new https.Agent({ rejectUnauthorized: false });
+
+// ─── Proxy support (env-driven, shared by every scraper) ────────────────────────
+// PROXY_URL / PROXY_URLS are injected into the scraper child process by
+// routes/scraper.js from the merged manual + auto-validated pool. get() rotates
+// through them (skipping dead ones) and falls back to a direct request so a bad
+// proxy never zeroes out yield. Browser scrapers use proxyLaunchArgs() instead.
+let _proxyLoaded = false;
+function ensureProxyPool() {
+  if (_proxyLoaded) return;
+  proxyRotator.loadFromEnv(); // reads PROXY_URLS (comma-separated)
+  _proxyLoaded = true;
+}
+
+// axios can proxy through http(s) proxies natively; socks needs a dep we don't
+// have, so socks picks fall through to a direct request here (browser scrapers
+// still use socks via --proxy-server).
+function toAxiosProxy(url) {
+  try {
+    if (/^socks/i.test(url)) return null;
+    const u = new URL(url);
+    return {
+      protocol: u.protocol.replace(':', ''),
+      host:     u.hostname,
+      port:     parseInt(u.port) || (u.protocol === 'https:' ? 443 : 80),
+      ...(u.username ? { auth: { username: decodeURIComponent(u.username), password: decodeURIComponent(u.password) } } : {}),
+    };
+  } catch { return null; }
+}
+
+// For Playwright browser scrapers: chromium --proxy-server args (http or socks).
+function proxyLaunchArgs() {
+  const url = process.env.PROXY_URL || '';
+  return /^(https?|socks[45]):\/\//i.test(url) ? [`--proxy-server=${url}`] : [];
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -40,13 +75,30 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 async function get(url, { json = false, delay = 2000, headers = {}, lenient = false } = {}) {
   await sleep(delay);
-  const res = await axios.get(url, {
+  const cfg = {
     headers: { ...BASE_HEADERS, ...headers, Accept: json ? 'application/json' : 'text/html,application/xhtml+xml,*/*;q=0.9' },
     timeout: 20000,
     maxRedirects: 5,
     ...(lenient ? { httpsAgent: LENIENT_AGENT } : {}),
-  });
-  return res.data;
+  };
+
+  ensureProxyPool();
+  const proxyUrl   = proxyRotator.next();               // null when pool empty/all dead
+  const axiosProxy = proxyUrl ? toAxiosProxy(proxyUrl) : null;
+
+  try {
+    const res = await axios.get(url, { ...cfg, proxy: axiosProxy || false });
+    if (proxyUrl && axiosProxy) proxyRotator.markSuccess(proxyUrl);
+    return res.data;
+  } catch (e) {
+    if (proxyUrl && axiosProxy) {
+      // Bad/slow proxy — mark it and retry once directly so yield never drops to zero
+      proxyRotator.markFailed(proxyUrl);
+      const res = await axios.get(url, { ...cfg, proxy: false });
+      return res.data;
+    }
+    throw e;
+  }
 }
 
 // ─── Text helpers ─────────────────────────────────────────────────────────────
@@ -499,7 +551,7 @@ ${cards}
 }
 
 module.exports = {
-  sleep, get, stripHtml, escH,
+  sleep, get, proxyLaunchArgs, stripHtml, escH,
   TODAY, RUN_STAMP, parseSince, sinceToSeconds, sinceToDays, resolveRelativeDate, jobDate,
   isRemote, matchesLocation,
   applyFilters, parseArgs,

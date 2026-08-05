@@ -227,4 +227,23 @@ async function getFreshProxies(db) {
   return { proxies: cache.proxies || [], cfg, stats: cache.stats, ts: cache.ts };
 }
 
-module.exports = { DEFAULT_CONFIG, fetchCandidates, validate, refresh, getConfig, saveConfig, getCache, getFreshProxies };
+// Build the PROXY_URL / PROXY_URLS env for a scraper child process by merging the
+// manual `proxy_list` with the auto-validated pool, then health-checking. Returns
+// {} when nothing is alive (scrape goes direct). Shared by the Job Scraper route.
+const proxyRotator = require('../lib/proxyRotator');
+async function buildScraperProxyEnv(db) {
+  const manualRow = await db.prepare(`SELECT value FROM settings WHERE key = 'proxy_list'`).get().catch(() => null);
+  const manual = (manualRow?.value || '').split('\n').map(l => l.trim()).filter(Boolean);
+  let auto = [];
+  try { auto = (await getFreshProxies(db)).proxies || []; } catch {}
+  const all = [...new Set([...manual, ...auto])];
+  if (!all.length) return { env: {}, alive: 0, total: 0 };
+  proxyRotator.loadFromString(all.join('\n'));
+  const health = await proxyRotator.healthCheckAll(8000);
+  if (health.alive > 0) {
+    return { env: { PROXY_URLS: proxyRotator.toCsvEnv(), PROXY_URL: proxyRotator.next() || '' }, alive: health.alive, total: health.total };
+  }
+  return { env: {}, alive: 0, total: health.total };
+}
+
+module.exports = { DEFAULT_CONFIG, fetchCandidates, validate, refresh, getConfig, saveConfig, getCache, getFreshProxies, buildScraperProxyEnv };

@@ -2,6 +2,24 @@
 
 ---
 
+## 2026-08-05 — Auto-proxy extended to the Job Scraper
+
+### FEATURE — Job Scraper now rotates the shared proxy pool
+
+The auto-proxy pool (added earlier for Job Intel) previously only reached `linkedin-feed`. Now every Job Scraper source uses it too, so manual + scheduled scrapes rotate live IPs.
+
+- **`routes/scraper.js` `runScraperHeadless`** is now async and, unless the caller already supplies a pool (the Job Intel orchestrator does), injects `PROXY_URL`/`PROXY_URLS` from `proxyFetcher.buildScraperProxyEnv(db)` (manual `proxy_list` + auto-validated pool, health-checked). Covers the SSE `/scraper/run` route and the scheduled scrapes in `index.js`.
+- **`lib/common.js` `get()`** (used by all HTTP scrapers — general, instahyre, internshala, linkedin-jobs, linkedin-hr-contact) now rotates through `PROXY_URLS` via `proxyRotator`, marks bad proxies dead, and **retries once directly** so a bad proxy never drops yield to zero. socks picks fall through to direct (axios has no socks dep). New `proxyLaunchArgs()` helper exported.
+- **Browser scrapers** (naukri, foundit, jora) add `--proxy-server=$PROXY_URL` to their Chromium launch args.
+- **`proxyFetcher.buildScraperProxyEnv(db)`** — shared builder that merges + health-checks the pool and returns the child-process env.
+- Admin "Auto Proxy Pool" panel copy updated to note it powers both pipelines.
+
+Verified: `get()` falls back to direct when the proxy is dead (returned real IP); `buildScraperProxyEnv` returned 216/266 live from the cached pool. Caveat: browser sources use a single live proxy per run (no in-run rotation) — if free-proxy quality hurts them, toggle Auto Proxy off.
+
+- **Files changed:** `backend/src/lib/common.js`, `backend/src/services/proxyFetcher.js`, `backend/src/routes/scraper.js`, `backend/src/scrapers/{naukri,foundit,jora}.js`, `frontend/src/components/AdminPanel.jsx`
+
+---
+
 ## 2026-08-05 — Auto proxy pool for Job Intel scraper (better yield)
 
 ### FEATURE — Self-updating, validated free-proxy pool

@@ -35,7 +35,7 @@ const path = require('path');
 const fs   = require('fs');
 const { chromium } = require('playwright');
 const {
-  resolveRelativeDate, applyFilters, parseArgs,
+  resolveRelativeDate, applyFilters, parseArgs, proxyLaunchArgs,
   saveRawCache, buildSuffix, saveCSV, saveHTML,
   RUN_STAMP,
 } = require('../lib/common');
@@ -60,14 +60,14 @@ async function launchBrowser() {
       const b = await chromium.launch({
         headless: false,
         channel,
-        args: ['--no-sandbox', '--disable-infobars'],
+        args: ['--no-sandbox', '--disable-infobars', ...proxyLaunchArgs()],
       });
       console.log(`  Browser : system ${channel}`);
       return b;
     } catch (_) {}
   }
   console.warn('  No system Edge/Chrome found — using headless Chromium (may still be blocked)');
-  return chromium.launch({ headless: true });
+  return chromium.launch({ headless: true, args: ['--no-sandbox', ...proxyLaunchArgs()] });
 }
 
 async function fetchCountry(browser, countryKey, keyword) {
