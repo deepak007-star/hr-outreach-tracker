@@ -304,6 +304,22 @@ async function warmUpDDG(browser) {
   } catch (_) {}
 }
 
+// Navigation timeout, tunable. Free proxies are slow, so a lower ceiling makes a
+// bad proxy fail fast (and be counted) instead of wasting the full 30s per query.
+const NAV_TIMEOUT = Math.max(8000, parseInt(process.env.NAV_TIMEOUT_MS || '20000'));
+let navTimeoutCount = 0;   // module-level running count of goto timeouts (proxy-slowness signal)
+
+// page.goto wrapper: uses NAV_TIMEOUT and counts timeouts so the run loop can
+// react (rotate the proxy or fall back to direct) instead of stalling.
+async function gotoTracked(page, url) {
+  try {
+    return await page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT });
+  } catch (e) {
+    if (/Timeout/i.test(e.message || '')) navTimeoutCount++;
+    throw e;
+  }
+}
+
 async function searchDDGRaw(browser, queries, urlFilter, maxResults, tag, engineState) {
   const seen    = new Set();
   const results = [];
@@ -321,7 +337,7 @@ async function searchDDGRaw(browser, queries, urlFilter, maxResults, tag, engine
       try {
         const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}&kl=in-en`;
         console.log(`  [ddg/${tag}] ${q.substring(0, 100)}`);
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await gotoTracked(page, url);
         await sleep(2500 + Math.random() * 1000);
 
         const challenge = await detectBotChallenge(page);
@@ -406,7 +422,7 @@ async function searchGoogle(browser, queries, urlFilter, maxResults, tag, engine
     const url = `https://www.google.com/search?q=${encodeURIComponent(q)}&num=20&hl=en&gl=in`;
     console.log(`  [google/${tag}] ${q.substring(0, 100)}`);
     try {
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await gotoTracked(page, url);
       await sleep(3000 + Math.random() * 2000);
 
       // Accept consent dialogs
@@ -478,7 +494,7 @@ async function searchBing(browser, queries, urlFilter, maxResults, tag, engineSt
     const url = `https://www.bing.com/search?q=${encodeURIComponent(q)}&count=50&mkt=en-IN&setlang=en&cc=IN`;
     console.log(`  [bing/${tag}] ${q.substring(0, 100)}`);
     try {
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await gotoTracked(page, url);
       await sleep(2000 + Math.random() * 1500);
 
       const challenge = await detectBotChallenge(page);
@@ -551,7 +567,7 @@ async function searchBrave(browser, queries, urlFilter, maxResults, tag, engineS
     const url = `https://search.brave.com/search?q=${encodeURIComponent(q)}&source=web&country=in`;
     console.log(`  [brave/${tag}] ${q.substring(0, 100)}`);
     try {
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await gotoTracked(page, url);
       await sleep(1800 + Math.random() * 1200);
 
       const challenge = await detectBotChallenge(page);
@@ -630,7 +646,7 @@ async function searchYahoo(browser, queries, urlFilter, maxResults, tag, engineS
     const url = `https://search.yahoo.com/search?p=${encodeURIComponent(q)}&n=20&ei=UTF-8&vm=p`;
     console.log(`  [yahoo/${tag}] ${q.substring(0, 100)}`);
     try {
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await gotoTracked(page, url);
       await sleep(2000 + Math.random() * 1500);
 
       const challenge = await detectBotChallenge(page);
@@ -954,26 +970,43 @@ async function main() {
   // spread across multiple IPs instead of building a footprint on one — even
   // when no block has happened yet. Reactive (on-block) rotation still runs too.
   const ROTATE_EVERY = Math.max(0, parseInt(process.env.ROTATE_EVERY_KEYWORDS || '3'));
+  const TIMEOUT_GIVEUP = Math.max(2, parseInt(process.env.PROXY_TIMEOUT_GIVEUP || '3'));
   let kwIndex = 0;
+  let proxyDisabled = false;   // set once we give up on slow proxies and go direct
 
   try {
     for (const keyword of opts.titles) {
       if (posts.length >= opts.limit) break;
 
+      // Slow-proxy guard: free proxies often pass the reachability probe but are
+      // too slow for real search navigation (30s goto timeouts). Once timeouts
+      // pile up, fall back to DIRECT for the rest of the run — direct is fast and
+      // the engine cascade (Brave/Bing are lenient) handles the occasional block.
+      if (!proxyDisabled && currentProxy && navTimeoutCount >= TIMEOUT_GIVEUP) {
+        console.log(`[proxy] ${navTimeoutCount} navigation timeouts — proxy too slow, switching to DIRECT for the rest of the run`);
+        try { await browser.close(); } catch {}
+        currentProxy = '';
+        browser = await launchBrowser('');
+        proxyDisabled = true;
+        navTimeoutCount = 0;
+      }
+
       // Proactive rotation (don't penalize the current still-working IP)
-      if (ROTATE_EVERY > 0 && proxyRotator.size > 1 && kwIndex > 0 && kwIndex % ROTATE_EVERY === 0) {
+      if (!proxyDisabled && ROTATE_EVERY > 0 && proxyRotator.size > 1 && kwIndex > 0 && kwIndex % ROTATE_EVERY === 0) {
         await tryRotateProxy(`proactive rotation (every ${ROTATE_EVERY} keywords)`, { penalize: false });
+        navTimeoutCount = 0;
       }
       kwIndex++;
 
       // If any engines were blocked during the previous keyword, rotate proxy now
       // so this keyword gets a fresh IP across all phases.
       const blocked = ['google', 'bing', 'duckduckgo', 'brave', 'yahoo'].filter(e => engineState.isBlocked(e));
-      if (blocked.length > 0) {
+      if (!proxyDisabled && blocked.length > 0) {
         const rotated = await tryRotateProxy(blocked.join('+') + ' blocked from prev keyword');
         if (rotated) {
           // Clear block states — new IP makes these engines available again
           for (const e of blocked) engineState.markSuccess(e);
+          navTimeoutCount = 0;
         }
       }
 

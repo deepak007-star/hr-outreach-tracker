@@ -2,6 +2,23 @@
 
 ---
 
+## 2026-08-05 — Slow proxies caused 30s goto timeouts per query; give up → direct
+
+### BUG FIX — a slow (but reachable) proxy wasted 30s on every navigation
+
+Symptom (from a live Job-Scraper run): `[ddg/linkedin] error: page.goto: Timeout 30000ms exceeded` repeating. A free proxy passed the reachability probe (homepage loads) but was too slow for actual search-result pages, so every query timed out at 30s and the run made no progress — with no rotation triggered (timeouts aren't "blocks").
+
+**Fix (`scrapers/linkedin-feed.js`):**
+- Navigation timeout lowered 30s → **`NAV_TIMEOUT` (default 20s, env `NAV_TIMEOUT_MS`)** so a slow proxy fails fast.
+- New `gotoTracked()` wraps every phase `page.goto` and counts timeouts (`navTimeoutCount`).
+- The keyword loop watches that counter: after **`PROXY_TIMEOUT_GIVEUP` (default 3)** timeouts it relaunches **DIRECT** for the rest of the run (direct is fast; the engine cascade — Brave/Bing are lenient — handles the occasional block). Proactive/reactive proxy rotation is skipped once direct-mode is engaged so it can't switch back to slow proxies. The counter resets after any rotation.
+
+**Tested:** no-proxy baseline unaffected (direct path, faster with the lower timeout, reaches Brave phase). The slow-proxy path is the same relaunch machinery already verified for the dead-proxy case.
+
+- **Files changed:** `backend/src/scrapers/linkedin-feed.js`
+
+---
+
 ## 2026-08-05 — Proactive IP rotation in the browser Job Scrapers
 
 ### FEATURE — naukri / foundit / jora now rotate IPs mid-run
