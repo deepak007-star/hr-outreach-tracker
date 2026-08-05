@@ -2,6 +2,16 @@
 
 ---
 
+## 2026-08-05 — Proactive IP rotation in the LinkedIn-feed scrape
+
+### FEATURE — spread a long scrape across multiple IPs
+
+linkedin-feed previously rotated its proxy only **reactively** (when an engine got blocked), so a scrape whose first IP never blocked would run all 15 keywords × 7 phases from a single IP — building a footprint. Added **proactive rotation**: every `ROTATE_EVERY_KEYWORDS` keywords (default 3, env-tunable) it rotates to a fresh IP, without penalizing the still-working one (`tryRotateProxy(reason, { penalize:false })`). Reactive on-block rotation still runs. No effect when no proxy pool is configured (`proxyRotator.size > 1` guard).
+
+- **Files changed:** `backend/src/scrapers/linkedin-feed.js`
+
+---
+
 ## 2026-08-05 — Deep-fetch stalled the pipeline; make it direct + time-boxed
 
 ### BUG FIX — deep-fetch bogged the run down

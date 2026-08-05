@@ -861,9 +861,10 @@ async function main() {
   // Rotate to the next alive proxy and relaunch the browser.
   // Called when one or more engines are blocked — a new IP clears the block.
   // Returns true if a new proxy was picked and the browser was relaunched.
-  async function tryRotateProxy(reason) {
+  async function tryRotateProxy(reason, { penalize = true } = {}) {
     if (proxyRotator.size === 0) return false;
-    if (currentProxy) proxyRotator.markFailed(currentProxy);
+    // penalize=false for PROACTIVE rotation — don't mark a still-working IP dead.
+    if (penalize && currentProxy) proxyRotator.markFailed(currentProxy);
     const next = proxyRotator.nextHttp() || proxyRotator.next();
     if (!next || next === currentProxy) {
       console.log(`[proxy] No alternative proxy available — continuing with current IP`);
@@ -949,9 +950,21 @@ async function main() {
     return found;
   }
 
+  // Proactively rotate the IP every N keywords (default 3) so a long scrape is
+  // spread across multiple IPs instead of building a footprint on one — even
+  // when no block has happened yet. Reactive (on-block) rotation still runs too.
+  const ROTATE_EVERY = Math.max(0, parseInt(process.env.ROTATE_EVERY_KEYWORDS || '3'));
+  let kwIndex = 0;
+
   try {
     for (const keyword of opts.titles) {
       if (posts.length >= opts.limit) break;
+
+      // Proactive rotation (don't penalize the current still-working IP)
+      if (ROTATE_EVERY > 0 && proxyRotator.size > 1 && kwIndex > 0 && kwIndex % ROTATE_EVERY === 0) {
+        await tryRotateProxy(`proactive rotation (every ${ROTATE_EVERY} keywords)`, { penalize: false });
+      }
+      kwIndex++;
 
       // If any engines were blocked during the previous keyword, rotate proxy now
       // so this keyword gets a fresh IP across all phases.
