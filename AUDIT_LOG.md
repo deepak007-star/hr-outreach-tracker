@@ -2,6 +2,24 @@
 
 ---
 
+## 2026-08-05 — Job Intel low yield: deep-fetch apply pages for emails
+
+### FEATURE — Deep-fetch step (the real yield fix)
+
+**Diagnosis:** the pipeline fetched plenty of jobs (e.g. 455 raw → 340 new) but stored almost nothing because Stage 4 only keeps jobs whose **API snippet** contains an email — and only ~5% do (17/340 measured). Every job, however, has an `apply_url`.
+
+**Fix — `agents/deepFetch.js` + orchestrator Stage 3.5:** for every new job lacking a snippet email, fetch its full apply page **through the proxy pool** (loaded in Stage 0a; rotates IPs, falls back to direct on a dead proxy) and scan the full HTML for `mailto:` links + emails (with a boilerplate denylist for noreply/sentry/etc. and a skip-list for login-walled hosts like LinkedIn/Indeed/Naukri). Extracted emails are handed to `extractFromJob` via its existing pre-extracted fast path.
+- Bounded: cap (default 200), concurrency 10, 12s timeout — HTTP-first (fast, covers Greenhouse/Lever/company pages).
+- **Playwright fallback** (`enrichWithBrowser`) renders a small bounded set (cap 25) of JS-heavy pages that returned sparse HTML; uses `PROXY_URL` when set.
+- Tunable / opt-out via config: `deep_fetch`, `deep_fetch_cap`, `deep_fetch_concurrency`, `deep_fetch_timeout_ms`, `deep_fetch_browser`, `deep_fetch_browser_cap`.
+- `lib/common.get()` gained a `timeout` option for the shorter deep-fetch timeout.
+
+**Measured:** on a live sample, deep-fetching 150 apply pages added 12 new email-bearing jobs, taking total contacts from **17 → 38** (more than double) in ~8s — with real HR emails (talent@, recruiting@, askpeople@…).
+
+- **Files changed:** `backend/src/agents/deepFetch.js` (new), `backend/src/agents/orchestrator.js`, `backend/src/lib/common.js`
+
+---
+
 ## 2026-08-05 — Auto-proxy extended to the Job Scraper
 
 ### FEATURE — Job Scraper now rotates the shared proxy pool

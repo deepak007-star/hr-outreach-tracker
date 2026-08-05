@@ -73,11 +73,11 @@ const BASE_HEADERS = {
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-async function get(url, { json = false, delay = 2000, headers = {}, lenient = false } = {}) {
+async function get(url, { json = false, delay = 2000, headers = {}, lenient = false, timeout = 20000 } = {}) {
   await sleep(delay);
   const cfg = {
     headers: { ...BASE_HEADERS, ...headers, Accept: json ? 'application/json' : 'text/html,application/xhtml+xml,*/*;q=0.9' },
-    timeout: 20000,
+    timeout,
     maxRedirects: 5,
     ...(lenient ? { httpsAgent: LENIENT_AGENT } : {}),
   };

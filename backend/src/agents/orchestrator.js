@@ -190,6 +190,29 @@ async function runPipeline(triggeredBy = 'scheduler') {
     totalDupes = duplicateCount;
     console.log(`[Pipeline] Dedup: ${unique.length} unique, ${duplicateCount} duplicates`);
 
+    // ── 3.5 Deep-fetch apply pages for emails (BIGGEST yield lever) ─────────
+    // API snippets rarely carry an HR email (~5%); the full apply page usually
+    // does. Fetch those pages through the proxy pool (loaded in Stage 0a) and
+    // scan for mailto:/emails, then let extractFromJob pick them up.
+    if (cfg.deep_fetch !== false) {
+      try {
+        const { enrichWithPageEmails, enrichWithBrowser } = require('./deepFetch');
+        const http = await enrichWithPageEmails(unique, {
+          cap:         cfg.deep_fetch_cap || 200,
+          concurrency: cfg.deep_fetch_concurrency || 10,
+          timeoutMs:   cfg.deep_fetch_timeout_ms || 12000,
+        });
+        console.log(`[Pipeline] Deep-fetch (http): enriched ${http.enriched}/${http.attempted} apply pages`);
+        // Bounded Playwright fallback for JS-rendered pages (opt-out via cfg.deep_fetch_browser=false)
+        if (cfg.deep_fetch_browser !== false && http.jsFallback?.length) {
+          const br = await enrichWithBrowser(http.jsFallback, { cap: cfg.deep_fetch_browser_cap || 25 });
+          if (br.enriched) console.log(`[Pipeline] Deep-fetch (browser): enriched ${br.enriched}/${br.attempted} JS pages`);
+        }
+      } catch (e) {
+        console.warn('[Pipeline] deep-fetch failed (non-fatal):', e.message);
+      }
+    }
+
     // ── 4. Extract → store if email found (classification disabled for contacts pipeline) ─
     // Classification (job relevance scoring) is skipped here — this pipeline's goal is
     // extracting HR contact emails, not ranking job fit. Enable via cfg.classify if needed.
