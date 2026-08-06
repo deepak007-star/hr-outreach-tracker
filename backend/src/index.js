@@ -165,9 +165,18 @@ async function main() {
   app.use('/api/chatbot',         chatbotRouter);
   app.use('/api/job-intel',       jobIntelRouter);
   app.use('/api/admin/logs',      logsRouter);
-  app.get('/api/health', (_, res) =>
-    res.json({ status: 'ok', timestamp: new Date().toISOString() })
-  );
+  // Lightweight health/keep-warm endpoint (no DB work → always fast). Point an
+  // external uptime monitor (UptimeRobot) at this URL every ~5 min so free-tier
+  // hosts (Render/Vercel) don't spin the app down after ~15 min of inactivity.
+  const bootedAt = Date.now();
+  const health = (_, res) => res.json({
+    status:     'ok',
+    timestamp:  new Date().toISOString(),
+    uptimeSec:  Math.round(process.uptime()),
+    bootedAt:   new Date(bootedAt).toISOString(),
+  });
+  app.get('/api/health', health);
+  app.get('/health', health);      // also expose at root path for simpler monitor config
 
   app.use(safeErrorHandler);
 
@@ -461,6 +470,35 @@ async function main() {
   }
   setTimeout(() => refreshProxyPoolIfDue(true), 90_000);      // warm up ~90s after boot
   setInterval(() => refreshProxyPoolIfDue(false), 10 * 60_000); // check staleness every 10 min
+
+  // ── Self keep-alive (anti cold-start on free hosts) ───────────────────────
+  // Render/Vercel free tiers spin the backend down after ~15 min without an
+  // inbound request. Each self-ping is an inbound request that resets that timer,
+  // so pinging our own public URL every ~10 min keeps the instance running — no
+  // cold start when you open the app, and the scheduled jobs (pipeline, reminder,
+  // scrapers) keep firing on time. An external monitor (UptimeRobot → /api/health)
+  // is still recommended to WAKE it after a deploy/restart.
+  const SELF_URL = (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || process.env.BACKEND_URL || '').trim();
+  if (SELF_URL && typeof fetch === 'function') {
+    const pingUrl  = SELF_URL.replace(/\/+$/, '') + '/api/health';
+    const everyMin = Math.max(1, parseInt(process.env.KEEP_ALIVE_MINUTES || '10'));
+    const keepWarm = async () => {
+      try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 15_000);
+        const r = await fetch(pingUrl, { signal: ctrl.signal });
+        clearTimeout(t);
+        console.log(`[keep-alive] self-ping ${pingUrl} → ${r.status}`);
+      } catch (e) {
+        console.warn('[keep-alive] self-ping failed:', e.message);
+      }
+    };
+    setTimeout(keepWarm, 60_000);                 // first ping ~1 min after boot
+    setInterval(keepWarm, everyMin * 60_000);
+    console.log(`[keep-alive] enabled — pinging ${pingUrl} every ${everyMin} min`);
+  } else {
+    console.log('[keep-alive] disabled — set PUBLIC_URL (your deployed backend URL) to enable anti-sleep self-ping');
+  }
 }
 
 main().catch(err => { console.error('Startup failed:', err); process.exit(1); });

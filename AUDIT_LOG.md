@@ -2,6 +2,21 @@
 
 ---
 
+## 2026-08-06 — Anti cold-start / keep-alive for free-tier hosting
+
+### FEATURE — self keep-alive so Render/Vercel don't sleep the backend
+
+Free hosts spin the backend down after ~15 min of inactivity → slow first loads and paused schedulers (pipeline, reminders, scrapers). Two-layer fix:
+
+- **Self keep-alive** (`index.js`): when `PUBLIC_URL` (or Render's auto `RENDER_EXTERNAL_URL`) is set, the backend self-pings `/api/health` every `KEEP_ALIVE_MINUTES` (default 10, < the 15-min sleep window) so the inactivity timer never elapses while it's running. Verified locally: `[keep-alive] self-ping …/api/health → 200`.
+- **Health endpoint** improved and exposed at both `/api/health` and `/health` — no DB work, returns `{status, timestamp, uptimeSec, bootedAt}`.
+- **Docs** (`docs/07_KEEP_ALIVE.md`): the external monitor (UptimeRobot) must point at the **backend** `/api/health` every 5 min — a monitor on the static Vercel **frontend** keeps Vercel warm but never wakes the Render backend (the actual sleeper). This was the gap in the user's setup.
+- `PUBLIC_URL` / `KEEP_ALIVE_MINUTES` documented in `.env.example`.
+
+- **Files changed:** `backend/src/index.js`, `backend/.env.example`, `docs/07_KEEP_ALIVE.md`
+
+---
+
 ## 2026-08-05 — Slow proxies caused 30s goto timeouts per query; give up → direct
 
 ### BUG FIX — a slow (but reachable) proxy wasted 30s on every navigation
