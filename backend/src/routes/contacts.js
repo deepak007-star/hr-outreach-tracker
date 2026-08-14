@@ -76,6 +76,35 @@ router.get('/', async (req, res) => {
   }
 });
 
+// ── GET /api/contacts/tags ── distinct tags in use + counts, for a filter dropdown ──
+// Scoped by the same pool-visibility rule as the main list so this can't leak
+// tag names from contacts the viewer isn't allowed to see.
+router.get('/tags', async (req, res) => {
+  const userId = req.user.userId;
+  const pool   = canSeePool(req.user);
+  try {
+    const rows = pool
+      ? await db.prepare(`SELECT tags FROM contacts WHERE tags IS NOT NULL AND tags != '[]'`).all()
+      : await db.prepare(`SELECT tags FROM contacts WHERE user_id = ? AND tags IS NOT NULL AND tags != '[]'`).all(userId);
+
+    const counts = new Map();
+    for (const r of rows) {
+      let tags = [];
+      try { tags = JSON.parse(r.tags || '[]'); } catch {}
+      for (const t of tags) {
+        if (!t) continue;
+        counts.set(t, (counts.get(t) || 0) + 1);
+      }
+    }
+    const result = [...counts.entries()]
+      .map(([tag, count]) => ({ tag, count }))
+      .sort((a, b) => b.count - a.count);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── GET /api/contacts/export  ──────────────────────────────────────────────
 // Generates the Excel on-demand for the contacts the user can see, with the
 // viewer's own status/notes overlaid.

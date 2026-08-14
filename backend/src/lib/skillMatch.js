@@ -126,4 +126,16 @@ function lightweightSkillMatch(userSkills, jobText) {
   return { percent: Math.round((matched.length / skills.length) * 100), matched, total: skills.length };
 }
 
-module.exports = { lightweightSkillMatch, diceCoefficient, SKILL_SYNONYMS };
+// Some existing profiles.skills rows are double-JSON-encoded (an older buggy
+// write path stringified an already-stringified array) — a single JSON.parse
+// on those returns a STRING, not an array, which throws on every downstream
+// .filter()/.map() call. Unwrap up to twice; fall back to [] otherwise.
+function parseSkills(raw) {
+  let v = raw;
+  for (let i = 0; i < 2 && typeof v === 'string'; i++) {
+    try { v = JSON.parse(v); } catch { return []; }
+  }
+  return Array.isArray(v) ? v.filter(Boolean) : [];
+}
+
+module.exports = { lightweightSkillMatch, diceCoefficient, SKILL_SYNONYMS, parseSkills };

@@ -54,8 +54,10 @@ Each agent is a focused Node.js module. LLM is used **only** where judgment is g
 | `remotive.js` | Remotive remote jobs API | None | 100 jobs/run, remote-only tech roles |
 | `remoteok.js` | RemoteOK public JSON endpoint | None | ~100 jobs/run, remote-only |
 | `wwr.js` | We Work Remotely RSS (3 feeds) | None | ~100–150 jobs/run, parses RSS XML via cheerio |
-| `greenhouse.js` | Greenhouse ATS public board API | None | Per-company, `boards-api.greenhouse.io/v1/boards/{slug}/jobs` |
-| `lever.js` | Lever ATS public postings API | None | Per-company, `api.lever.co/v0/postings/{slug}` |
+| `himalayas.js` | Himalayas remote jobs API | None | `himalayas.app/jobs/api?limit=100`, ~100 jobs/run, global remote |
+| `jobicy.js` | Jobicy remote jobs API | None | `jobicy.com/api/v2/remote-jobs?count=100`, ~100 jobs/run, global remote |
+| `greenhouse.js` | Greenhouse ATS public board API | None | Per-company, `boards-api.greenhouse.io/v1/boards/{slug}/jobs`. Default seed (2026-08-15, live-verified): stripe, airbnb, figma, coinbase, discord, robinhood, asana, databricks, gitlab, postman, groww |
+| `lever.js` | Lever ATS public postings API | None | Per-company, `api.lever.co/v0/postings/{slug}`. Default seed (2026-08-15, live-verified): plaid, freshworks, meesho, cred |
 | `adzuna.js` | Adzuna job search API | Free API key | India coverage, keyword-driven search |
 | `jooble.js` | Jooble aggregator API | Free API key | Broad aggregation, keyword-driven |
 | `index.js` | Registry — runs all enabled sources in parallel | — | Returns `{ raw, sourceStats }` |
@@ -460,6 +462,8 @@ backend/src/agents/
 │   ├── remotive.js       — Remotive API
 │   ├── remoteok.js       — RemoteOK API
 │   ├── wwr.js            — We Work Remotely RSS
+│   ├── himalayas.js      — Himalayas remote jobs API
+│   ├── jobicy.js         — Jobicy remote jobs API
 │   ├── greenhouse.js     — Greenhouse ATS public boards
 │   ├── lever.js          — Lever ATS public boards
 │   ├── adzuna.js         — Adzuna API (key optional)

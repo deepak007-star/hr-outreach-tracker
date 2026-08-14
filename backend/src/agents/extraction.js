@@ -94,9 +94,14 @@ async function extractFromJob(job) {
         .filter(Boolean)
         .filter(e => lowerText.includes(e));
       if (validEmails.length) {
+        // Same hallucination risk applies to the contact name — an LLM can
+        // invent a plausible-sounding person who isn't actually named in the
+        // posting. Only trust it if it appears verbatim in the source text;
+        // otherwise fall back to the (regex-derived, not LLM-invented) author name.
+        const nameOk = llmResult.contact_name && lowerText.includes(llmResult.contact_name.toLowerCase());
         return {
           extracted_emails:       JSON.stringify(validEmails),
-          extracted_contact_name: llmResult.contact_name || job._author_name || null,
+          extracted_contact_name: nameOk ? llmResult.contact_name : (job._author_name || null),
           extraction_method:      'llm',
         };
       }

@@ -2,6 +2,36 @@
 
 ---
 
+## 2026-08-15 (3) — Job Intel: 2 new sources (3,514 vs 823 raw postings), live-verified Greenhouse/Lever seeds, contact-name hallucination fix, auto-tagged HR contacts
+
+Prompted by: "only fetching from limited sources... include more which can focus for India and foreign as well." Checked the live saved config first — `greenhouse_companies`/`lever_companies` were `[]` and neither Adzuna nor Jooble had an API key, so those 4 sources contributed **zero** postings; the actual live source list was just arbeitnow/remotive/remoteok/wwr (all EU/US-remote-heavy, weak India coverage). (India board scrapers — naukri/foundit/instahyre/internshala/jora — were already scheduled daily via `index.js`; that wasn't the gap.)
+
+### FEATURE — Two new free, no-key sources
+
+`agents/ingestion/himalayas.js` and `agents/ingestion/jobicy.js` (both new) — live-tested before writing any mapping code (`https://himalayas.app/jobs/api`, `https://jobicy.com/api/v2/remote-jobs`), registered unconditionally in `ingestion/index.js`.
+
+### FEATURE — Live-verified Greenhouse/Lever seed companies (were empty → zero contribution)
+
+Every candidate slug was tested with a real HTTP call before inclusion (a dead slug 404s silently but wastes a call every run). `DEFAULT_CONFIG.greenhouse_companies` = `stripe, airbnb, figma, coinbase, discord, robinhood, asana, databricks, gitlab, postman, groww` (11 confirmed, 8–801 open jobs each); `DEFAULT_CONFIG.lever_companies` = `plaid, freshworks, meesho, cred` (4 confirmed). `postman`/`groww`/`freshworks`/`meesho`/`cred` are India-native. New `GET /api/job-intel/default-companies` (admin) + "Load recommended companies" button in `AdminPanel.jsx`, same pattern as the keyword list — a saved config won't pick up new `DEFAULT_CONFIG` values automatically.
+
+**Measured impact** (live `ingestAll()` call, same config plus the new sources/seeds): raw postings **823 → 3,514** in one run (himalayas: 20, jobicy: 100, greenhouse: 2,511 across 11 companies, lever: 60 across 4 companies, zero source errors).
+
+### BUG FIX — Contact-name hallucination (the one gap left after last session's email fix)
+
+`agents/extraction.js`: the LLM fallback's `contact_name` was used straight through with no check it appears in the source text — same hallucination risk emails had before being fixed. Now requires `lowerText.includes(contact_name.toLowerCase())`, falling back to the regex-derived `_author_name` otherwise, mirroring the email fix's shape exactly.
+
+### FEATURE — Auto-tagged Job Intel contacts (category + matched skills)
+
+`orchestrator.js`'s `syncJobIntelContacts()` hardcoded `tags: '[]'` on every insert — confirmed and fixed. Now computes `tags = [categoryLabel, ...matchedSkills.slice(0,5)]` per posting, matched against the **syncing admin's own** `profiles.skills` via `lib/skillMatch.js` (reused from last session), and writes it into the existing `tags` column (guarded in the `ON CONFLICT` clause exactly like `name`/`company`/`notes` — never overwrites a manually-tagged contact). `lib/skillMatch.js` gained an exported `parseSkills()` (the double-JSON-encoding guard from last session, moved here so both call sites share one implementation instead of duplicating it).
+
+### FEATURE — Contacts-page tag filter (the UI didn't exist at all — verified before building)
+
+New `GET /api/contacts/tags` (distinct tags + counts, scoped by the same pool-visibility rule as the main list). `App.jsx` gained a `tagFilter` matching the exact existing filter pattern (`statusFilter`/`sourceFilter`), and `ContactTable.jsx`'s `SourceCell` now also renders up to 4 tag chips per contact (teal pills, `+N` overflow indicator) rather than adding a whole new table column (the table is already tight at 9 fixed-width columns).
+
+- **Files changed:** `backend/src/agents/ingestion/{himalayas,jobicy}.js` (new), `backend/src/agents/ingestion/index.js`, `backend/src/agents/orchestrator.js`, `backend/src/agents/extraction.js`, `backend/src/lib/skillMatch.js`, `backend/src/routes/{job-intelligence,contacts}.js`, `frontend/src/{App.jsx,components/{AdminPanel,ContactTable}.jsx}`
+
+---
+
 ## 2026-08-15 (2) — Password reset without current password; hybrid skill-match (Groq embeddings + fallback)
 
 ### FEATURE — Change password no longer requires the current one

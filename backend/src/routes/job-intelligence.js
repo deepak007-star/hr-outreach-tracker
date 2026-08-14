@@ -3,10 +3,10 @@ const express       = require('express');
 const jwt           = require('jsonwebtoken');
 const db            = require('../db/database');
 const { requireAuth, requireAdmin, SECRET } = require('../middleware/auth');
-const { runPipeline, syncJobIntelContacts, getConfig, saveConfig } = require('../agents/orchestrator');
+const { runPipeline, syncJobIntelContacts, getConfig, saveConfig, DEFAULT_CONFIG } = require('../agents/orchestrator');
 const { tokenize, keywordTokens } = require('../agents/relevanceFilter');
 const { categorize } = require('../agents/categorize');
-const { lightweightSkillMatch } = require('../lib/skillMatch');
+const { lightweightSkillMatch, parseSkills } = require('../lib/skillMatch');
 const { getUserSkillEmbeddings, matchAgainstPostingEmbedding } = require('../lib/embeddingMatch');
 const DEFAULT_KEYWORDS = require('../agents/defaultKeywords');
 
@@ -28,19 +28,6 @@ function softAuth(req, _res, next) {
 // or for this account (no Groq key, rate-limited, or the embedding model
 // isn't enabled on this plan — see embeddingMatch.js's circuit breaker).
 // Never throws; always returns a usable {percent, matched, method} shape.
-// Some existing profiles.skills rows are double-JSON-encoded (an older buggy
-// write path stringified an already-stringified array) — a single JSON.parse
-// on those returns a STRING, not an array, which would throw on every
-// downstream .filter()/.map() and 500 the whole route for that user. Unwrap
-// up to twice and fall back to [] for anything that still isn't an array.
-function parseSkills(raw) {
-  let v = raw;
-  for (let i = 0; i < 2 && typeof v === 'string'; i++) {
-    try { v = JSON.parse(v); } catch { return []; }
-  }
-  return Array.isArray(v) ? v.filter(Boolean) : [];
-}
-
 function computeSkillMatch(job, skills, userSkillVectors) {
   if (userSkillVectors && job.embedding) {
     let postingVec = null;
@@ -363,6 +350,13 @@ router.post('/run-full', requireAuth, requireAdmin, async (req, res) => {
 // a "Load recommended list" button backed by this endpoint.
 router.get('/default-keywords', requireAuth, requireAdmin, async (req, res) => {
   res.json({ keywords: DEFAULT_KEYWORDS });
+});
+
+// ── GET /api/job-intel/default-companies ── recommended Greenhouse/Lever seed lists (admin) ──
+// Same reasoning as /default-keywords — live-verified working slugs (2026-08-15),
+// won't retroactively apply to an already-saved config.
+router.get('/default-companies', requireAuth, requireAdmin, async (req, res) => {
+  res.json({ greenhouse: DEFAULT_CONFIG.greenhouse_companies, lever: DEFAULT_CONFIG.lever_companies });
 });
 
 // ── GET /api/job-intel/config ── get pipeline config ─────────────────────────

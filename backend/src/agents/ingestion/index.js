@@ -3,6 +3,8 @@ const fetchArbeitnow        = require('./arbeitnow');
 const fetchRemotive         = require('./remotive');
 const fetchRemoteOK         = require('./remoteok');
 const fetchWWR              = require('./wwr');
+const fetchHimalayas        = require('./himalayas');
+const fetchJobicy           = require('./jobicy');
 const fetchGreenhouse       = require('./greenhouse');
 const fetchLever            = require('./lever');
 const fetchAdzuna           = require('./adzuna');
@@ -58,6 +60,8 @@ async function ingestAll(cfg) {
     { name: 'remotive',   fn: () => fetchRemotive(keywords) },
     { name: 'remoteok',   fn: () => fetchRemoteOK() },
     { name: 'wwr',        fn: () => fetchWWR() },
+    { name: 'himalayas',  fn: () => fetchHimalayas() },
+    { name: 'jobicy',     fn: () => fetchJobicy() },
     ...(ghCompanies.length ? [{ name: 'greenhouse', fn: () => fetchGreenhouse(ghCompanies) }] : []),
     ...(lvCompanies.length ? [{ name: 'lever',      fn: () => fetchLever(lvCompanies)      }] : []),
     ...((adzunaOpts.appId && adzunaOpts.appKey) ? [{ name: 'adzuna', fn: () => fetchAdzuna(adzunaKeywords, adzunaOpts) }] : []),

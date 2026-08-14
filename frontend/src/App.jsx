@@ -105,6 +105,8 @@ export default function App() {
   const [search,         setSearch]         = useState('');  // debounced (sent to API)
   const [statusFilter,   setStatusFilter]   = useState('');
   const [sourceFilter,   setSourceFilter]   = useState('');
+  const [tagFilter,      setTagFilter]      = useState('');
+  const [availableTags,  setAvailableTags]  = useState([]);
   const [titleFilter,    setTitleFilter]    = useState('');
   const [segment,        setSegment]        = useState('all'); // all | not_contacted | contacted
   const [selected,       setSelected]       = useState([]);
@@ -169,6 +171,7 @@ export default function App() {
       if (search)       params.search = search;
       if (statusFilter) params.status = statusFilter;
       if (sourceFilter) params.source = sourceFilter;
+      if (tagFilter)    params.tag    = tagFilter;
       const data = await api.get('/contacts', { params });
       setContacts(data);
     } catch {
@@ -176,7 +179,12 @@ export default function App() {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [search, statusFilter, sourceFilter, user]);
+  }, [search, statusFilter, sourceFilter, tagFilter, user]);
+
+  const fetchAvailableTags = useCallback(() => {
+    if (!user) return;
+    api.get('/contacts/tags').then(r => setAvailableTags(Array.isArray(r) ? r : [])).catch(() => {});
+  }, [user]);
 
   const fetchEmailStats = useCallback(() => {
     if (!user) return;
@@ -188,6 +196,7 @@ export default function App() {
   }, [user]);
 
   useEffect(() => { fetchContacts(); }, [fetchContacts]);
+  useEffect(() => { fetchAvailableTags(); }, [fetchAvailableTags]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -674,8 +683,19 @@ export default function App() {
                 <option value="csv">CSV Import</option>
                 <option value="apify">Apify</option>
               </select>
-              {(searchInput || statusFilter || sourceFilter || titleFilter || segment !== 'all') && (
-                <button onClick={() => { setSearchInput(''); setSearch(''); setStatusFilter(''); setSourceFilter(''); setTitleFilter(''); setSegment('all'); }}
+              {availableTags.length > 0 && (
+                <select
+                  value={tagFilter}
+                  onChange={e => setTagFilter(e.target.value)}
+                  title="Filter by tag — Job Intel contacts are auto-tagged by matched category/skills"
+                  className="border border-gray-200 rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none bg-white"
+                >
+                  <option value="">All Tags</option>
+                  {availableTags.map(t => <option key={t.tag} value={t.tag}>{t.tag} ({t.count})</option>)}
+                </select>
+              )}
+              {(searchInput || statusFilter || sourceFilter || tagFilter || titleFilter || segment !== 'all') && (
+                <button onClick={() => { setSearchInput(''); setSearch(''); setStatusFilter(''); setSourceFilter(''); setTagFilter(''); setTitleFilter(''); setSegment('all'); }}
                   className="text-xs text-gray-400 hover:text-gray-600 underline">
                   Clear
                 </button>

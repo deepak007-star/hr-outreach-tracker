@@ -11,7 +11,8 @@ const { extractFromJob }  = require('./extraction');
 const { classifyJob }     = require('./classification');
 const { storeJob }        = require('./storage');
 const { qaCheck }         = require('./qa');
-const { categorize }      = require('./categorize');
+const { categorize, CATEGORY_LABELS } = require('./categorize');
+const { lightweightSkillMatch } = require('../lib/skillMatch');
 const DEFAULT_KEYWORDS    = require('./defaultKeywords');
 const proxyRotator        = require('../lib/proxyRotator');
 const { pickWeightedKeywordWindow, recordBatch } = require('../lib/categoryYield');
@@ -29,8 +30,11 @@ const DEFAULT_CONFIG = {
   run_every_hours:      6,
   keywords:             DEFAULT_KEYWORDS, // 340+ role variants (Java/Python/Frontend/DevOps/AI/...) — rotated, see keywordRotation.js
   locations:            ['India', 'Remote'],
-  greenhouse_companies: [],
-  lever_companies:      [],
+  // Live-verified (real HTTP call, 200 + non-empty board) as of 2026-08-15 — mix of
+  // global tech (with India offices posting India-location roles) and India-native
+  // companies (postman, groww, freshworks, meesho, cred).
+  greenhouse_companies: ['stripe', 'airbnb', 'figma', 'coinbase', 'discord', 'robinhood', 'asana', 'databricks', 'gitlab', 'postman', 'groww'],
+  lever_companies:      ['plaid', 'freshworks', 'meesho', 'cred'],
   adzuna_app_id:        '',
   adzuna_key:           '',
   jooble_key:           '',
@@ -420,6 +424,15 @@ async function syncJobIntelContacts(sinceMs = null) {
     const adminId = admin.id;
     const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
+    // Auto-tagging: match every synced posting against the SYNCING ADMIN's own
+    // profile skills (these contacts land in their Contacts page) so each one
+    // gets a category tag + up to 5 matched-skill tags — reuses the same
+    // matcher from /contacts personalization (lib/skillMatch.js), just applied
+    // once at sync time instead of per-request. Plugs into the existing
+    // `tags` column + `?tag=` filter (routes/contacts.js) with zero new schema.
+    const adminProfile = await db.prepare('SELECT skills FROM profiles WHERE user_id = ?').get(adminId).catch(() => null);
+    const adminSkills = parseSkills(adminProfile?.skills);
+
     // Periodic (5-min) sync: only look at postings from the last 30 minutes to keep it lightweight.
     // Full pipeline run passes sinceMs=null to sync everything.
     const cutoff = sinceMs != null
@@ -428,13 +441,13 @@ async function syncJobIntelContacts(sinceMs = null) {
 
     const postings = cutoff
       ? await db.prepare(
-          `SELECT id, company, title, apply_url, source, extracted_emails, extracted_contact_name
+          `SELECT id, company, title, description, category, apply_url, source, extracted_emails, extracted_contact_name
            FROM job_postings
            WHERE extracted_emails != '[]' AND extracted_emails IS NOT NULL
            AND fetched_at >= ?`
         ).all(cutoff)
       : await db.prepare(
-          `SELECT id, company, title, apply_url, source, extracted_emails, extracted_contact_name
+          `SELECT id, company, title, description, category, apply_url, source, extracted_emails, extracted_contact_name
            FROM job_postings
            WHERE extracted_emails != '[]' AND extracted_emails IS NOT NULL`
         ).all();
@@ -443,6 +456,13 @@ async function syncJobIntelContacts(sinceMs = null) {
     for (const posting of postings) {
       let emails = [];
       try { emails = JSON.parse(posting.extracted_emails); } catch {}
+      if (!emails.length) continue;
+
+      const categoryLabel = CATEGORY_LABELS[posting.category] || null;
+      const matchedSkills = adminSkills.length
+        ? lightweightSkillMatch(adminSkills, `${posting.title || ''} ${posting.description || ''}`).matched.slice(0, 5)
+        : [];
+      const tags = JSON.stringify([categoryLabel, ...matchedSkills].filter(Boolean));
 
       for (const rawEmail of emails) {
         const email = cleanExtractedEmail(rawEmail);
@@ -459,21 +479,23 @@ async function syncJobIntelContacts(sinceMs = null) {
           INSERT INTO contacts
             (id, user_id, name, email, company, title, email_source, status, source_url, notes, date_added, tags, email_verified)
           VALUES
-            (?, ?, ?, ?, ?, ?, 'job-intel', 'New', ?, ?, ?, '[]', 'pending')
+            (?, ?, ?, ?, ?, ?, 'job-intel', 'New', ?, ?, ?, ?, 'pending')
           ON CONFLICT (email, user_id) DO UPDATE SET
             name       = CASE WHEN contacts.email_source = 'job-intel' AND ? != '' THEN ? ELSE contacts.name END,
             company    = CASE WHEN contacts.email_source = 'job-intel' AND ? != '' THEN ? ELSE contacts.company END,
             title      = CASE WHEN contacts.email_source = 'job-intel' AND ? != '' THEN ? ELSE contacts.title END,
             source_url = CASE WHEN contacts.email_source = 'job-intel' AND ? != '' THEN ? ELSE contacts.source_url END,
-            notes      = CASE WHEN contacts.email_source = 'job-intel' THEN ? ELSE contacts.notes END
+            notes      = CASE WHEN contacts.email_source = 'job-intel' THEN ? ELSE contacts.notes END,
+            tags       = CASE WHEN contacts.email_source = 'job-intel' THEN ? ELSE contacts.tags END
           RETURNING (xmax = 0) AS is_new
         `).get(
-          randomUUID(), adminId, name, email, company, jobTitle, sourceUrl, notes, now,
+          randomUUID(), adminId, name, email, company, jobTitle, sourceUrl, notes, now, tags,
           name, name,
           company, company,
           jobTitle, jobTitle,
           sourceUrl, sourceUrl,
-          notes
+          notes,
+          tags,
         );
 
         if (row?.is_new) synced++;

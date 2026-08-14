@@ -1324,6 +1324,15 @@ function JobIntelConfigSection() {
   function setListField(key, val) {
     setCfg(c => ({ ...c, [key]: val.split('\n').map(s => s.trim()).filter(Boolean) }));
   }
+  async function loadRecommendedCompanies() {
+    try {
+      const r = await api.get('/job-intel/default-companies');
+      setCfg(c => ({ ...c, greenhouse_companies: r.greenhouse || [], lever_companies: r.lever || [] }));
+      toast.success(`Loaded ${(r.greenhouse?.length || 0) + (r.lever?.length || 0)} live-verified companies — click Save Config to apply`);
+    } catch (e) {
+      toast.error(e.response?.data?.error || 'Failed to load recommended companies');
+    }
+  }
   async function loadRecommendedKeywords() {
     try {
       const r = await api.get('/job-intel/default-keywords');
@@ -1398,7 +1407,13 @@ function JobIntelConfigSection() {
 
       {/* Greenhouse companies */}
       <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">Greenhouse company slugs (one per line)</label>
+        <div className="flex items-center justify-between mb-1">
+          <label className="block text-xs font-medium text-gray-600">Greenhouse company slugs (one per line)</label>
+          <button type="button" onClick={loadRecommendedCompanies}
+            className="text-[11px] font-medium text-brand-600 hover:text-brand-700 hover:underline">
+            Load recommended companies (live-verified)
+          </button>
+        </div>
         <textarea rows={3} value={(cfg.greenhouse_companies || []).join('\n')}
           onChange={e => setListField('greenhouse_companies', e.target.value)}
           placeholder="google&#10;meta&#10;stripe&#10;airbnb"
@@ -1413,7 +1428,7 @@ function JobIntelConfigSection() {
           onChange={e => setListField('lever_companies', e.target.value)}
           placeholder="netflix&#10;shopify&#10;discord"
           className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500 font-mono" />
-        <p className="text-[11px] text-gray-400 mt-1">From: api.lever.co/v0/postings/<strong>{'<slug>'}</strong></p>
+        <p className="text-[11px] text-gray-400 mt-1">From: api.lever.co/v0/postings/<strong>{'<slug>'}</strong> — "Load recommended companies" above fills both Greenhouse and Lever</p>
       </div>
 
       {/* Adzuna */}

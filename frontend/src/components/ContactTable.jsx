@@ -72,13 +72,16 @@ function StatusCell({ contact, onStatusChange }) {
   );
 }
 
-// Source label + confidence tooltip in one compact cell
+// Source label + confidence tooltip, plus tag chips (mostly populated for
+// Job Intel contacts — auto-tagged by matched category/skills at sync time,
+// see orchestrator.js syncJobIntelContacts) in one compact cell.
 function SourceCell({ c }) {
   const isJobIntel = c.email_source === 'job-intel';
   const label = isJobIntel ? '🟣 Job Intel'
     : (c.email_source || '').replace(/_/g, ' ') || '—';
   const confColor = c.email_confidence === 'verified' ? 'text-green-600'
     : c.email_confidence === 'guessed' ? 'text-amber-600' : 'text-gray-400';
+  const tags = Array.isArray(c.tags) ? c.tags : [];
 
   return (
     <div className="flex flex-col gap-0.5">
@@ -89,6 +92,16 @@ function SourceCell({ c }) {
       </span>
       {c.email_confidence && (
         <span className={`text-[10px] leading-tight ${confColor}`}>{c.email_confidence}</span>
+      )}
+      {tags.length > 0 && (
+        <div className="flex flex-wrap gap-0.5 mt-0.5">
+          {tags.slice(0, 4).map(t => (
+            <span key={t} className="inline-block text-[9px] font-medium px-1 py-0.5 rounded leading-tight bg-teal-50 text-teal-700 border border-teal-100" title={t}>
+              {t}
+            </span>
+          ))}
+          {tags.length > 4 && <span className="text-[9px] text-gray-400" title={tags.join(', ')}>+{tags.length - 4}</span>}
+        </div>
       )}
     </div>
   );
