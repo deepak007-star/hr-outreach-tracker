@@ -18,19 +18,20 @@ const common = require('../lib/common');
 const MAILTO_RE = /mailto:\s*([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})/gi;
 // Login-walled or emails-never-present hosts — skip to save budget
 const SKIP_HOSTS = /(linkedin\.com|indeed\.com|glassdoor\.|ziprecruiter\.com|naukri\.com)/i;
-// Boilerplate/no-contact addresses that show up in page chrome
-const DENY_EMAIL = /(no-?reply|do-?not-?reply|noreply|sentry|wixpress|example\.|@sentry|@2x|\.png|\.jpg|\.gif|@w3\.org|@schema\.org|godaddy|cloudflare|@sentry\.io|postmaster|abuse@|privacy@|@example\.com)/i;
-
+// Domain/asset-extension denials (sentry, ATS noise, image filenames like
+// "logo@2x.png") are centralized in cleanExtractedEmail (lib/contactExtract.js)
+// so this file and regex extraction can't drift out of sync — this list is
+// only for `mailto:` matches, which skip straight past that gate.
 function pageEmails(html) {
   const text = typeof html === 'string' ? html : JSON.stringify(html || '');
   const out = new Set();
   let m;
   while ((m = MAILTO_RE.exec(text))) {
     const e = cleanExtractedEmail(m[1]);
-    if (e && !DENY_EMAIL.test(e)) out.add(e.toLowerCase());
+    if (e) out.add(e);
   }
   for (const e of extractContacts(text).emails) {
-    if (e && !DENY_EMAIL.test(e)) out.add(e.toLowerCase());
+    out.add(e);
   }
   return [...out];
 }

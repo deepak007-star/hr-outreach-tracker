@@ -2,6 +2,108 @@
 
 ---
 
+## 2026-08-15 (2) — Password reset without current password; hybrid skill-match (Groq embeddings + fallback)
+
+### FEATURE — Change password no longer requires the current one
+
+`PUT /api/auth/change-password` (`routes/auth.js`) dropped the `currentPassword` requirement — authorization is the caller's valid JWT (`requireAuth`) alone. This was a real gap, not just friction: accounts created via "Sign in with Google" get a random `password_hash` at signup they never see (`routes/oauth.js`), so the old current-password-required flow was *permanently impossible* for them — `backend/scripts/reset-password.js` (a direct-DB CLI script) existed specifically as an admin workaround for this. Still bumps `token_version` on change, signing out every other session. `ChangePassword.jsx` simplified to match (no "current password" field).
+
+### FEATURE — Hybrid skill-match: Groq embeddings first, synonym+fuzzy fallback, always available
+
+Answers "does editing/removing skills adapt anything, and how much match counts as relevant": relevance is computed **live per request** from the current `profiles.skills` — there's no cached/precomputed personalization state to reset when skills change. The only cache in this path is a per-user Groq skill-embedding cache (see below), keyed by a hash of the skills list itself, so it self-invalidates the instant the list actually changes.
+
+**`lib/skillMatch.js` (new)** — the always-available, no-API tier. Per skill: exact token match → synonym/alias match (`SKILL_SYNONYMS`, e.g. "js"↔"javascript", "k8s"↔"kubernetes") → fuzzy bigram Dice-coefficient closeness (catches "Reactjs" vs "React.js"). **Caught a real bug while building this**: a naive substring check on short synonyms ("ts", "go", "ai") false-matched inside ordinary English words ("Requirements" contains "ts") — fixed with a `containsTerm()` helper that only allows raw substring matching for multi-word phrases, requiring a real whole-token hit for anything ≤3 chars.
+
+**`lib/embeddingMatch.js` (new)** — tries Groq's embeddings endpoint (`nomic-embed-text-v1_5`, confirmed to exist in `groq-sdk` and wired against the account's real configured key) first: embeds each user skill individually and compares (cosine similarity ≥0.5) against a precomputed per-posting embedding. **Live-tested against the real account**: this model returns `404 model_not_found` — not enabled on this Groq plan/account currently. `embedTexts()` catches this, and a circuit breaker backs off for 30 minutes before retrying (self-heals automatically if the account gains access later, no restart needed) — every caller already treats a `null` result as "fall back to `skillMatch.js`," so this degrades to the free tier transparently right now with no visible impact, and will silently upgrade to semantic matching the moment Groq enables the model.
+
+**Pipeline (`orchestrator.js`)**: every stored posting gets embedded (best-effort, throttled like LLM classification) and persisted to a new `job_postings.embedding` column (guarded `ALTER TABLE`, JSON float array or null).
+
+**`/contacts` (`job-intelligence.js`)**: `relevanceScore()` now folds in skill-match percent — continuous contribution plus an explicit step bonus at the 40%/50% thresholds. New optional `?min_skill_match=N` query param **filters** the personalized list to only rows meeting that percent (default: unset, nothing hidden — matches the earlier "show everything relevant" decision; this is an opt-in narrowing, not a default one). `JobIntelPanel.jsx` shows a "🎯 N% skill match" badge and a "Min skill match" dropdown (Any/40%+/50%+/70%+), visible only when personalized.
+
+**Also fixed while wiring this up**: `profiles.skills` was found double-JSON-encoded for at least one real account (an older write path had stringified an already-stringified array) — a single `JSON.parse` on that returns a string, not an array, which would throw on every downstream `.filter()`/`.map()` and 500 the whole route for that user. `parseSkills()` now unwraps up to twice and falls back to `[]`.
+
+- **Files changed:** `backend/src/lib/skillMatch.js` (new), `backend/src/lib/embeddingMatch.js` (new), `backend/src/agents/{storage,orchestrator}.js`, `backend/src/routes/{auth,job-intelligence}.js`, `backend/src/db/database.js`, `frontend/src/components/{ChangePassword,JobIntelPanel}.jsx`
+
+---
+
+## 2026-08-15 — Job Intel: self-healing health layer, adaptive keyword weighting, broadened relevance score
+
+Prompted by looking at a separate project's ("strike-ledger") self-healing/self-learning orchestrator pattern and asking whether an analogous mechanism fits here. It doesn't port 1:1 (that project runs real ML with held-out validation for its "learning" half — no comparable prediction target exists in this app), but the "self-healing" half (Snapshot → stateless checks → severity findings → a small reversible action registry) and a lighter, proportionate analog of "never trust an unvalidated change" both fit. Full design in the approved plan; summary below.
+
+### FEATURE — Self-healing pipeline health layer
+
+**New `backend/src/agents/pipelineHealth.js`.** After every pipeline run, `runHealthChecks(snapshot)` runs 4 stateless checks against that run's own stats (never live state):
+- `checkProxyPool` — critical/warn if the whole proxy pool is dead.
+- `checkSourceFailures` — tracks true failures per source (an ingestion source that *threw*, not one that legitimately returned 0 results this run — see `ingestion/index.js` change below) and auto-disables a source after 6 consecutive real failures.
+- `checkYieldTrend` — escalates the existing single-run `low_yield` antibot signal to `critical` after 3 consecutive low-yield runs (distinguishes sustained IP blocks from one-off noise).
+- `checkRelevanceDropRate` — informational only; flags if the relevance filter is dropping >98% of postings (likely a too-narrow keyword/location config), no auto action.
+
+Findings carry a severity and an optional `action`; the only two wired actions are `autoDisableSource` (sets `disabled:true` in a `job_intel_source_health` settings key — `ingestion/index.js` skips disabled sources before running them, but never the two internal DB sources) and `triggerProxyRefresh` (calls the pre-existing but previously admin-button-only `proxyFetcher.refresh()`). Both are reversible — Admin Panel → Job Intel Pipeline → new "Pipeline Health" card shows findings + a click-to-toggle chip per source. Persisted state reuses the `settings` key/value table (`job_intel_source_health`, `job_intel_health`) — no new table, same pattern as the pre-existing `antibot_status` key.
+
+New routes: `GET /api/job-intel/health` (admin), `PATCH /api/job-intel/health/sources/:source` (admin, `{disabled}`).
+
+### FEATURE — Adaptive category-weighted keyword rotation (self-learning-lite)
+
+**New `backend/src/lib/categoryYield.js`.** Per-keyword attribution isn't available (the DB-backed sources don't record which search keyword surfaced a row), so this learns at the category grain instead (`categorize.js`, already computed on every posting). `recordBatch(tally)` merges a run's `{category: {scanned, withEmail}}` tally into a persisted `job_intel_category_yield` settings key in one read-modify-write (batched once per run, not per-job, to avoid a read-modify-write race across concurrently-processed jobs). `getYieldWeights()` returns a Laplace-smoothed yield rate per category. `weightedCategoryPick(categories, weights, epsilon=0.3)` is epsilon-greedy — 70% weighted toward higher-yield categories, 30% uniform, so a category is never permanently starved by an early bad run. `pickWeightedKeywordWindow(allKeywords, windowSize, rotationPrefix)` buckets the keyword list by category, picks categories via the above, and still rotates (via the existing `keywordRotation.js`) within whichever category gets picked. Replaces the flat `nextWindow()` call for LinkedIn Feed titles (`orchestrator.js`) and Adzuna/Jooble's 5-keyword picks (`ingestion/index.js`).
+
+`orchestrator.js`'s extract→store loop now computes `job.category` for *every* scanned job (not just ones with an email, so the yield rate has the correct denominator) and accumulates the run's tally, recorded once at the end via `recordBatch`.
+
+### FEATURE — Broadened `/contacts` relevance score (not just 3 strict preference titles)
+
+**`backend/src/routes/job-intelligence.js`.** Replaced the strict 0/1/2/99 `preferenceRank()` bucket with a continuous `relevanceScore()`: `job_title_1/2/3` still contribute the most (30/20/10, priority-weighted), but every matching skill from `profiles.skills` adds +2, and a category match (posting's `category` vs. the skills' inferred category) adds +10. Nothing is filtered out — relevanceFilter.js already gates `job_postings` to keyword-relevant rows at ingestion time; this only changes *ordering*, so a DevOps posting that matches several of the user's skills but not their exact preferred title now ranks above pure noise instead of being lumped into an undifferentiated "no match" bucket with everything else. API response's `preference_match` is now `{score, preference, matchedSkills}` instead of a bare number. `JobIntelPanel.jsx` shows a "⭐ Preference N" badge and/or a "🎯 Matches N skills" badge, whichever apply.
+
+- **Files changed:** `backend/src/agents/pipelineHealth.js` (new), `backend/src/lib/categoryYield.js` (new), `backend/src/agents/orchestrator.js`, `backend/src/agents/ingestion/index.js`, `backend/src/routes/job-intelligence.js`, `frontend/src/components/{AdminPanel,JobIntelPanel}.jsx`
+
+---
+
+## 2026-08-14 (2) — Job Intel: 340+ keyword list, category tagging, per-user preference ranking, fuzzy dedup
+
+### FEATURE — Broad target-role keyword list + rotation (no longer starves to the first 5-15)
+
+Replaced the 5-entry `DEFAULT_CONFIG.keywords` with a 341-entry list (`agents/defaultKeywords.js`) spanning Java/Spring, general SDE, frontend/React, full stack, MERN/Node, Python, AI/ML/GenAI, DevOps/Cloud, data engineering, and QA/automation role variants. A list this size can't be used naively — Adzuna/Jooble only take 5 keywords/run and the LinkedIn Feed scrape only takes 15 — so **`lib/keywordRotation.js`** (`nextWindow(key, allItems, windowSize)`) persists a rotating offset in `settings` (`job_intel_rotation_<key>`) and hands each call site a *different* slice every run, cycling through the full list over time instead of only ever searching the first few entries forever. Wired into `orchestrator.js` (LinkedIn Feed titles) and `ingestion/index.js` (Adzuna/Jooble). Admin Panel got a **"Load recommended list (340+ roles)"** button (`GET /api/job-intel/default-keywords`, admin-only) since a config already saved to the DB doesn't pick up the new code default automatically.
+
+### FEATURE — Tech-stack category tagging + frontend filter
+
+**`agents/categorize.js`** — deterministic tagger (`java`, `python`, `ai_ml`, `devops_cloud`, `data`, `frontend`, `mern_node`, `qa`, `fullstack`, `backend`, `general`), specific stacks checked before generic role-only buckets so e.g. "Senior Software Development Engineer - Java" tags `java`, not `general`. New `job_postings.category` column (guarded `ALTER TABLE`), set in the orchestrator's extract→store loop, persisted by `storage.js`. `GET /api/job-intel/categories` (counts) + `category` query param on `/postings` and `/contacts`. `JobIntelPanel.jsx` gained a category filter dropdown ("All profiles" / Java / Python / ...).
+
+### FEATURE — Per-user preference ranking (Profile → Preferred Roles 1/2/3)
+
+`GET /api/job-intel/contacts` now runs a local `softAuth` (validates a token if present, never blocks — endpoint stays public). A logged-in caller with `profiles.job_title_1/2/3` set gets those postings ranked to the top: pulls a bounded 500-row working set (job_postings is a personal-scale table), re-ranks in JS by tokenized title/description overlap against pref 1/2/3 (reusing `relevanceFilter.js`'s tokenizer), then paginates the ranked list. Each returned contact carries `preference_match` (1/2/3/null); `JobIntelPanel.jsx` shows a "⭐ Preference N" badge and a banner when personalization is active.
+
+### BUG FIX — Fuzzy dedup (title reworded across sources no longer double-stored)
+
+`deduplication.js`: on a fingerprint **miss**, falls back to a `pg_trgm` `similarity(title, ...) > 0.7` check scoped to the same company + posting month, before accepting a posting as genuinely unique. Skipped for internal sources (`linkedin-posts`, `scraped:*`) which are already keyed by `source+external_id`.
+
+### BUG FIX — Image-filename false-positive emails; unified ATS-noise denylist
+
+`lib/contactExtract.js`'s `cleanExtractedEmail` accepted `logo@2x.png` as a valid email (`png`/`jpg`/`gif` are 2-6 letter strings, same shape as a real TLD) — added an `ASSET_EXTENSIONS` rejection list. Also merged `deepFetch.js`'s separate `DENY_EMAIL` regex (ATS noise, page-chrome addresses) into the shared `EMAIL_SPAM` list so the two extraction paths can't drift out of sync; `deepFetch.js` now relies on `cleanExtractedEmail` as the single source of truth.
+
+### ENHANCEMENT — Greenhouse/Lever company display name
+
+`company` was the raw board slug (`"stripe"`); now title-cased (`"Stripe"`) for display. The slug itself is unchanged for the API call and `source` tag.
+
+- **Files changed:** `backend/src/agents/defaultKeywords.js` (new), `backend/src/lib/keywordRotation.js` (new), `backend/src/agents/categorize.js` (new), `backend/src/agents/orchestrator.js`, `backend/src/agents/ingestion/index.js`, `backend/src/agents/deduplication.js`, `backend/src/lib/contactExtract.js`, `backend/src/agents/deepFetch.js`, `backend/src/agents/ingestion/{greenhouse,lever}.js`, `backend/src/agents/storage.js`, `backend/src/db/database.js`, `backend/src/routes/job-intelligence.js`, `frontend/src/components/{JobIntelPanel,AdminPanel}.jsx`
+
+---
+
+## 2026-08-14 — Job Intel Pipeline: relevance gate + LLM-extraction validation
+
+### FEATURE — Deterministic keyword/location relevance filter (new mandatory gate)
+
+**Problem:** the pipeline's only gate for turning a posting into a Contact was "does it contain an email?" — not "is this job relevant to me". LLM classification (the only thing that judged relevance) defaults to `classify: false`, and even when enabled it only annotated `is_relevant`/`seniority` — `storage.js` and `syncJobIntelContacts()` never checked it. Result: any posting from any industry/location with a generic email in it (e.g. a Berlin-only Arbeitnow listing, or an old unrelated-keyword LinkedIn post still inside the 60-day lookback window) could be synced into Contacts as an "HR contact."
+
+**Fix:** new `backend/src/agents/relevanceFilter.js` — `filterRelevant(jobs, cfg)` tokenizes `cfg.keywords` (stripping generic role words like "developer"/"senior" so "Backend Developer" also matches "Backend Engineer") and matches against title+description; separately checks `cfg.location` against job location (with a "Remote" passthrough), skipped for internal DB sources (`linkedin-posts`, `scraped:*`) whose location field is inconsistent/blank and which are already keyword-targeted at scrape time. Runs in `orchestrator.js` right after normalization, **before** dedup/deep-fetch/extraction, so irrelevant postings never reach those costlier stages. New config flag `relevance_filter` (default `true`) added to `DEFAULT_CONFIG` — set `false` to disable.
+
+### BUG FIX — LLM extraction fallback could store hallucinated emails
+
+**Problem:** flagged as a known gap in `JOB_INTEL_PIPELINE.md` §6.3 — `extraction.js`'s Groq LLM fallback only format-validated extracted emails (`cleanExtractedEmail`), never checked they actually appear in the source text, so a well-formatted but hallucinated email could be stored as a real HR contact.
+
+**Fix (`backend/src/agents/extraction.js`):** after format validation, each candidate email must also appear verbatim (case-insensitive substring) in the original job description before it's trusted.
+
+- **Files changed:** `backend/src/agents/relevanceFilter.js` (new), `backend/src/agents/orchestrator.js`, `backend/src/agents/extraction.js`, `JOB_INTEL_PIPELINE.md`
+
+---
+
 ## 2026-08-06 — Anti cold-start / keep-alive for free-tier hosting
 
 ### FEATURE — self keep-alive so Render/Vercel don't sleep the backend

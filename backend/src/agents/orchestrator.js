@@ -5,12 +5,18 @@ const { cleanContactName } = require('../lib/nameUtils');
 const { cleanExtractedEmail } = require('../lib/contactExtract');
 const { ingestAll }       = require('./ingestion/index');
 const { normalizeAll }    = require('./normalization');
+const { filterRelevant }  = require('./relevanceFilter');
 const { deduplicateBatch }= require('./deduplication');
 const { extractFromJob }  = require('./extraction');
 const { classifyJob }     = require('./classification');
 const { storeJob }        = require('./storage');
 const { qaCheck }         = require('./qa');
+const { categorize }      = require('./categorize');
+const DEFAULT_KEYWORDS    = require('./defaultKeywords');
 const proxyRotator        = require('../lib/proxyRotator');
+const { pickWeightedKeywordWindow, recordBatch } = require('../lib/categoryYield');
+const { runHealthChecks } = require('./pipelineHealth');
+const { embedTexts } = require('../lib/embeddingMatch');
 
 // Lazy-required to avoid circular-require at module load time
 function getScraperRouter() { return require('../routes/scraper'); }
@@ -21,7 +27,7 @@ const CONFIG_KEY = 'job_intel_config';
 const DEFAULT_CONFIG = {
   enabled:              false,
   run_every_hours:      6,
-  keywords:             ['Backend Developer', 'Node.js Developer', 'Java Developer', 'React Developer', 'Frontend Developer'],
+  keywords:             DEFAULT_KEYWORDS, // 340+ role variants (Java/Python/Frontend/DevOps/AI/...) — rotated, see keywordRotation.js
   locations:            ['India', 'Remote'],
   greenhouse_companies: [],
   lever_companies:      [],
@@ -29,6 +35,7 @@ const DEFAULT_CONFIG = {
   adzuna_key:           '',
   jooble_key:           '',
   classify:             false, // disabled by default — contact extraction doesn't need job relevance scoring
+  relevance_filter:     true,  // deterministic keyword/location gate — set false to disable
   min_confidence:       0.5,
   internal_lookback_days: 60,  // how many days back to read from scraped_jobs / linkedin_posts
 };
@@ -68,6 +75,9 @@ async function runPipeline(triggeredBy = 'scheduler') {
     ON CONFLICT DO NOTHING
   `).run(runId, startedAt);
 
+  // Captured across stages for the end-of-run health snapshot (pipelineHealth.js).
+  let proxyHealthSnapshot = null, expectedMinSnapshot = 0, relevanceDroppedCount = 0, relevanceKeptCount = 0;
+
   try {
     const cfg = await getConfig();
 
@@ -94,6 +104,7 @@ async function runPipeline(triggeredBy = 'scheduler') {
         const loaded = proxyRotator.loadFromString(proxyStr);
         console.log(`[Pipeline] Proxy pool: ${loaded} configured — health-checking…`);
         const health = await proxyRotator.healthCheckAll(8000);
+        proxyHealthSnapshot = health;
         console.log(`[Pipeline] Proxies: ${health.alive}/${health.total} alive, dead=${health.dead}` +
           (health.latencies.length ? `, latencies=${health.latencies.join(',')}ms` : ''));
 
@@ -128,10 +139,17 @@ async function runPipeline(triggeredBy = 'scheduler') {
     let freshlyScraped = 0;
     try {
       const settings    = await getSettings().catch(() => ({}));
-      const cfgKeywords = Array.isArray(cfg.keywords) && cfg.keywords.length ? cfg.keywords : [];
+      const cfgKeywords = Array.isArray(cfg.keywords) && cfg.keywords.length ? [...new Set(cfg.keywords)] : [];
       const sqKeywords  = Array.isArray(settings.searchQueries) && settings.searchQueries.length ? settings.searchQueries : [];
-      // Combine both keyword lists, deduplicate, cap at 15 to bound scrape time
-      const titles = [...new Set([...sqKeywords, ...cfgKeywords])].slice(0, 15);
+      // Explicit Apify search queries always get a slot; the rest of the 15-keyword
+      // budget is filled from the full cfg.keywords list, biased toward categories
+      // that have historically actually yielded HR emails (lib/categoryYield.js) —
+      // a large target list (100+ role variants) would otherwise either always
+      // truncate to the same first few entries, or rotate blind to which ones
+      // are actually worth the scrape budget.
+      const remainingSlots  = Math.max(0, 15 - sqKeywords.length);
+      const rotatedKeywords = remainingSlots > 0 ? await pickWeightedKeywordWindow(cfgKeywords, remainingSlots, 'linkedin_titles') : [];
+      const titles = [...new Set([...sqKeywords, ...rotatedKeywords])].slice(0, 15);
       if (titles.length === 0) {
         titles.push('HR Manager', 'Recruiter', 'Talent Acquisition', 'Human Resources');
       }
@@ -148,6 +166,7 @@ async function runPipeline(triggeredBy = 'scheduler') {
       // If the scrape returned significantly fewer results than the keyword
       // count suggests, flag a potential IP-block event so the UI can warn.
       const expectedMin = Math.min(titles.length * 2, 10); // very conservative lower bound
+      expectedMinSnapshot = expectedMin;
       if (freshlyScraped < expectedMin) {
         const antiBotMsg = `Low yield: ${freshlyScraped} posts from ${titles.length} keywords (expected ≥${expectedMin}). Possible IP block or anti-bot trigger.`;
         console.warn(`[Pipeline] Anti-bot audit: ${antiBotMsg}`);
@@ -173,9 +192,9 @@ async function runPipeline(triggeredBy = 'scheduler') {
     cfg.freshly_scraped_count = freshlyScraped;
 
     // ── 1. Ingestion ───────────────────────────────────────────────────────
-    let raw = [], sourceStats = {};
+    let raw = [], sourceStats = {}, sourceErrors = {};
     try {
-      ({ raw, sourceStats } = await ingestAll(cfg));
+      ({ raw, sourceStats, sourceErrors } = await ingestAll(cfg));
       totalFetched = raw.length;
       console.log(`[Pipeline] Ingested ${totalFetched} raw postings from ${Object.keys(sourceStats).join(', ')}`);
     } catch (e) {
@@ -186,8 +205,22 @@ async function runPipeline(triggeredBy = 'scheduler') {
     const normalized = normalizeAll(raw);
     console.log(`[Pipeline] Normalized: ${normalized.length}`);
 
+    // ── 2.5 Relevance filter — deterministic keyword/location gate ─────────
+    // Runs before dedup/deep-fetch/extraction so an irrelevant-industry or
+    // wrong-location posting can't reach Contacts just because it happens to
+    // contain *some* email. LLM classification (optional, off by default)
+    // never gated storage — this replaces "has an email" as the sole gate.
+    let relevant = normalized;
+    if (cfg.relevance_filter !== false) {
+      const { kept, dropped } = filterRelevant(normalized, cfg);
+      relevant = kept;
+      relevanceKeptCount    = kept.length;
+      relevanceDroppedCount = dropped.length;
+      if (dropped.length) console.log(`[Pipeline] Relevance filter: dropped ${dropped.length}/${normalized.length} irrelevant (kept ${kept.length})`);
+    }
+
     // ── 3. Deduplication ──────────────────────────────────────────────────
-    const { unique, duplicateCount } = await deduplicateBatch(normalized);
+    const { unique, duplicateCount } = await deduplicateBatch(relevant);
     totalDupes = duplicateCount;
     console.log(`[Pipeline] Dedup: ${unique.length} unique, ${duplicateCount} duplicates`);
 
@@ -219,7 +252,8 @@ async function runPipeline(triggeredBy = 'scheduler') {
     // Classification (job relevance scoring) is skipped here — this pipeline's goal is
     // extracting HR contact emails, not ranking job fit. Enable via cfg.classify if needed.
     const classEnabled = cfg.classify === true; // explicit opt-in only
-    let llmCalls = 0, scanned = 0;
+    let llmCalls = 0, embedCalls = 0, scanned = 0;
+    const categoryTally = {}; // {category: {scanned, withEmail}} — fed to categoryYield.recordBatch after the loop
     for (const job of unique) {
       try {
         scanned++;
@@ -227,9 +261,37 @@ async function runPipeline(triggeredBy = 'scheduler') {
         const extraction = await extractFromJob(job);
         Object.assign(job, extraction);
 
+        // Tag with a tech-stack category (Java/Python/DevOps/AI/...) so the
+        // frontend can filter by profile, and so category-weighted keyword
+        // rotation (lib/categoryYield.js) can learn which categories actually
+        // yield contacts. Computed for every scanned job — not just ones with
+        // an email — so the yield rate is measured against the true denominator.
+        job.category = categorize(job);
+
         let emails = [];
         try { emails = JSON.parse(job.extracted_emails || '[]'); } catch {}
+        const tally = categoryTally[job.category] || (categoryTally[job.category] = { scanned: 0, withEmail: 0 });
+        tally.scanned++;
+        if (emails.length) tally.withEmail++;
+
         if (!emails.length) continue; // no contact found — skip classify/store
+
+        // Embed the posting (title+description) for the semantic skill-match
+        // tier in /contacts (lib/embeddingMatch.js). Best-effort and
+        // self-disabling: embedTexts() returns null with zero further network
+        // calls for a while after any failure (wrong model access, rate
+        // limit, no key configured) — /contacts falls back to the free
+        // synonym+fuzzy matcher (lib/skillMatch.js) for rows with no embedding.
+        try {
+          const vecs = await embedTexts([`${job.title} ${job.description || ''}`.slice(0, 2000)]);
+          if (vecs?.[0]) {
+            job.embedding = vecs[0];
+            embedCalls++;
+            if (embedCalls % 10 === 0) await new Promise(r => setTimeout(r, 500));
+          }
+        } catch (e) {
+          // non-fatal — job.embedding stays unset
+        }
 
         // Classification (optional, off by default — wastes LLM budget on contact-only pipeline)
         let classResult = null;
@@ -258,7 +320,8 @@ async function runPipeline(triggeredBy = 'scheduler') {
       }
     }
 
-    console.log(`[Pipeline] Scanned ${scanned} unique jobs — ${totalNew} HR contacts found (${llmCalls} LLM calls)`);
+    console.log(`[Pipeline] Scanned ${scanned} unique jobs — ${totalNew} HR contacts found (${llmCalls} LLM classify calls, ${embedCalls} embed calls)`);
+    await recordBatch(categoryTally);
 
     // ── 5. Update run record ───────────────────────────────────────────────
     const finishedAt = new Date().toISOString().replace('T', ' ').slice(0, 19);
@@ -274,6 +337,16 @@ async function runPipeline(triggeredBy = 'scheduler') {
       totalFetched, totalNew, totalDupes,
       JSON.stringify(errors), runId
     );
+
+    // ── 5.5 Self-healing health checks ──────────────────────────────────────
+    // Reads this run's own stats (not live state) — never blocks or fails the
+    // run; a health-check error is logged and swallowed.
+    await runHealthChecks({
+      sourceStats, sourceErrors, totalFetched, totalNew,
+      freshlyScraped: cfg.freshly_scraped_count, expectedMin: expectedMinSnapshot,
+      proxyHealth: proxyHealthSnapshot,
+      relevanceKept: relevanceKeptCount, relevanceDropped: relevanceDroppedCount,
+    }).catch(e => console.warn('[Pipeline] health checks failed (non-fatal):', e.message));
 
     // ── 6. Sync extracted emails → admin's contacts page ──────────────────────
     const contactsSynced = await syncJobIntelContacts();

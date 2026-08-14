@@ -392,6 +392,9 @@ async function initialize() {
   await addCol('email_templates', 'category',     `TEXT NOT NULL DEFAULT 'general'`);
   await addCol('email_templates', 'tags',         `TEXT NOT NULL DEFAULT '[]'`);
   await addCol('resume_versions', 'file_path',        `TEXT`);
+  await addCol('job_postings',    'category',         `TEXT`);
+  await addCol('email_templates', 'user_id',          `TEXT`);
+  await addCol('job_postings',    'embedding',        `TEXT`); // JSON float array from Groq embeddings, when available — see lib/embeddingMatch.js
   await addCol('resume_versions', 'mime_type',        `TEXT`);
   await addCol('resume_versions', 'is_ats_template',  `INTEGER NOT NULL DEFAULT 0`);
   await addCol('resume_versions', 'file_id',          `TEXT`);   // -> resume_files.id (DB-stored original bytes)
@@ -642,6 +645,7 @@ async function initialize() {
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_job_postings_fingerprint ON job_postings (fingerprint)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_job_postings_fetched_at  ON job_postings (fetched_at DESC)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_job_postings_relevant    ON job_postings (is_relevant, fetched_at DESC)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_job_postings_category    ON job_postings (category)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_pipeline_runs_started    ON pipeline_runs (started_at DESC)`);
 
   // ── Payment subscriptions

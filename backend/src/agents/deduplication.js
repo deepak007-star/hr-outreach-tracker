@@ -52,12 +52,48 @@ async function deduplicateBatch(jobs) {
     if (existing) {
       job.duplicate_of = existing.id;
       duplicateCount++;
-    } else {
-      unique.push(job);
+      continue;
     }
+
+    // Fingerprint miss doesn't mean "genuinely new" — the same job reposted
+    // with a slightly reworded title ("Java Developer" vs "Java Backend
+    // Developer") won't share a fingerprint. Fall back to a fuzzy check
+    // (pg_trgm, already enabled on this DB) against same-company postings
+    // from the same month before accepting it as unique.
+    const fuzzy = await findFuzzyDuplicate(job).catch(() => null);
+    if (fuzzy) {
+      job.duplicate_of = fuzzy.id;
+      duplicateCount++;
+      continue;
+    }
+
+    unique.push(job);
   }
 
   return { unique, duplicateCount };
+}
+
+/**
+ * Secondary dedup pass: same company, same posting month, title similarity > 0.7
+ * (pg_trgm). Skipped for internal sources (linkedin-posts/scraped:*) — those
+ * are already keyed by source+external_id and different recruiters posting
+ * similar-sounding roles from the same company shouldn't collapse.
+ */
+async function findFuzzyDuplicate(job) {
+  if (job.source === 'linkedin-posts' || job.source.startsWith('scraped:')) return null;
+  if (!job.title || !job.company) return null;
+
+  const month = (job.posted_at || '').slice(0, 7);
+  const row = await db.prepare(`
+    SELECT id FROM job_postings
+    WHERE company ILIKE ?
+      AND similarity(title, ?) > 0.7
+      AND (posted_at IS NULL OR ? = '' OR posted_at LIKE ? || '%')
+    ORDER BY similarity(title, ?) DESC
+    LIMIT 1
+  `).get(job.company, job.title, month, month, job.title);
+
+  return row || null;
 }
 
 module.exports = { fingerprint, deduplicateBatch };

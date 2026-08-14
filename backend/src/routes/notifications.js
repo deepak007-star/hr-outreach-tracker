@@ -25,9 +25,13 @@ router.patch('/read-all', requireAuth, async (req, res) => {
   res.json({ success: true });
 });
 
-// PATCH /api/notifications/:id/read
+// PATCH /api/notifications/:id/read — own notifications only (same rule as
+// read-all: broadcast rows, user_id IS NULL, are never touched here so
+// marking one user's copy read doesn't hide it from everyone else).
 router.patch('/:id/read', requireAuth, async (req, res) => {
-  await db.prepare('UPDATE notifications SET is_read = 1 WHERE id = ?').run(req.params.id);
+  const r = await db.prepare('UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?')
+    .run(req.params.id, req.user.userId);
+  if (r.changes === 0) return res.status(404).json({ error: 'Notification not found' });
   res.json({ success: true });
 });
 

@@ -9,11 +9,22 @@ const fetchAdzuna           = require('./adzuna');
 const fetchJooble           = require('./jooble');
 const fetchLinkedinPostsDB  = require('./db-linkedin-posts');
 const fetchScrapedJobsDB    = require('./db-scraped');
+const { pickWeightedKeywordWindow } = require('../../lib/categoryYield');
+const { isSourceDisabled }  = require('../pipelineHealth');
+
+// Internal DB sources are never auto-disabled by pipelineHealth — a "0 results"
+// run from these reflects the local DB state (e.g. nothing fresh scraped this
+// cycle), not an external API going bad, so it isn't the kind of persistent
+// failure the source-health check should act on.
+const NEVER_DISABLE = new Set(['linkedin-posts-db', 'scraped-db']);
 
 /**
  * Run all enabled ingestion agents in parallel batches.
  * cfg: the parsed job_intel_config settings object.
- * Returns { raw: [...], sourceStats: { source: count } }
+ * Returns { raw: [...], sourceStats: { source: count }, sourceErrors: { source: message } }
+ * sourceErrors only contains sources that actually threw/rejected — a source
+ * that legitimately returned 0 results is NOT an error (see pipelineHealth.js,
+ * which only tracks/auto-disables based on sourceErrors, not a raw 0 count).
  *
  * Internal DB sources (db-linkedin-posts, db-scraped) run first —
  * they are fast (local DB query) and provide the most HR emails.
@@ -28,7 +39,17 @@ async function ingestAll(cfg) {
   const adzunaOpts  = { appId: cfg.adzuna_app_id, appKey: cfg.adzuna_key, location: cfg.adzuna_location || '' };
   const joobleOpts  = { key: cfg.jooble_key, location: cfg.jooble_location || 'India' };
 
-  const tasks = [
+  // Adzuna/Jooble only take 5 keywords/run (rate-limit budget). With a large
+  // target-role list (100+ entries), always taking the first 5 would mean the
+  // rest of the list never gets searched — pick a category-yield-weighted
+  // window each run (lib/categoryYield.js) so both coverage AND the actually-
+  // productive categories get more of the limited call budget over time.
+  const [adzunaKeywords, joobleKeywords] = await Promise.all([
+    (adzunaOpts.appId && adzunaOpts.appKey) ? pickWeightedKeywordWindow(keywords, 5, 'adzuna') : [],
+    joobleOpts.key ? pickWeightedKeywordWindow(keywords, 5, 'jooble') : [],
+  ]);
+
+  let tasks = [
     // ── Internal DB sources (fast, high email yield) ──────────────────────────
     { name: 'linkedin-posts-db', fn: () => fetchLinkedinPostsDB(cfg) },
     { name: 'scraped-db',        fn: () => fetchScrapedJobsDB(cfg)   },
@@ -39,12 +60,22 @@ async function ingestAll(cfg) {
     { name: 'wwr',        fn: () => fetchWWR() },
     ...(ghCompanies.length ? [{ name: 'greenhouse', fn: () => fetchGreenhouse(ghCompanies) }] : []),
     ...(lvCompanies.length ? [{ name: 'lever',      fn: () => fetchLever(lvCompanies)      }] : []),
-    ...((adzunaOpts.appId && adzunaOpts.appKey) ? [{ name: 'adzuna', fn: () => fetchAdzuna(keywords, adzunaOpts) }] : []),
-    ...(joobleOpts.key ? [{ name: 'jooble', fn: () => fetchJooble(keywords, joobleOpts) }] : []),
+    ...((adzunaOpts.appId && adzunaOpts.appKey) ? [{ name: 'adzuna', fn: () => fetchAdzuna(adzunaKeywords, adzunaOpts) }] : []),
+    ...(joobleOpts.key ? [{ name: 'jooble', fn: () => fetchJooble(joobleKeywords, joobleOpts) }] : []),
   ];
 
-  const raw         = [];
-  const sourceStats = {};
+  // Skip sources the health layer auto-disabled after repeated real failures
+  // (reversible — re-enabled from Admin Panel, see routes/job-intelligence.js).
+  const disableChecks = await Promise.all(
+    tasks.map(t => NEVER_DISABLE.has(t.name) ? Promise.resolve(false) : isSourceDisabled(t.name))
+  );
+  const skipped = tasks.filter((_, i) => disableChecks[i]).map(t => t.name);
+  tasks = tasks.filter((_, i) => !disableChecks[i]);
+  if (skipped.length) console.log(`[Pipeline:ingestion] skipping auto-disabled source(s): ${skipped.join(', ')}`);
+
+  const raw          = [];
+  const sourceStats  = {};
+  const sourceErrors = {};
 
   const settled = await Promise.allSettled(tasks.map(t => t.fn()));
   for (let i = 0; i < tasks.length; i++) {
@@ -56,11 +87,12 @@ async function ingestAll(cfg) {
       sourceStats[name] = (sourceStats[name] || 0) + jobs.length;
     } else {
       console.error(`[Pipeline:ingestion] ${name} failed: ${result.reason?.message}`);
-      sourceStats[name] = 0;
+      sourceStats[name]  = 0;
+      sourceErrors[name] = result.reason?.message || 'unknown error';
     }
   }
 
-  return { raw, sourceStats };
+  return { raw, sourceStats, sourceErrors };
 }
 
 module.exports = { ingestAll };

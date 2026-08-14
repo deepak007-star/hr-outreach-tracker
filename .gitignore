@@ -7,6 +7,7 @@ backend/uploads/
 backend/.env
 backend/src/output/
 backend/backup/
+backend/logs/
 dist/
 .DS_Store
 Thumbs.db

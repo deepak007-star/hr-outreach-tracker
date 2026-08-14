@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { api } from '../api/client.js';
 import toast from 'react-hot-toast';
+import { confirm } from '../utils/confirm.js';
 
 const PLANS = [
   {
@@ -145,7 +146,7 @@ export default function PlansModal({ onClose, onSignupClick }) {
   }, [user, config, onSignupClick, onClose, refreshUser]);
 
   const handleCancel = useCallback(async () => {
-    if (!window.confirm('Cancel your subscription? You\'ll keep access until the end of the billing period.')) return;
+    if (!await confirm('Cancel your subscription? You\'ll keep access until the end of the billing period.')) return;
     setCancelling(true);
     try {
       await api.post('/payments/cancel');

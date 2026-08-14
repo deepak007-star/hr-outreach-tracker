@@ -86,8 +86,13 @@ async function extractFromJob(job) {
   if (hasOutreachIntent(text)) {
     const llmResult = await llmExtract(text);
     if (llmResult?.emails?.length) {
-      // LLM can hallucinate fake emails — validate each one before storing
-      const validEmails = llmResult.emails.map(cleanExtractedEmail).filter(Boolean);
+      // LLM can hallucinate plausible-looking emails — a format check alone isn't
+      // enough. Only trust ones that actually appear verbatim in the source text.
+      const lowerText  = text.toLowerCase();
+      const validEmails = llmResult.emails
+        .map(cleanExtractedEmail)
+        .filter(Boolean)
+        .filter(e => lowerText.includes(e));
       if (validEmails.length) {
         return {
           extracted_emails:       JSON.stringify(validEmails),

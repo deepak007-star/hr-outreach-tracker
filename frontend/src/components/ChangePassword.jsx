@@ -43,7 +43,7 @@ function strengthOf(pw) {
 }
 
 export default function ChangePassword() {
-  const [form, setForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [form, setForm] = useState({ newPassword: '', confirmPassword: '' });
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
@@ -54,7 +54,6 @@ export default function ChangePassword() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSuccess(''); setError('');
-    if (!form.currentPassword) return setError('Current password is required');
     if (!form.newPassword)     return setError('New password is required');
     if (form.newPassword.length < 6) return setError('New password must be at least 6 characters');
     if (form.newPassword !== form.confirmPassword) return setError('Passwords do not match');
@@ -62,14 +61,13 @@ export default function ChangePassword() {
     setSaving(true);
     try {
       const data = await api.put('/auth/change-password', {
-        currentPassword: form.currentPassword,
         newPassword: form.newPassword,
       });
       // Backend issues a fresh token with updated token_version — update storage
       // so this session stays valid and other sessions are revoked
       if (data?.token) localStorage.setItem('hr_token', data.token);
       setSuccess('Password changed successfully.');
-      setForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      setForm({ newPassword: '', confirmPassword: '' });
     } catch (e) {
       setError(e?.response?.data?.error || 'Failed to change password');
     } finally {
@@ -80,10 +78,8 @@ export default function ChangePassword() {
   return (
     <div className="max-w-md">
       <h3 className="text-base font-semibold text-gray-900 mb-4">Change Login Password</h3>
+      <p className="text-xs text-gray-500 mb-4">No need to enter your current password — you're already signed in, so this resets it directly.</p>
       <form onSubmit={handleSubmit} className="space-y-4">
-        <PasswordInput label="Current password" value={form.currentPassword}
-          onChange={v => set('currentPassword', v)} placeholder="Enter current password" />
-
         <div>
           <PasswordInput label="New password" value={form.newPassword}
             onChange={v => set('newPassword', v)} placeholder="At least 6 characters" />

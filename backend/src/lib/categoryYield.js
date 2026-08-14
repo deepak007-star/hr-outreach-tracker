@@ -1,0 +1,112 @@
+'use strict';
+const db = require('../db/database');
+
+const SETTINGS_KEY = 'job_intel_category_yield';
+
+async function getStats() {
+  const row = await db.prepare(`SELECT value FROM settings WHERE key = ?`).get(SETTINGS_KEY).catch(() => null);
+  try { return JSON.parse(row?.value || '{}'); } catch { return {}; }
+}
+
+async function saveStats(stats) {
+  await db.prepare(`
+    INSERT INTO settings (key, value) VALUES (?, ?)
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+  `).run(SETTINGS_KEY, JSON.stringify(stats));
+}
+
+/**
+ * Merge a run's per-category {scanned, withEmail} tallies into the persisted
+ * stats in one read-modify-write. This is the real feedback signal
+ * weightedCategoryPick() learns from — a category that keeps producing no
+ * emails quietly gets searched less often (but never zero, see epsilon
+ * below). Call once per pipeline run with the full tally, not once per job
+ * — per-job calls would race (concurrent read-modify-write on the same
+ * settings row loses increments).
+ */
+async function recordBatch(tally) {
+  if (!tally || !Object.keys(tally).length) return;
+  try {
+    const stats = await getStats();
+    for (const [cat, delta] of Object.entries(tally)) {
+      const s = stats[cat] || { scanned: 0, withEmail: 0 };
+      s.scanned   += delta.scanned   || 0;
+      s.withEmail += delta.withEmail || 0;
+      stats[cat] = s;
+    }
+    await saveStats(stats);
+  } catch (e) {
+    console.warn('[categoryYield] recordBatch failed (non-fatal):', e.message);
+  }
+}
+
+/**
+ * Laplace-smoothed yield rate per category — (withEmail+1)/(scanned+2) so an
+ * unseen or barely-seen category starts near 0.5 (unbiased) instead of 0,
+ * and a single lucky/unlucky run can't swing the weight to an extreme.
+ */
+async function getYieldWeights() {
+  const stats = await getStats();
+  const weights = {};
+  for (const [cat, s] of Object.entries(stats)) {
+    weights[cat] = (s.withEmail + 1) / (s.scanned + 2);
+  }
+  return weights;
+}
+
+/**
+ * Epsilon-greedy pick from a list of categories, weighted by yield.
+ * `epsilon` fraction of picks are uniform-random regardless of weight, so a
+ * category can never be permanently starved by an early bad run — mirrors
+ * "never fully trust a belief" rather than a one-shot commit.
+ */
+function weightedCategoryPick(categories, weights, epsilon = 0.3) {
+  if (!categories.length) return null;
+  if (Math.random() < epsilon) return categories[Math.floor(Math.random() * categories.length)];
+
+  const scored = categories.map(c => ({ c, w: weights[c] != null ? weights[c] : 0.5 }));
+  const total  = scored.reduce((sum, x) => sum + x.w, 0);
+  if (total <= 0) return categories[Math.floor(Math.random() * categories.length)];
+
+  let r = Math.random() * total;
+  for (const { c, w } of scored) {
+    r -= w;
+    if (r <= 0) return c;
+  }
+  return scored[scored.length - 1].c;
+}
+
+/**
+ * Builds a `windowSize` keyword window from `allKeywords`, biased toward
+ * categories with a higher historical email yield, while still rotating
+ * through every keyword within whichever category gets picked (via
+ * lib/keywordRotation.js's nextWindow, keyed per-category so one favored
+ * category doesn't just keep re-searching its first entry).
+ */
+async function pickWeightedKeywordWindow(allKeywords, windowSize, rotationPrefix) {
+  if (!Array.isArray(allKeywords) || !allKeywords.length || windowSize <= 0) return [];
+  const { categorize } = require('../agents/categorize');
+  const { nextWindow }  = require('./keywordRotation');
+
+  const buckets = {};
+  for (const kw of allKeywords) {
+    const cat = categorize({ title: kw, description: '' });
+    (buckets[cat] = buckets[cat] || []).push(kw);
+  }
+  const categories = Object.keys(buckets);
+  const weights     = await getYieldWeights();
+
+  const picked = [];
+  const seen   = new Set();
+  let guard = 0;
+  while (picked.length < windowSize && guard < windowSize * 20) {
+    guard++;
+    const cat = weightedCategoryPick(categories, weights);
+    if (!cat) break;
+    const [kw] = await nextWindow(`${rotationPrefix}_${cat}`, buckets[cat], 1);
+    if (kw && !seen.has(kw)) { seen.add(kw); picked.push(kw); }
+  }
+  return picked;
+}
+
+module.exports = { recordBatch, getYieldWeights, weightedCategoryPick, pickWeightedKeywordWindow, SETTINGS_KEY };

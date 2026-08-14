@@ -361,43 +361,64 @@ async function ensureSeeded() {
   await seedTemplates();
 }
 
-// GET /api/email-templates
+// GET /api/email-templates — shared defaults + the caller's own custom templates
+// (plus any not-yet-claimed legacy custom template — see PUT below)
 router.get('/', async (req, res) => {
   await ensureSeeded();
-  const rows = await db.prepare('SELECT * FROM email_templates ORDER BY is_default DESC, created_at ASC').all();
+  const rows = await db.prepare(
+    'SELECT * FROM email_templates WHERE is_default = 1 OR user_id IS NULL OR user_id = ? ORDER BY is_default DESC, created_at ASC'
+  ).all(req.user.userId);
   rows.forEach(r => {
     try { r.attachment_json = r.attachment_json ? JSON.parse(r.attachment_json) : null; } catch { r.attachment_json = null; }
   });
   res.json(rows);
 });
 
-// POST /api/email-templates
+// POST /api/email-templates — owned by the creator
 router.post('/', async (req, res) => {
   const { name, subject = '', body = '', category = 'general', tags = [], attachment_json } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'Name is required' });
   const id = crypto.randomUUID();
   const attachJson = attachment_json && attachment_json.type !== 'local' ? JSON.stringify(attachment_json) : null;
   await db.prepare(
-    'INSERT INTO email_templates (id, name, subject, body, category, tags, attachment_json) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(id, name.trim(), subject, body, category, JSON.stringify(Array.isArray(tags) ? tags : []), attachJson);
+    'INSERT INTO email_templates (id, user_id, name, subject, body, category, tags, attachment_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, req.user.userId, name.trim(), subject, body, category, JSON.stringify(Array.isArray(tags) ? tags : []), attachJson);
   const parsed = attachJson ? JSON.parse(attachJson) : null;
   res.status(201).json({ id, name: name.trim(), subject, body, category, tags, is_default: 0, attachment_json: parsed });
 });
 
-// PUT /api/email-templates/:id
+// PUT /api/email-templates/:id — default templates: admin-only. Custom templates:
+// owner-only, except a legacy row with no recorded owner (created before this fix)
+// is claimed by whoever edits it first, rather than silently locking everyone out.
 router.put('/:id', async (req, res) => {
+  const existing = await db.prepare('SELECT user_id, is_default FROM email_templates WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Template not found' });
+  if (existing.is_default) {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Default templates can only be edited by an admin — duplicate it to make your own copy.' });
+  } else if (existing.user_id && existing.user_id !== req.user.userId) {
+    return res.status(404).json({ error: 'Template not found' });
+  }
+
   const { name, subject = '', body = '', category = 'general', tags = [], attachment_json } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'Name is required' });
   const updatedAt = new Date().toISOString().replace('T', ' ').slice(0, 19);
   const attachJson = attachment_json && attachment_json.type !== 'local' ? JSON.stringify(attachment_json) : null;
   await db.prepare(
-    'UPDATE email_templates SET name = ?, subject = ?, body = ?, category = ?, tags = ?, attachment_json = ?, updated_at = ? WHERE id = ?'
-  ).run(name.trim(), subject, body, category, JSON.stringify(Array.isArray(tags) ? tags : []), attachJson, updatedAt, req.params.id);
+    `UPDATE email_templates SET name = ?, subject = ?, body = ?, category = ?, tags = ?, attachment_json = ?, updated_at = ?,
+     user_id = COALESCE(user_id, ?) WHERE id = ?`
+  ).run(name.trim(), subject, body, category, JSON.stringify(Array.isArray(tags) ? tags : []), attachJson, updatedAt, req.user.userId, req.params.id);
   res.json({ success: true });
 });
 
-// DELETE /api/email-templates/:id
+// DELETE /api/email-templates/:id — same ownership rule as PUT
 router.delete('/:id', async (req, res) => {
+  const existing = await db.prepare('SELECT user_id, is_default FROM email_templates WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Template not found' });
+  if (existing.is_default) {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Default templates cannot be deleted.' });
+  } else if (existing.user_id && existing.user_id !== req.user.userId) {
+    return res.status(404).json({ error: 'Template not found' });
+  }
   await db.prepare('DELETE FROM email_templates WHERE id = ?').run(req.params.id);
   res.json({ success: true });
 });

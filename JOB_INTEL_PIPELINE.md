@@ -65,6 +65,7 @@ Each agent is a focused Node.js module. LLM is used **only** where judgment is g
 | File | Role | LLM? |
 |---|---|---|
 | `normalization.js` | Maps every source's field names to common schema, strips HTML, normalises dates | No |
+| `relevanceFilter.js` | Deterministic keyword/location gate — drops irrelevant postings before dedup/deep-fetch/extraction | No |
 | `deduplication.js` | SHA-256 fingerprint of (title+company+month), checks DB for prior runs | No |
 | `extraction.js` | Regex-first (via shared `contactExtract.js`); Groq LLM fallback when regex finds nothing but outreach intent is present | Only fallback |
 | `classification.js` | Groq `llama-3.3-70b-versatile` scores each posting for relevance, seniority, confidence | Yes |
@@ -130,15 +131,19 @@ Mounted at `/api/job-intel/`.
 2. Creates a pipeline_runs record (status: 'running')
 3. ingestAll(cfg) — runs all enabled ingestion agents in parallel
 4. normalizeAll(raw) — maps to common schema, strips HTML
-5. deduplicateBatch(normalized) — fingerprints each job, checks DB
+4.5. filterRelevant(normalized, cfg) — keyword/location gate (cfg.relevance_filter, default true)
+5. deduplicateBatch(relevant) — fingerprints each job, checks DB
 6. For each unique job:
-   a. extractFromJob(job) — regex contacts; LLM fallback if signals present
+   a. extractFromJob(job) — regex contacts; LLM fallback if signals present (LLM emails
+      must also appear verbatim in the source text, not just pass format validation)
    b. classifyJob(job, cfg) — LLM relevance score (throttled: 1 call/10 jobs)
    c. qaCheck(job, classResult) — flag missing fields or low confidence
    d. storeJob(job) — upsert into job_postings
 7. Updates pipeline_runs record (status: 'success', stats)
 8. Posts a notification to the notifications table
 ```
+
+**Relevance filter vs. LLM classification:** the keyword/location filter in step 4.5 is the mandatory, free, deterministic gate — it runs regardless of `cfg.classify`. LLM classification (step 6b) is a separate, optional, finer-grained pass for seniority/confidence *annotation* on postings that already passed the relevance gate; it does not gate storage on its own.
 
 **Typical run time:** 30–60 seconds (free sources only, no LLM classification)  
 **With LLM classification on 300 jobs:** 2–4 minutes (Groq rate limit throttle)
@@ -169,9 +174,18 @@ Stored as JSON in `settings` table under key `job_intel_config`.
   "jooble_key": "",
   "jooble_location": "India",
   "classify": true,
+  "relevance_filter": true,
   "min_confidence": 0.5
 }
 ```
+
+`relevance_filter` (default `true`): deterministic keyword+location gate applied to every source before dedup/deep-fetch/extraction — set `false` to disable and fall back to the old "any posting with an email" behavior.
+
+**Keyword list size (2026-08-14):** `keywords` defaults to a 341-entry list (`agents/defaultKeywords.js`) covering Java/Python/Frontend/DevOps/AI/Data/QA role variants. Call sites that can only use a handful per run (Adzuna/Jooble: 5, LinkedIn Feed: 15) pull a *rotating* window via `lib/keywordRotation.js` instead of always the first N, so the full list gets searched over successive runs rather than only ever the first few entries. Admin Panel → Job Intel Pipeline has a "Load recommended list" button (`GET /default-keywords`) since a config already saved to the DB won't pick up code-default changes automatically.
+
+**Category tagging + personalization (2026-08-14):** every stored posting gets a `category` (Java/Python/AI-ML/DevOps-Cloud/Data/Frontend/MERN-Node/QA/Full Stack/Backend/General — `agents/categorize.js`), filterable via `?category=` on `/postings` and `/contacts`, and in the Job Intelligence tab's UI dropdown. If the caller is logged in and has `profiles.job_title_1/2/3` set (Profile page → Preferred Roles), `GET /contacts` ranks matching postings to the top and returns `preference_match` (1/2/3) on each row.
+
+**Skill-match scoring (2026-08-15):** `preference_match` also carries `skillMatchPercent`/`skillMatchMethod`/`matchedSkills`, computed by `lib/skillMatch.js` (synonym+fuzzy, always available) or `lib/embeddingMatch.js` (Groq `nomic-embed-text-v1_5` semantic match, tried first — falls back automatically if unavailable on the account/plan, see §6.3). Every stored posting is embedded at store time (best-effort, `job_postings.embedding`). `GET /contacts?min_skill_match=N` (40/50/70) optionally filters the personalized list to that skill-match percent — unset by default, so nothing is hidden unless explicitly requested.
 
 To activate with zero API keys: set `enabled: true`, add your target keywords, save.  
 The four free sources (Arbeitnow, RemoteOK, WWR, Remotive) will run immediately.
@@ -256,23 +270,25 @@ The four free sources (Arbeitnow, RemoteOK, WWR, Remotive) will run immediately.
 - Use `response_format: { type: 'json_object' }` if/when Groq supports it for this model
 - Build a small labeled dataset from admin review actions and fine-tune the classification prompt
 
-### 6.3 Extraction — LLM Fallback Accuracy
+### 6.3 Extraction — LLM Fallback Accuracy — ✅ Implemented (2026-08-14)
 
-**Current state:** LLM fallback fires when `hasOutreachIntent()` is true but regex finds no email.  
-**Problem:** LLM sometimes invents plausible-looking but fake emails when none exist in the text.
+**Was:** LLM fallback fired when `hasOutreachIntent()` is true but regex finds no email; the LLM sometimes invented plausible-looking but fake emails when none existed in the text, and only format validation (`cleanExtractedEmail`) was applied.
 
-**Improvements:**
-- Add a post-LLM validation step: run extracted emails through `extractContacts()` regex on the original text to confirm they actually appear there
-- Only trust LLM-extracted emails if they pass the regex existence check
+**Fix:** `extraction.js` now also requires each candidate email to appear verbatim (case-insensitive substring) in the original job description before trusting it — a hallucinated-but-well-formatted email that doesn't exist in the source text is discarded.
 
-### 6.4 Rate Limiting + Resilience
+### 6.3b Relevance Filtering — ✅ Implemented (2026-08-14)
 
-**Current state:** `setInterval(1000)` delay every 10 LLM calls; no retry on network failures.
+**Was:** the only gate for storing/syncing a posting was "does it contain an email" — LLM classification (off by default) only annotated relevance, never gated storage, so any-industry/any-location postings with an email could become Contacts.
 
-**Improvements:**
-- Add exponential backoff + retry (2–3 attempts) for ingestion HTTP calls
-- Track per-source failure rate in `pipeline_runs.errors`; auto-disable a source after N consecutive failures
-- Respect `Retry-After` headers from APIs that return 429
+**Fix:** `agents/relevanceFilter.js` — deterministic keyword+location match, run right after normalization and before dedup/deep-fetch/extraction. Config flag `relevance_filter` (default `true`).
+
+### 6.4 Rate Limiting + Resilience — partially ✅ implemented (2026-08-15)
+
+**Was:** `setInterval(1000)` delay every 10 LLM calls; no retry on network failures; no per-source failure tracking.
+
+**Implemented:** `agents/pipelineHealth.js` — after every run, `checkSourceFailures` tracks true consecutive failures per source (an ingestion source that *threw*, not one that legitimately returned 0 results) and auto-disables a source after 6 consecutive real failures (reversible from Admin Panel → Job Intel Pipeline → Pipeline Health card). Persisted in the `job_intel_source_health` settings key. See the self-healing design note at the top of §6 below.
+
+**Still open:** exponential backoff + retry within a single ingestion call, and respecting `Retry-After` on 429s — the auto-disable above only reacts across runs, not within one.
 
 ### 6.5 Pagination for Large Sources
 
@@ -297,6 +313,12 @@ while (true) {
 **Future improvement:** generate a vector embedding for each posting's description (using Groq's or OpenAI's embedding endpoint), store in a `pgvector` column, and query for cosine similarity > 0.92 at dedup time. This catches the same job reworded differently across sources.
 
 Cost: ~$0.002 per 1000 embeddings with OpenAI `text-embedding-3-small`.
+
+### 6.6b Self-Healing Pipeline Health Layer — ✅ Implemented (2026-08-15)
+
+Prompted by looking at a separate project's self-healing/self-learning agent orchestrator and asking whether an analogous, proportionate mechanism fits here. `agents/pipelineHealth.js`: after every run, an immutable snapshot of that run's own stats (proxy health, per-source success/failure, yield vs. expected, relevance-filter drop rate) is read by 4 stateless check functions, each emitting findings with a severity (`info`/`warn`/`critical`). A small, reversible action registry fires for the worst findings: `autoDisableSource` (see §6.4) and `triggerProxyRefresh` (auto-calls the pre-existing but previously manual-only `proxyFetcher.refresh()` when the proxy pool is dead or yield has been low for 3+ consecutive runs — distinguishing sustained blocks from one-off noise). Report persisted to `job_intel_health` (same `settings` key/value pattern as `antibot_status`, no new table) and surfaced in Admin Panel.
+
+Companion self-*learning* piece: `lib/categoryYield.js` tracks real per-category (Java/Python/DevOps/AI/...) email yield across runs and biases which categories' keywords get searched next (epsilon-greedy — 70% weighted by yield, 30% always-exploring, so a category can never be permanently starved by one bad run). This is the proportionate analog of the other project's "only trust a change that re-earns its keep on real outcomes" idea, scaled from real ML down to counters + weighted sampling since there's no comparably-sized labeled dataset here to justify an actual model.
 
 ### 6.7 Admin QA Review Loop
 
@@ -443,6 +465,7 @@ backend/src/agents/
 │   ├── adzuna.js         — Adzuna API (key optional)
 │   └── jooble.js         — Jooble API (key optional)
 ├── normalization.js      — Common schema mapper
+├── relevanceFilter.js    — Keyword/location relevance gate (pre-dedup)
 ├── deduplication.js      — Fingerprint + DB dedup
 ├── extraction.js         — Contact extraction (regex + LLM fallback)
 ├── classification.js     — LLM relevance scoring

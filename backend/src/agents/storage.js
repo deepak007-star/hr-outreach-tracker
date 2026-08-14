@@ -23,8 +23,8 @@ async function storeJob(job) {
         extracted_emails, extracted_contact_name, extraction_method,
         is_relevant, seniority, classification_confidence, classification_reason,
         fingerprint, duplicate_of,
-        needs_review, review_reason
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        needs_review, review_reason, category, embedding
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT (source, external_id) DO UPDATE SET
         description           = EXCLUDED.description,
         extracted_emails      = COALESCE(NULLIF(EXCLUDED.extracted_emails,'[]'), job_postings.extracted_emails),
@@ -34,7 +34,9 @@ async function storeJob(job) {
         classification_confidence = COALESCE(EXCLUDED.classification_confidence, job_postings.classification_confidence),
         classification_reason = COALESCE(EXCLUDED.classification_reason, job_postings.classification_reason),
         needs_review          = EXCLUDED.needs_review,
-        review_reason         = EXCLUDED.review_reason
+        review_reason         = EXCLUDED.review_reason,
+        category              = COALESCE(EXCLUDED.category, job_postings.category),
+        embedding             = COALESCE(EXCLUDED.embedding, job_postings.embedding)
       RETURNING (xmax = 0) AS is_new
     `).get(
       id,
@@ -58,6 +60,8 @@ async function storeJob(job) {
       job.duplicate_of     || null,
       job.needs_review     || 0,
       job.review_reason    || null,
+      job.category         || null,
+      job.embedding         ? JSON.stringify(job.embedding) : null,
     );
     return row?.is_new ? 'inserted' : 'updated';
   } catch (e) {

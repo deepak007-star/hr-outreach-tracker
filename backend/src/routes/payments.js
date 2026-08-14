@@ -89,7 +89,7 @@ router.post('/create-order', requireAuth, async (req, res) => {
 // ── POST /api/payments/verify ────────────────────────────────────────────────
 // Called after Razorpay checkout success — verifies HMAC and activates plan
 router.post('/verify', requireAuth, async (req, res) => {
-  const { razorpay_order_id, razorpay_payment_id, razorpay_signature, plan } = req.body;
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
   if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
     return res.status(400).json({ error: 'Missing payment details' });
   }
@@ -103,9 +103,28 @@ router.post('/verify', requireAuth, async (req, res) => {
   }
 
   try {
-    const userId   = req.user.userId;
-    const planName = plan || 'basic';
-    const now      = new Date().toISOString().slice(0, 19);
+    const userId = req.user.userId;
+
+    // The signature only proves order_id+payment_id are a genuine paid pair —
+    // it says nothing about which plan was actually paid for. Never trust a
+    // client-supplied `plan`; re-fetch the order from Razorpay and read the
+    // plan from `order.notes.plan`, set server-side at /create-order time and
+    // immutable via the Razorpay API. Also confirms the order belongs to this
+    // user, so a leaked order_id/payment_id/signature can't be replayed by
+    // someone else to upgrade their own account.
+    const rzp   = getRazorpay();
+    const order = await rzp.orders.fetch(razorpay_order_id);
+    if (String(order.notes?.userId) !== String(userId)) {
+      console.error('[Payments] Order/user mismatch on verify', { orderId: razorpay_order_id, userId });
+      return res.status(403).json({ error: 'This payment does not belong to your account' });
+    }
+    const planName = PLAN_AMOUNTS[order.notes?.plan] ? order.notes.plan : null;
+    if (!planName || order.amount !== PLAN_AMOUNTS[planName]) {
+      console.error('[Payments] Amount/plan mismatch on verify', { orderId: razorpay_order_id, amount: order.amount, plan: order.notes?.plan });
+      return res.status(400).json({ error: 'Order amount does not match plan' });
+    }
+
+    const now = new Date().toISOString().slice(0, 19);
 
     await database.prepare('UPDATE users SET plan = ? WHERE id = ?').run(planName, userId);
     await database.prepare(`

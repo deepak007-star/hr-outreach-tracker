@@ -37,6 +37,13 @@ function sourceLabel(source = '') {
   return { bg: 'bg-gray-100', text: 'text-gray-600', label: source };
 }
 
+// Mirrors backend/src/agents/categorize.js CATEGORY_LABELS — display text only.
+const CATEGORY_LABELS = {
+  java: 'Java', python: 'Python', ai_ml: 'AI / ML', devops_cloud: 'DevOps / Cloud',
+  data: 'Data Engineering', frontend: 'Frontend', mern_node: 'MERN / Node.js',
+  qa: 'QA / Automation', fullstack: 'Full Stack', backend: 'Backend', general: 'General / SDE',
+};
+
 const SINCE_OPTS = [
   { value: '1',   label: 'Last 24 hrs' },
   { value: '7',   label: 'Last 7 days' },
@@ -46,36 +53,45 @@ const SINCE_OPTS = [
 ];
 
 export default function JobIntelPanel() {
-  const [contacts,  setContacts]  = useState([]);
-  const [stats,     setStats]     = useState(null);
-  const [sources,   setSources]   = useState([]);
+  const [contacts,     setContacts]     = useState([]);
+  const [stats,        setStats]        = useState(null);
+  const [sources,      setSources]      = useState([]);
+  const [categories,   setCategories]   = useState([]);
+  const [personalized, setPersonalized] = useState(false);
   const [loading,   setLoading]   = useState(false);
   const [total,     setTotal]     = useState(0);
   const [offset,    setOffset]    = useState(0);
   const [added,     setAdded]     = useState(new Set()); // emails already added this session
   const LIMIT = 30;
 
-  const [q,      setQ]      = useState('');
-  const [source, setSource] = useState('');
-  const [since,  setSince]  = useState('1');
+  const [q,             setQ]            = useState('');
+  const [source,        setSource]       = useState('');
+  const [category,      setCategory]     = useState('');
+  const [since,         setSince]        = useState('1');
+  const [minSkillMatch, setMinSkillMatch]= useState(''); // '' = off (default: show everything, only reordered)
 
   const fetchContacts = useCallback(async (off = 0) => {
     setLoading(true);
     try {
       const params = { limit: LIMIT, offset: off };
-      if (q)      params.q      = q;
-      if (source) params.source = source;
-      if (since)  params.since  = since;
+      if (q)             params.q               = q;
+      if (source)        params.source          = source;
+      if (category)      params.category        = category;
+      if (since)          params.since           = since;
+      if (minSkillMatch) params.min_skill_match  = minSkillMatch;
 
-      const [data, statsData, srcData] = await Promise.all([
+      const [data, statsData, srcData, catData] = await Promise.all([
         api.get('/job-intel/contacts', { params }),
         api.get('/job-intel/stats'),
         api.get('/job-intel/sources'),
+        api.get('/job-intel/categories'),
       ]);
       setContacts(data.contacts || []);
       setTotal(data.total || 0);
+      setPersonalized(!!data.personalized);
       setStats(statsData);
       setSources(Array.isArray(srcData) ? srcData.filter(s => s.source) : []);
+      setCategories(Array.isArray(catData) ? catData.filter(c => c.category) : []);
       setOffset(off);
     } catch (e) {
       console.error('[JobIntel] fetch error', e);
@@ -83,9 +99,9 @@ export default function JobIntelPanel() {
     } finally {
       setLoading(false);
     }
-  }, [q, source, since]);
+  }, [q, source, category, since, minSkillMatch]);
 
-  useEffect(() => { fetchContacts(0); }, [q, source, since]);
+  useEffect(() => { fetchContacts(0); }, [q, source, category, since, minSkillMatch]);
 
   // Auto-refresh every 30s when a pipeline run is active (status = 'running')
   useEffect(() => {
@@ -159,6 +175,13 @@ export default function JobIntelPanel() {
         </div>
       )}
 
+      {personalized && (
+        <div className="text-xs text-brand-700 bg-brand-50 border border-brand-200 rounded px-3 py-2 flex items-center gap-1.5">
+          <CheckCircle size={11} className="shrink-0" />
+          Ranked by your Profile — Preferred Roles and Skills are both weighed, so close matches surface even without an exact title match. Nothing relevant is hidden, only reordered.
+        </div>
+      )}
+
       {/* Filters */}
       <div className="flex flex-wrap gap-2">
         <div className="relative flex-1 min-w-[180px]">
@@ -184,12 +207,39 @@ export default function JobIntelPanel() {
         </select>
 
         <select
+          value={category}
+          onChange={e => setCategory(e.target.value)}
+          className="px-2 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500"
+        >
+          <option value="">All profiles</option>
+          {categories.map(c => (
+            <option key={c.category} value={c.category}>
+              {CATEGORY_LABELS[c.category] || c.category} ({c.count})
+            </option>
+          ))}
+        </select>
+
+        <select
           value={since}
           onChange={e => setSince(e.target.value)}
           className="px-2 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500"
         >
           {SINCE_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
+
+        {personalized && (
+          <select
+            value={minSkillMatch}
+            onChange={e => setMinSkillMatch(e.target.value)}
+            title="Only show postings matching at least this % of your Profile skills — off by default, everything relevant still shows"
+            className="px-2 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500"
+          >
+            <option value="">Any skill match</option>
+            <option value="40">40%+ skill match</option>
+            <option value="50">50%+ skill match</option>
+            <option value="70">70%+ skill match</option>
+          </select>
+        )}
 
         <button
           onClick={() => fetchContacts(0)}
@@ -235,6 +285,24 @@ export default function JobIntelPanel() {
                 <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${src.bg} ${src.text}`}>
                   <Globe size={9} /> {src.label}
                 </span>
+                {contact.category && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600">
+                    {CATEGORY_LABELS[contact.category] || contact.category}
+                  </span>
+                )}
+                {contact.preference_match?.preference && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-yellow-100 text-yellow-800" title="Matches your Profile's Preferred Role">
+                    ⭐ Preference {contact.preference_match.preference}
+                  </span>
+                )}
+                {!!contact.preference_match?.skillMatchPercent && (
+                  <span
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-100 text-teal-800"
+                    title={`${contact.preference_match.matchedSkills.length} of your skills matched (${contact.preference_match.skillMatchMethod === 'embedding' ? 'semantic' : 'keyword'} match): ${contact.preference_match.matchedSkills.join(', ')}`}
+                  >
+                    🎯 {contact.preference_match.skillMatchPercent}% skill match
+                  </span>
+                )}
                 {hasLLM && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-100 text-purple-700">
                     <Cpu size={9} /> AI extracted

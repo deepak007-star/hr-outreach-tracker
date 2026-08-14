@@ -209,20 +209,24 @@ router.post('/logout', (req, res) => {
 });
 
 // ── PUT /api/auth/change-password ─────────────────────────────────────────
+// Authorization is the caller's valid JWT (requireAuth) — the current
+// password is deliberately NOT required. Accounts created via "Sign in with
+// Google" get a random password_hash at signup (see routes/oauth.js) that the
+// user never sees, which made the old current-password-required flow
+// permanently impossible for them; this also just removes friction for
+// everyone else. Trade-off: a still-active session token is now sufficient to
+// change the password (no re-proof of the old one) — acceptable here since
+// requireAuth already gates the route and a password change immediately
+// bumps token_version, signing out every OTHER session.
 router.put('/change-password', requireAuth, async (req, res) => {
-  const { currentPassword, newPassword } = req.body;
-  if (!currentPassword || !newPassword)
-    return res.status(400).json({ error: 'Both currentPassword and newPassword are required' });
+  const { newPassword } = req.body;
+  if (!newPassword)
+    return res.status(400).json({ error: 'newPassword is required' });
   if (newPassword.length < 6)
     return res.status(400).json({ error: 'New password must be at least 6 characters' });
 
-  const user = await db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.userId);
+  const user = await db.prepare('SELECT id FROM users WHERE id = ?').get(req.user.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
-
-  const ok = await bcrypt.compare(currentPassword, user.password_hash);
-  if (!ok) return res.status(401).json({ error: 'Current password is incorrect' });
-  if (currentPassword === newPassword)
-    return res.status(400).json({ error: 'New password must be different from current password' });
 
   const hash = await bcrypt.hash(newPassword, 10);
   await db.prepare('UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?')

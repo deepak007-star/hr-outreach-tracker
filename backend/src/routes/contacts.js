@@ -5,7 +5,7 @@ const multer   = require('multer');
 const ExcelJS  = require('exceljs');
 const crypto   = require('crypto');
 const db       = require('../db/database');
-const { syncExcel } = require('../services/excelSync');
+const { syncExcel, buildExcelBuffer } = require('../services/excelSync');
 const { requireAuth } = require('../middleware/auth');
 const { cleanContactName } = require('../lib/nameUtils');
 const { canSeePool, upsertContactState: upsertState } = require('../lib/contactVisibility');
@@ -91,8 +91,13 @@ router.get('/export', async (req, res) => {
       ORDER BY c.date_added DESC
     `).all(...(pool ? [userId] : [userId, userId]));
     const contacts = rows.map(r => shapeContact(r, userId));
-    const fp = await syncExcel(contacts);
-    res.download(fp, 'HR_Outreach_Tracker.xlsx');
+    // Built in-memory (not the shared EXCEL_PATH file) so a concurrent
+    // syncExcel() write from another user's request can't race with this
+    // download and serve them someone else's contact list.
+    const buf = await buildExcelBuffer(contacts);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="HR_Outreach_Tracker.xlsx"');
+    res.send(buf);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -201,10 +206,18 @@ router.post('/bulk-delete', async (req, res) => {
   const ph = ids.map(() => '?').join(',');
 
   try {
-    // Only delete contacts that belong to this user
-    await db.prepare(`UPDATE email_log SET contact_id = NULL WHERE contact_id IN (${ph})`).run(...ids);
-    await db.prepare(`DELETE FROM contacts WHERE id IN (${ph}) AND user_id = ?`).run(...ids, userId);
-    res.json({ ok: true, deleted: ids.length });
+    // Resolve ownership FIRST — a shared-pool contact ID belonging to another
+    // user (canSeePool) must not have its email_log linkage nulled out just
+    // because it was included in this request; only rows this user actually
+    // owns get touched at all.
+    const owned = await db.prepare(`SELECT id FROM contacts WHERE id IN (${ph}) AND user_id = ?`).all(...ids, userId);
+    const ownedIds = owned.map(r => r.id);
+    if (!ownedIds.length) return res.json({ ok: true, deleted: 0 });
+    const ownedPh = ownedIds.map(() => '?').join(',');
+
+    await db.prepare(`UPDATE email_log SET contact_id = NULL WHERE contact_id IN (${ownedPh})`).run(...ownedIds);
+    await db.prepare(`DELETE FROM contacts WHERE id IN (${ownedPh}) AND user_id = ?`).run(...ownedIds, userId);
+    res.json({ ok: true, deleted: ownedIds.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -349,6 +362,11 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   const userId = req.user.userId;
   try {
+    // Confirm ownership before touching email_log — a shared-pool contact
+    // belonging to another user must 404 without any side effect.
+    const owned = await db.prepare('SELECT id FROM contacts WHERE id = ? AND user_id = ?').get(req.params.id, userId);
+    if (!owned) return res.status(404).json({ error: 'Not found' });
+
     await db.prepare('UPDATE email_log SET contact_id = NULL WHERE contact_id = ?').run(req.params.id);
     const r = await db.prepare('DELETE FROM contacts WHERE id = ? AND user_id = ?').run(req.params.id, userId);
     if (r.changes === 0) return res.status(404).json({ error: 'Not found' });

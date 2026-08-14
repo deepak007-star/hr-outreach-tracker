@@ -5,10 +5,23 @@ const { requireAuth, requireAdmin } = require('../middleware/auth');
 
 const router = express.Router();
 
+const WEBHOOK_SECRET = process.env.DELIVERY_WEBHOOK_SECRET || '';
+if (!WEBHOOK_SECRET) {
+  console.warn('[SECURITY] DELIVERY_WEBHOOK_SECRET is not set — /api/delivery/webhooks/bounce is disabled until it is configured. Set it and point your ESP\'s webhook URL at .../bounce?secret=<value>.');
+}
+
 // ── POST /api/delivery/webhooks/bounce — ESP bounce/failure webhook ────────
-// Handles Mailgun, SendGrid, Postmark, or any generic provider.
-// No auth — ESP posts here directly. Validate via shared secret in production.
+// Handles Mailgun, SendGrid, Postmark, or any generic provider. No JWT auth —
+// the ESP posts here directly, not a logged-in user — so it's gated by a
+// shared secret instead (query param or header, since signing schemes differ
+// per provider). Without this, anyone on the internet could POST a fake
+// "hard_bounce" event for any email address and flip any user's contact to
+// Do Not Contact.
 router.post('/webhooks/bounce', async (req, res) => {
+  const secret = req.query.secret || req.headers['x-webhook-secret'];
+  if (!WEBHOOK_SECRET || secret !== WEBHOOK_SECRET) {
+    return res.status(401).json({ error: 'Invalid or missing webhook secret' });
+  }
   const body = req.body || {};
   try {
     // SendGrid sends an array of events

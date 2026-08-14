@@ -1221,10 +1221,13 @@ function JobIntelConfigSection() {
   const [proxyList,    setProxyList]    = useState('');
   const [savingProxy,  setSavingProxy]  = useState(false);
   const [antiBotStatus, setAntiBotStatus] = useState(null);
+  const [health,       setHealth]       = useState(null); // { report: {findings, snapshot}, sources: {} }
   const [autoProxy,    setAutoProxy]    = useState(null); // { config, lastRefresh, count, stats }
   const [proxyBusy,    setProxyBusy]    = useState(false);
 
   const loadAutoProxy = () => api.get('/job-intel/proxy-auto').then(setAutoProxy).catch(() => {});
+
+  const loadHealth = () => api.get('/job-intel/health').then(setHealth).catch(() => {});
 
   useEffect(() => {
     api.get('/job-intel/config').then(r => setCfg(r)).catch(() => {});
@@ -1234,7 +1237,18 @@ function JobIntelConfigSection() {
       try { setAntiBotStatus(JSON.parse(s.antibot_status || 'null')); } catch {}
     }).catch(() => {});
     loadAutoProxy();
+    loadHealth();
   }, []);
+
+  async function toggleSource(source, disabled) {
+    try {
+      await api.patch(`/job-intel/health/sources/${encodeURIComponent(source)}`, { disabled });
+      toast.success(disabled ? `${source} disabled` : `${source} re-enabled`);
+      loadHealth();
+    } catch (e) {
+      toast.error(e.response?.data?.error || 'Failed');
+    }
+  }
 
   async function toggleAutoProxy(enabled) {
     setProxyBusy(true);
@@ -1310,6 +1324,15 @@ function JobIntelConfigSection() {
   function setListField(key, val) {
     setCfg(c => ({ ...c, [key]: val.split('\n').map(s => s.trim()).filter(Boolean) }));
   }
+  async function loadRecommendedKeywords() {
+    try {
+      const r = await api.get('/job-intel/default-keywords');
+      setCfg(c => ({ ...c, keywords: r.keywords || [] }));
+      toast.success(`Loaded ${r.keywords?.length || 0} recommended keywords — click Save Config to apply`);
+    } catch (e) {
+      toast.error(e.response?.data?.error || 'Failed to load recommended list');
+    }
+  }
 
   if (!cfg) return <div className="p-6 text-gray-400 text-sm">Loading…</div>;
 
@@ -1348,12 +1371,20 @@ function JobIntelConfigSection() {
 
       {/* Keywords */}
       <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">Job keywords / titles (one per line)</label>
+        <div className="flex items-center justify-between mb-1">
+          <label className="block text-xs font-medium text-gray-600">Job keywords / titles (one per line)</label>
+          <button type="button" onClick={loadRecommendedKeywords}
+            className="text-[11px] font-medium text-brand-600 hover:text-brand-700 hover:underline">
+            Load recommended list (340+ roles)
+          </button>
+        </div>
         <textarea rows={4} value={(cfg.keywords || []).join('\n')}
           onChange={e => setListField('keywords', e.target.value)}
           placeholder="Backend Developer&#10;Node.js Developer&#10;Java Developer&#10;React Developer"
           className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500 font-mono" />
-        <p className="text-[11px] text-gray-400 mt-1">Used for Adzuna/Jooble keyword searches + LLM classification target</p>
+        <p className="text-[11px] text-gray-400 mt-1">
+          {(cfg.keywords || []).length} keyword{(cfg.keywords || []).length === 1 ? '' : 's'} configured — used for LinkedIn Feed / Adzuna / Jooble searches (rotated a window per run) + the relevance filter + LLM classification target
+        </p>
       </div>
 
       {/* Locations */}
@@ -1453,6 +1484,58 @@ function JobIntelConfigSection() {
           className="px-3 py-1.5 text-xs font-semibold bg-gray-700 text-white rounded-md hover:bg-gray-800 disabled:opacity-50">
           {savingProxy ? 'Saving…' : 'Save Proxy List'}
         </button>
+      </div>
+
+      {/* Pipeline self-healing: findings from the last run + per-source status */}
+      <div className="border border-gray-100 rounded-md p-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs font-semibold text-gray-700">Pipeline Health</p>
+            <p className="text-[11px] text-gray-400 mt-0.5">
+              Auto-checked after every run — a source failing 6 runs in a row is auto-disabled (reversible below); repeated proxy/yield problems auto-trigger a proxy refresh.
+            </p>
+          </div>
+          <button onClick={loadHealth} className="text-[11px] text-brand-600 hover:underline shrink-0">Refresh</button>
+        </div>
+
+        {health?.report?.findings?.length ? (
+          <ul className="space-y-1">
+            {health.report.findings.map((f, i) => (
+              <li key={i} className={`text-[11px] px-2 py-1 rounded flex items-start gap-1.5 ${
+                f.severity === 'critical' ? 'bg-red-50 text-red-700' :
+                f.severity === 'warn'     ? 'bg-amber-50 text-amber-700' :
+                                             'bg-gray-50 text-gray-600'
+              }`}>
+                <span className="font-bold uppercase shrink-0">{f.severity}</span>
+                <span>{f.message}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-[11px] text-gray-400">No issues found in the last run.</p>
+        )}
+
+        {health?.sources && Object.keys(health.sources).filter(s => !s.startsWith('_')).length > 0 && (
+          <div className="pt-1 border-t border-gray-100">
+            <p className="text-[11px] font-medium text-gray-500 mb-1">Sources</p>
+            <div className="flex flex-wrap gap-1.5">
+              {Object.entries(health.sources).filter(([s]) => !s.startsWith('_')).map(([source, s]) => (
+                <button
+                  key={source}
+                  onClick={() => toggleSource(source, !s.disabled)}
+                  title={s.disabled ? `Disabled — ${s.lastError || 'repeated failures'}. Click to re-enable.` : (s.consecutiveFailures ? `${s.consecutiveFailures} consecutive failure(s)` : 'Healthy')}
+                  className={`px-2 py-1 rounded-full text-[10px] font-medium ${
+                    s.disabled ? 'bg-red-100 text-red-700' :
+                    s.consecutiveFailures >= 3 ? 'bg-amber-100 text-amber-700' :
+                                                  'bg-green-100 text-green-700'
+                  }`}
+                >
+                  {source} {s.disabled ? '(disabled — click to re-enable)' : ''}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Auto-proxy — fetch + validate free proxies automatically */}
@@ -1709,7 +1792,7 @@ function LogsSection() {
   }, [autoRefresh, fetchLogs]);
 
   async function clearOldLogs(days) {
-    if (!window.confirm(`Delete logs older than ${days} day(s)?`)) return;
+    if (!await confirm(`Delete logs older than ${days} day(s)?`)) return;
     try {
       const res = await api.delete(`/admin/logs?days=${days}`);
       toast.success(`Deleted ${res.data.deleted} log entries`);

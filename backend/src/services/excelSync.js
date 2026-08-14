@@ -25,7 +25,7 @@ const STATUS_FONT = {
 // contacts: optional pre-fetched array. When provided (e.g. from an
 // authenticated export endpoint), only those rows are written — enabling
 // per-user exports. When omitted, all contacts are written (admin/legacy use).
-async function syncExcel(contacts) {
+async function buildWorkbook(contacts) {
   if (!contacts) {
     contacts = await db.prepare('SELECT * FROM contacts ORDER BY date_added DESC').all();
   }
@@ -95,8 +95,26 @@ async function syncExcel(contacts) {
 
   ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: ws.columns.length } };
 
+  return wb;
+}
+
+// Writes the canonical shared file at EXCEL_PATH — used by every mutating
+// contacts endpoint to keep the on-disk export current. NOT used by the
+// on-demand /export download route (see buildExcelBuffer) since concurrent
+// callers writing this same fixed path could otherwise race with a download
+// reading it back, serving one user's data to another.
+async function syncExcel(contacts) {
+  const wb = await buildWorkbook(contacts);
   await wb.xlsx.writeFile(EXCEL_PATH);
   return EXCEL_PATH;
 }
 
-module.exports = { syncExcel, EXCEL_PATH };
+// In-memory build for the on-demand export download — never touches the
+// shared EXCEL_PATH, so it can't race with (or be raced by) another
+// request's syncExcel() write.
+async function buildExcelBuffer(contacts) {
+  const wb = await buildWorkbook(contacts);
+  return wb.xlsx.writeBuffer();
+}
+
+module.exports = { syncExcel, buildExcelBuffer, EXCEL_PATH };

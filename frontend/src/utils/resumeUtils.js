@@ -121,11 +121,23 @@ const EXCLUSIVE_DOMAINS = new Set([
   'devops', 'testing', 'monitoring', 'resilience', 'cloud',
 ]);
 
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Word-boundary containment — a plain .includes() substring check let short
+// skills false-positive against unrelated dictionary entries (e.g. skill "AI"
+// matched inside "rails" -> backend; "ML" matched inside "html" -> language).
+function containsWholeWord(haystack, needle) {
+  if (!needle) return false;
+  return new RegExp(`(?:^|[^a-z0-9])${escapeRegExp(needle)}(?:$|[^a-z0-9])`, 'i').test(haystack);
+}
+
 export function getSkillDomain(skill) {
   const lower = skill.toLowerCase().trim();
   if (SKILL_DOMAIN[lower]) return SKILL_DOMAIN[lower];
   for (const [key, domain] of Object.entries(SKILL_DOMAIN)) {
-    if (lower.includes(key) || key.includes(lower)) return domain;
+    if (containsWholeWord(lower, key) || containsWholeWord(key, lower)) return domain;
   }
   return null;
 }

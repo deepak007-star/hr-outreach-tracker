@@ -3,11 +3,66 @@ const multer  = require('multer');
 const path    = require('path');
 const os      = require('os');
 const fs      = require('fs');
+const net     = require('net');
+const dns     = require('dns').promises;
 const { scrapeLimiter } = require('../middleware/security');
 const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 const upload = multer({ dest: os.tmpdir(), limits: { fileSize: 5 * 1024 * 1024 } });
+
+// ── SSRF guard ───────────────────────────────────────────────────────────────
+// /scrape fetches an arbitrary user-supplied URL server-side. Without this,
+// a caller could point it at localhost, a LAN host, or a cloud metadata
+// endpoint (169.254.169.254) and have the response echoed back to them.
+function isPrivateAddress(ip) {
+  const type = net.isIP(ip);
+  if (type === 4) {
+    const p = ip.split('.').map(Number);
+    if (p[0] === 10 || p[0] === 127 || p[0] === 0) return true;
+    if (p[0] === 169 && p[1] === 254) return true; // link-local + cloud metadata (169.254.169.254)
+    if (p[0] === 172 && p[1] >= 16 && p[1] <= 31) return true;
+    if (p[0] === 192 && p[1] === 168) return true;
+    if (p[0] >= 224) return true; // multicast/reserved
+    return false;
+  }
+  if (type === 6) {
+    const lower = ip.toLowerCase();
+    if (lower === '::1') return true;
+    if (lower.startsWith('fe80:') || lower.startsWith('fc') || lower.startsWith('fd')) return true;
+    if (lower.startsWith('::ffff:')) return isPrivateAddress(lower.split(':').pop());
+    return false;
+  }
+  return true; // couldn't parse as an IP — be safe and reject
+}
+
+async function assertPublicUrl(urlStr) {
+  const u = new URL(urlStr); // throws on malformed input
+  if (!/^https?:$/.test(u.protocol)) throw new Error('Only http/https URLs are allowed');
+  if (/^(localhost|.*\.local)$/i.test(u.hostname)) throw new Error('Local addresses are not allowed');
+
+  const address = net.isIP(u.hostname) ? u.hostname : (await dns.lookup(u.hostname)).address;
+  if (isPrivateAddress(address)) throw new Error('Requests to private/internal addresses are not allowed');
+}
+
+// Fetches url, validating every hop (including redirect targets) against
+// assertPublicUrl — a same-origin-looking URL can still redirect to an
+// internal address, so this can't just check the initial URL and follow blindly.
+async function fetchPublicUrl(startUrl, opts, maxRedirects = 5) {
+  let url = startUrl;
+  for (let i = 0; i <= maxRedirects; i++) {
+    await assertPublicUrl(url);
+    const response = await fetch(url, { ...opts, redirect: 'manual' });
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const loc = response.headers.get('location');
+      if (!loc) return response;
+      url = new URL(loc, url).toString();
+      continue;
+    }
+    return response;
+  }
+  throw new Error('Too many redirects');
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -38,7 +93,7 @@ function stripHtml(html) {
 }
 
 // ── POST /api/jobs/scrape ──────────────────────────────────────────────────
-router.post('/scrape', scrapeLimiter, async (req, res) => {
+router.post('/scrape', requireAuth, scrapeLimiter, async (req, res) => {
   const { url } = req.body;
   if (!url || !url.startsWith('http')) {
     return res.status(400).json({ error: 'A valid URL is required.' });
@@ -48,7 +103,7 @@ router.post('/scrape', scrapeLimiter, async (req, res) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 12000);
 
-    const response = await fetch(url, {
+    const response = await fetchPublicUrl(url, {
       signal: controller.signal,
       headers: {
         'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',

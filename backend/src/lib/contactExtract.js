@@ -10,15 +10,31 @@ const EMAIL_RE = /\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b/g;
 // Indian mobile: optional +91/91/0 prefix then 6-9 leading digit, 9 more digits
 const PHONE_RE = /(?:(?:\+91|91|0)[\s.\-]?)?[6-9]\d{9}\b/g;
 
+// Shared across both regex extraction (this file) and the apply-page deep-fetch
+// scan (agents/deepFetch.js) — keep this the single source of truth for
+// "looks like an email but isn't a real HR contact" so the two don't drift.
 const EMAIL_SPAM = [
   'naukri.com', 'linkedin.com', 'google.com', 'example.com',
   'noreply', 'no-reply', 'donotreply', 'sentry.io', 'amazonaws',
   'privacy@', 'legal@', 'support@', 'info@naukri', 'info@linkedin',
-  'jobs@naukri', 'abuse@', 'webmaster@',
+  'jobs@naukri', 'abuse@', 'webmaster@', 'postmaster@',
   'wa.me',       // WhatsApp phone links — 91XXXXXXXXXX@wa.me
   't.me',        // Telegram username links
   'bit.ly',      // URL shorteners occasionally scraped as "emails"
+  // Page-chrome / tracking / CDN noise picked up when scanning full HTML pages
+  'wixpress', 'w3.org', 'schema.org', 'godaddy', 'cloudflare',
+  // ATS system addresses — real, deliverable, but not an HR contact
+  'greenhouse.io', 'lever.co', 'myworkday.com', 'successfactors', 'bamboohr.com', 'workable.com',
 ];
+
+// Filename/asset extensions that are NOT real TLDs but are short enough to
+// pass the TLD-length check below — e.g. a retina image filename like
+// "logo@2x.png" syntactically matches the email regex (local="logo",
+// domain="2x.png", "png" reads as a plausible 3-letter TLD).
+const ASSET_EXTENSIONS = new Set([
+  'png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico', 'bmp', 'tiff',
+  'css', 'js', 'woff', 'woff2', 'ttf', 'eot',
+]);
 
 /**
  * Validates and normalises a raw extracted email string.
@@ -51,6 +67,7 @@ function cleanExtractedEmail(raw) {
   // New gTLDs with 7+ chars (.academy .solutions) are rare in Indian job boards.
   const tld = domain.slice(domain.lastIndexOf('.') + 1);
   if (!/^[a-z]{2,6}$/.test(tld)) return null;
+  if (ASSET_EXTENSIONS.has(tld)) return null; // e.g. "logo@2x.png" — not a real TLD
 
   return e;
 }
