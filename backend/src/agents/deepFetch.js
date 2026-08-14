@@ -47,7 +47,7 @@ function needsFetch(job) {
 // _pre_contact_email / _pre_all_contacts fast-path fields extractFromJob reads).
 async function enrichWithPageEmails(jobs, { cap = 150, concurrency = 8, timeoutMs = 10000, budgetMs = 90000 } = {}) {
   const targets = jobs.filter(needsFetch).slice(0, cap);
-  let enriched = 0, jsFallbackList = [], idx = 0;
+  let enriched = 0, jsFallbackList = [], idx = 0, loggedOneFailure = false;
   const deadline = Date.now() + budgetMs;   // hard overall cap so a run never bogs down
 
   async function worker() {
@@ -66,7 +66,12 @@ async function enrichWithPageEmails(jobs, { cap = 150, concurrency = 8, timeoutM
         } else if (typeof html === 'string' && html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length < 400) {
           jsFallbackList.push(job); // sparse HTML → likely JS-rendered
         }
-      } catch { /* dead proxy / timeout / 4xx — skip */ }
+      } catch (e) {
+        // Expected per-page (dead proxy / timeout / 4xx) — not worth logging
+        // every occurrence, but a systemic bug here would otherwise be
+        // completely invisible (only symptom: enriched count silently at 0).
+        if (!loggedOneFailure) { loggedOneFailure = true; console.warn('[deepFetch] first failure this run (further ones suppressed):', e.message); }
+      }
     }
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, targets.length) }, worker));

@@ -1513,6 +1513,12 @@ function JobIntelConfigSection() {
           <button onClick={loadHealth} className="text-[11px] text-brand-600 hover:underline shrink-0">Refresh</button>
         </div>
 
+        {health?.syncError && (
+          <div className="text-[11px] px-2 py-1.5 rounded bg-red-50 text-red-700 border border-red-200">
+            <span className="font-bold uppercase">Contact sync failing</span> — {health.syncError.message} (since {health.syncError.ts?.slice(0, 16)}). New Job Intel contacts are NOT being added until this is fixed.
+          </div>
+        )}
+
         {health?.report?.findings?.length ? (
           <ul className="space-y-1">
             {health.report.findings.map((f, i) => (

@@ -284,13 +284,16 @@ router.get('/runs', requireAuth, requireAdmin, async (req, res) => {
 router.get('/health', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { getSourceHealth, HEALTH_REPORT_KEY } = require('../agents/pipelineHealth');
-    const [reportRow, sourceHealth] = await Promise.all([
+    const [reportRow, sourceHealth, syncErrorRow] = await Promise.all([
       db.prepare(`SELECT value FROM settings WHERE key = ?`).get(HEALTH_REPORT_KEY).catch(() => null),
       getSourceHealth(),
+      db.prepare(`SELECT value FROM settings WHERE key = 'job_intel_sync_error'`).get().catch(() => null),
     ]);
     let report = null;
     try { report = JSON.parse(reportRow?.value || 'null'); } catch {}
-    res.json({ report, sources: sourceHealth });
+    let syncError = null;
+    try { syncError = JSON.parse(syncErrorRow?.value || 'null'); } catch {}
+    res.json({ report, sources: sourceHealth, syncError });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

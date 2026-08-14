@@ -10,6 +10,17 @@ if (!WEBHOOK_SECRET) {
   console.warn('[SECURITY] DELIVERY_WEBHOOK_SECRET is not set — /api/delivery/webhooks/bounce is disabled until it is configured. Set it and point your ESP\'s webhook URL at .../bounce?secret=<value>.');
 }
 
+// Plain !== leaks a (small, but real) timing signal via V8's char-by-char
+// short-circuit string comparison. crypto.timingSafeEqual closes that for the
+// content comparison; the length check has to happen first since
+// timingSafeEqual throws on mismatched lengths rather than returning false.
+function safeEqual(a, b) {
+  const bufA = Buffer.from(String(a ?? ''));
+  const bufB = Buffer.from(String(b ?? ''));
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
 // ── POST /api/delivery/webhooks/bounce — ESP bounce/failure webhook ────────
 // Handles Mailgun, SendGrid, Postmark, or any generic provider. No JWT auth —
 // the ESP posts here directly, not a logged-in user — so it's gated by a
@@ -19,7 +30,7 @@ if (!WEBHOOK_SECRET) {
 // Do Not Contact.
 router.post('/webhooks/bounce', async (req, res) => {
   const secret = req.query.secret || req.headers['x-webhook-secret'];
-  if (!WEBHOOK_SECRET || secret !== WEBHOOK_SECRET) {
+  if (!WEBHOOK_SECRET || !secret || !safeEqual(secret, WEBHOOK_SECRET)) {
     return res.status(401).json({ error: 'Invalid or missing webhook secret' });
   }
   const body = req.body || {};

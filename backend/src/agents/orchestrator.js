@@ -503,9 +503,24 @@ async function syncJobIntelContacts(sinceMs = null) {
     }
 
     console.log(`[Pipeline] syncJobIntelContacts: synced ${synced} contacts to admin's list`);
+    // settings.value is NOT NULL — 'null' (the JSON literal, as a string) clears
+    // the error, not a real SQL NULL, which would violate that constraint.
+    await db.prepare(`
+      INSERT INTO settings (key, value) VALUES ('job_intel_sync_error', 'null')
+      ON CONFLICT (key) DO UPDATE SET value = 'null'
+    `).run().catch(() => {});
     return synced;
   } catch (e) {
     console.error('[Pipeline] syncJobIntelContacts failed:', e.message);
+    // A bug anywhere in this function previously failed completely silently —
+    // caught here, logged to a console nobody was watching, and returned 0,
+    // indistinguishable from a legitimate "nothing new to sync" run. Surface
+    // it somewhere visible (Admin Panel reads this via GET /job-intel/health)
+    // so a future regression here gets noticed within one run, not weeks later.
+    await db.prepare(`
+      INSERT INTO settings (key, value) VALUES ('job_intel_sync_error', ?)
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+    `).run(JSON.stringify({ ts: new Date().toISOString(), message: e.message })).catch(() => {});
     return 0;
   }
 }
