@@ -12,6 +12,7 @@ const { getResumeFile } = require('../services/resumeFiles');
 const sanitizeHtml = require('sanitize-html');
 const { extractContacts } = require('../lib/contactExtract');
 const { cleanContactName, guessFirstNameFromEmail } = require('../lib/nameUtils');
+const { keywordTokens } = require('../agents/relevanceFilter');
 
 // Shared HTML-safe subset (same as email.js)
 const EMAIL_HTML_OPTS = {
@@ -134,6 +135,23 @@ const router = express.Router();
 // ─── GET /api/scraped-jobs ────────────────────────────────────────────────────
 // Query params: category, since (1d|3d|7d|24d|30d), limit, page, search, scraper
 
+// Tokenizes `phrase` (stripping generic role words like "developer"/"senior" —
+// see agents/relevanceFilter.js) and returns a SQL fragment requiring ALL of
+// its tokens to appear (in any order, any of the given columns) — e.g.
+// "Java Backend Engineer" no longer needs to appear as one literal substring
+// (which real job titles almost never do — "Backend Developer (Java)" or
+// "SDE 2 - Java" wouldn't match "%Java Backend Engineer%"), just each
+// distinguishing word present somewhere.
+function allTokensClause(phrase, columns, params) {
+  const toks = keywordTokens(phrase);
+  if (!toks.length) return null;
+  const perToken = toks.map(t => {
+    params.push(...columns.map(() => `%${t}%`));
+    return `(${columns.map(c => `${c} ILIKE ?`).join(' OR ')})`;
+  });
+  return `(${perToken.join(' AND ')})`;
+}
+
 router.get('/', requireAuth, async (req, res) => {
   try {
     const {
@@ -143,6 +161,8 @@ router.get('/', requireAuth, async (req, res) => {
       page     = '1',
       search,
       scraper,
+      profile_titles,
+      profile_skills,
     } = req.query;
 
     const limitNum = Math.min(Math.max(parseInt(limit) || 50, 1), 200);
@@ -166,10 +186,32 @@ router.get('/', requireAuth, async (req, res) => {
 
     if (category) { q += ' AND job_category = ?'; params.push(category); }
     if (scraper)  { q += ' AND scraper_type = ?';  params.push(scraper); }
+
     if (search) {
-      q += ' AND (title ILIKE ? OR company ILIKE ? OR location ILIKE ? OR tags ILIKE ?)';
-      const s = `%${search}%`;
-      params.push(s, s, s, s);
+      // Manual search box: token-AND across title/company/location/tags —
+      // same relaxation as the profile filter below, just for free-typed text.
+      const clause = allTokensClause(search, ['title', 'company', 'location', 'tags'], params);
+      if (clause) q += ` AND ${clause}`;
+    } else if (profile_titles || profile_skills) {
+      // Profile filter: relevant if title/description/tags match ALL the
+      // distinguishing tokens of ANY one preferred title (job_title_1/2/3,
+      // current_title — same "keyword set" matching agents/relevanceFilter.js
+      // uses for Job Intel), OR mention any one of the profile's skills.
+      let titles = [], skills = [];
+      try { titles = JSON.parse(profile_titles || '[]'); } catch {}
+      try { skills = JSON.parse(profile_skills || '[]'); } catch {}
+
+      const groups = [];
+      for (const t of titles.filter(Boolean)) {
+        const clause = allTokensClause(t, ['title', 'description', 'tags'], params);
+        if (clause) groups.push(clause);
+      }
+      for (const skill of skills.filter(Boolean).slice(0, 15)) {
+        const s = `%${String(skill).toLowerCase()}%`;
+        params.push(s, s, s);
+        groups.push('(title ILIKE ? OR description ILIKE ? OR tags ILIKE ?)');
+      }
+      if (groups.length) q += ` AND (${groups.join(' OR ')})`;
     }
 
     const countQ  = q.replace('SELECT *', 'SELECT COUNT(*) as total');

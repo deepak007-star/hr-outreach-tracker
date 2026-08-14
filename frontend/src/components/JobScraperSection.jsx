@@ -94,9 +94,19 @@ export default function JobScraperSection() {
     setFetchError(null);
     try {
       const params = { category: cat.dbCat, since, limit, page };
-      const profileTitle = !suppressProfileFilter && profile && [profile.job_title_1, profile.job_title_2, profile.job_title_3, profile.current_title].filter(Boolean)[0];
-      const effectiveSearch = search || profileTitle || '';
-      if (effectiveSearch) params.search = effectiveSearch;
+      if (search) {
+        params.search = search;
+      } else if (!suppressProfileFilter && profile) {
+        // Send ALL preferred titles + skills as structured relevance signal
+        // (same token-based "keyword set" matching used for Job Intel,
+        // agents/relevanceFilter.js) instead of one literal title string —
+        // job titles almost never contain that exact multi-word phrase
+        // verbatim, which used to make this filter return nothing.
+        const titles = [profile.job_title_1, profile.job_title_2, profile.job_title_3, profile.current_title].filter(Boolean);
+        const skills = Array.isArray(profile.skills) ? profile.skills.filter(Boolean) : [];
+        if (titles.length) params.profile_titles = JSON.stringify(titles);
+        if (skills.length) params.profile_skills = JSON.stringify(skills.slice(0, 15));
+      }
       const data = await api.get('/scraped-jobs', { params });
       setJobs(data.jobs || []);
       setTotal(data.total || 0);
@@ -291,14 +301,16 @@ export default function JobScraperSection() {
       {/* Profile preferences hint */}
       {(() => {
         const profileTitles = profile ? [profile.job_title_1, profile.job_title_2, profile.job_title_3, profile.current_title].filter(Boolean) : [];
-        const isProfileFiltering = profile && !search && !suppressProfileFilter && profileTitles.length > 0;
-        const isShowingAll = profile && !search && suppressProfileFilter && profileTitles.length > 0;
+        const profileSkills = profile && Array.isArray(profile.skills) ? profile.skills.filter(Boolean) : [];
+        const hasProfileSignal = profileTitles.length > 0 || profileSkills.length > 0;
+        const isProfileFiltering = profile && !search && !suppressProfileFilter && hasProfileSignal;
+        const isShowingAll = profile && !search && suppressProfileFilter && hasProfileSignal;
         if (isProfileFiltering) return (
           <div className="flex items-center gap-2 text-xs text-gray-500 bg-brand-50 border border-brand-100 rounded-sm px-3 py-2">
             <span>🎯</span>
             <span className="flex-1">
-              Showing jobs for your profile:{' '}
-              <strong>{profileTitles.slice(0, 3).join(', ')}</strong>
+              Showing jobs matching your profile:{' '}
+              <strong>{profileTitles.slice(0, 3).join(', ') || `${profileSkills.length} skills`}</strong>
               {' '}· <strong>{getEffectiveCities(profile?.preferred_city).join(', ')}</strong>
             </span>
             <button onClick={() => setSuppressProfileFilter(true)} className="ml-auto text-gray-400 hover:text-gray-700 underline whitespace-nowrap">
@@ -392,8 +404,9 @@ export default function JobScraperSection() {
               : fetchError === 'other' ? 'The backend request failed — try Refresh, or check your connection.'
               : (() => {
                   const profileTitles = profile ? [profile.job_title_1, profile.job_title_2, profile.job_title_3, profile.current_title].filter(Boolean) : [];
-                  if (profile && !search && !suppressProfileFilter && profileTitles.length > 0) {
-                    return <>No jobs match your profile title(s) in this range — try <button onClick={() => setSuppressProfileFilter(true)} className="text-brand-600 underline">Show all jobs</button>.</>;
+                  const profileSkills = profile && Array.isArray(profile.skills) ? profile.skills.filter(Boolean) : [];
+                  if (profile && !search && !suppressProfileFilter && (profileTitles.length > 0 || profileSkills.length > 0)) {
+                    return <>No jobs match your profile titles/skills in this range — try <button onClick={() => setSuppressProfileFilter(true)} className="text-brand-600 underline">Show all jobs</button>.</>;
                   }
                   return user?.role === 'admin'
                     ? `Click "Scrape Now" to fetch the latest jobs from ${cat.desc}`
