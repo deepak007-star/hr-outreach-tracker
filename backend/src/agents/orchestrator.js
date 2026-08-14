@@ -12,7 +12,7 @@ const { classifyJob }     = require('./classification');
 const { storeJob }        = require('./storage');
 const { qaCheck }         = require('./qa');
 const { categorize, CATEGORY_LABELS } = require('./categorize');
-const { lightweightSkillMatch } = require('../lib/skillMatch');
+const { lightweightSkillMatch, parseSkills } = require('../lib/skillMatch');
 const DEFAULT_KEYWORDS    = require('./defaultKeywords');
 const proxyRotator        = require('../lib/proxyRotator');
 const { pickWeightedKeywordWindow, recordBatch } = require('../lib/categoryYield');
@@ -462,7 +462,7 @@ async function syncJobIntelContacts(sinceMs = null) {
       const matchedSkills = adminSkills.length
         ? lightweightSkillMatch(adminSkills, `${posting.title || ''} ${posting.description || ''}`).matched.slice(0, 5)
         : [];
-      const tags = JSON.stringify([categoryLabel, ...matchedSkills].filter(Boolean));
+      const tags = JSON.stringify([...new Set([categoryLabel, ...matchedSkills].filter(Boolean))]);
 
       for (const rawEmail of emails) {
         const email = cleanExtractedEmail(rawEmail);
