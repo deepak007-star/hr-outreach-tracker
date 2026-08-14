@@ -50,6 +50,39 @@ function SortTh({ label, field, sortField, sortDir, onSort, className = '' }) {
   );
 }
 
+// Same UTC-string-without-suffix parsing hazard as elsewhere in the app —
+// stored as 'YYYY-MM-DD HH:MM:SS' with no 'Z' suffix, so it must be normalized
+// before comparing against "now" or it silently parses as local time.
+function FollowUpControl({ contact, onSetFollowUp }) {
+  const [editing, setEditing] = useState(false);
+  const followUp = contact.follow_up_at;
+  const due = followUp && new Date(followUp.replace(' ', 'T') + 'Z') <= new Date();
+
+  if (editing) {
+    return (
+      <input
+        type="date"
+        autoFocus
+        defaultValue={followUp ? followUp.slice(0, 10) : ''}
+        onBlur={() => setEditing(false)}
+        onChange={e => { onSetFollowUp(contact.id, e.target.value || null); setEditing(false); }}
+        className="border border-brand-300 rounded-sm text-[10px] px-1 py-0.5 focus:ring-1 focus:ring-brand-300 outline-none bg-white w-[92px]"
+      />
+    );
+  }
+  return (
+    <button
+      onClick={() => setEditing(true)}
+      title={followUp ? `Follow up on ${followUp.slice(0, 10)} — click to change` : 'Set a follow-up reminder'}
+      className={`text-[10px] font-medium whitespace-nowrap transition-colors ${
+        due ? 'text-amber-600 hover:text-amber-800' : followUp ? 'text-gray-400 hover:text-gray-600' : 'text-gray-300 hover:text-brand-500'
+      }`}
+    >
+      📅{followUp ? ` ${followUp.slice(5, 10)}` : ''}
+    </button>
+  );
+}
+
 function StatusCell({ contact, onStatusChange }) {
   const [editing, setEditing] = useState(false);
   if (editing) {
@@ -116,6 +149,7 @@ export default function ContactTable({
   onDelete,
   onStatusChange,
   onSendEmail,
+  onSetFollowUp = () => {},
   isAuthenticated  = false,
   onLoginRequest   = () => {},
   visibleLimit     = 5,
@@ -140,7 +174,7 @@ export default function ContactTable({
     return (
       <div className="bg-white rounded-md shadow-card border border-gray-100 overflow-hidden">
         {Array.from({ length: 8 }).map((_, i) => (
-          <SkeletonRow key={i} cols={9} />
+          <SkeletonRow key={i} cols={10} />
         ))}
       </div>
     );
@@ -185,14 +219,15 @@ export default function ContactTable({
         <table className="w-full text-sm table-fixed min-w-[760px]">
           <colgroup>
             <col className="w-8" />          {/* checkbox */}
-            <col className="w-[14%]" />      {/* name */}
-            <col className="w-[16%]" />      {/* title */}
-            <col className="w-[13%]" />      {/* company */}
-            <col className="w-[18%]" />      {/* email */}
+            <col className="w-[13%]" />      {/* name */}
+            <col className="w-[14%]" />      {/* title */}
+            <col className="w-[12%]" />      {/* company */}
+            <col className="w-[16%]" />      {/* email */}
             <col className="w-[10%]" />      {/* status */}
             <col className="w-[10%]" />      {/* source */}
-            <col className="w-[8%]" />       {/* added */}
-            <col className="w-[11%]" />      {/* actions */}
+            <col className="w-[7%]" />       {/* added */}
+            <col className="w-[8%]" />       {/* last contacted */}
+            <col className="w-[10%]" />      {/* actions */}
           </colgroup>
 
           <thead className="bg-gray-50 border-b border-gray-100">
@@ -212,6 +247,7 @@ export default function ContactTable({
               <SortTh label="Status"  field="status"       sortField={sortField} sortDir={sortDir} onSort={handleSort} />
               <SortTh label="Source"  field="email_source" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
               <SortTh label="Added"   field="date_added"   sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+              <SortTh label="Last Contacted" field="date_last_contacted" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
               <th className="px-2 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
             </tr>
           </thead>
@@ -219,7 +255,7 @@ export default function ContactTable({
           <tbody className="divide-y divide-gray-100">
             {sorted.length === 0 && (
               <tr>
-                <td colSpan={9}>
+                <td colSpan={10}>
                   <EmptyState
                     icon={<Users size={20} strokeWidth={1.5} />}
                     title="Abhi tak jawaab nahi aaya — par agla email hi ho sakta hai woh wala."
@@ -239,7 +275,7 @@ export default function ContactTable({
                 <Fragment key={c.id}>
                   {idx === visibleLimit && (
                     <tr className="border-y-2 border-amber-300">
-                      <td colSpan={9} className="bg-amber-50 px-4 py-2.5">
+                      <td colSpan={10} className="bg-amber-50 px-4 py-2.5">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <p className="text-xs text-amber-800 font-medium flex items-center gap-1.5">
                             <Lock size={11} className="text-amber-600 shrink-0" />
@@ -340,6 +376,11 @@ export default function ContactTable({
                       {c.date_added ? new Date(c.date_added).toLocaleDateString('en-IN') : '—'}
                     </td>
 
+                    {/* Last Contacted */}
+                    <td className="px-2 py-2 text-[11px] text-gray-400 whitespace-nowrap">
+                      {c.date_last_contacted ? new Date(c.date_last_contacted).toLocaleDateString('en-IN') : '—'}
+                    </td>
+
                     {/* Actions */}
                     <td className="px-2 py-2 whitespace-nowrap">
                       <div className="flex items-center gap-2">
@@ -369,6 +410,7 @@ export default function ContactTable({
                           className="text-xs text-red-500 hover:text-red-700 font-medium transition-colors">
                           Del
                         </button>
+                        <FollowUpControl contact={c} onSetFollowUp={onSetFollowUp} />
                       </div>
                     </td>
                   </tr>

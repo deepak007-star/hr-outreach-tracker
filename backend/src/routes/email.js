@@ -10,6 +10,7 @@ const { requireAuth } = require('../middleware/auth');
 const { getTransportForUser, createLegacyTransport } = require('../services/mailTransport');
 const { getResumeFile } = require('../services/resumeFiles');
 const { canSeePool, upsertContactState } = require('../lib/contactVisibility');
+const { parseSkills } = require('../lib/skillMatch');
 
 // Load a contact the user is allowed to email (own, or any pooled contact for
 // subscribers) plus the viewer's own status for this contact.
@@ -49,6 +50,31 @@ function sanitizeHeaderValue(val) {
 }
 
 const router = express.Router();
+
+// 1x1 transparent GIF used by the open-tracking pixel below.
+const TRACKING_PIXEL = Buffer.from('R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==', 'base64');
+
+// Absolute base URL for this backend, so the tracking pixel embedded in an
+// outbound email resolves for the recipient's mail client, not just this dev
+// machine. Reuses the same env vars index.js's anti-cold-start self-ping uses.
+const SELF_URL = (
+  process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || process.env.BACKEND_URL
+  || `http://localhost:${process.env.PORT || 3001}`
+).trim().replace(/\/$/, '');
+
+// ── GET /api/email/track/:logId ── PUBLIC, no auth — fetched by the
+// recipient's mail client when it renders the HTML body, not by our own
+// frontend. Must be registered before router.use(requireAuth) below.
+// Note: some clients (notably Gmail's image proxy) prefetch/cache this once
+// server-side rather than per-open, so "opened" is a lower bound, not exact.
+router.get('/track/:logId', async (req, res) => {
+  const logId = (req.params.logId || '').replace(/\.(png|gif)$/i, '');
+  try { await db.prepare(`UPDATE email_log SET opened = 1 WHERE id = ?`).run(logId); } catch {}
+  res.set('Content-Type', 'image/gif');
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.send(TRACKING_PIXEL);
+});
+
 router.use(requireAuth);
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -123,6 +149,13 @@ function renderTemplate(tpl, contact, profile) {
 
   // Clean up greeting when name was empty: "Hi ," or "Hi  ," → "Hi,"
   result = result.replace(/\bHi\s+,/g, 'Hi,');
+
+  // Collapse whitespace artifacts left behind by empty substitutions (missing
+  // profile field, blank contact title, etc.) so recipients never see visibly
+  // broken text like "the  role at" or "with  years." — only touches spaces/tabs,
+  // never newlines, so paragraph structure is untouched.
+  result = result.replace(/[ \t]{2,}/g, ' ');
+  result = result.replace(/[ \t]+([,.;:!?])/g, '$1');
 
   return result;
 }
@@ -263,6 +296,14 @@ async function getDailyCap() {
   return parseInt(row?.value || '20');
 }
 
+// Delay between sends in a batch. A fixed delay is itself a fingerprint, so
+// jitter up to +50% of the configured value on top.
+async function getSendDelayMs() {
+  const row = await db.prepare("SELECT value FROM settings WHERE key = 'send_throttle_ms'").get();
+  const base = parseInt(row?.value || '1000');
+  return base + Math.floor(Math.random() * base * 0.5);
+}
+
 // Per-user 14-day guard: each user can apply to a shared contact independently,
 // but not spam the same one twice within 14 days.
 async function wasRecentlySent(contactId, userId) {
@@ -318,6 +359,11 @@ router.post('/preview', async (req, res) => {
   const sentToday = await getSentToday(req.user.userId);
   const cap       = isAdmin ? Infinity : await getDailyCap();
   const profile   = await db.prepare('SELECT * FROM profiles WHERE user_id = ?').get(req.user.userId);
+  // profiles.skills is stored as a JSON-encoded TEXT column (and some legacy
+  // rows are double-encoded) — parse it here so renderTemplate's
+  // Array.isArray(p.skills) check works, instead of leaking the raw
+  // '["Java","Kafka"]' string literal into every {{skills}} placeholder.
+  if (profile) profile.skills = parseSkills(profile.skills);
   const previews  = [];
   let budgetLeft  = isAdmin ? Infinity : Math.max(0, cap - sentToday);
 
@@ -413,14 +459,19 @@ router.post('/send', rlMiddleware('email'), async (req, res) => {
         results.push({ contactId, ok: false, error: 'Daily cap reached' }); continue;
       }
 
+      // Generated before the HTML body so the tracking pixel can embed it.
+      const logId = crypto.randomUUID();
+      const now   = new Date().toISOString().replace('T', ' ').slice(0, 19);
+
       const isHtml   = /<[a-zA-Z]/.test(body);
       const safeBody = isHtml ? sanitizeHtml(body, EMAIL_HTML_OPTS) : body;
       const textBody = isHtml ? stripHtml(safeBody) : safeBody;
-      const htmlBody = isHtml
+      const trackingPixel = `<img src="${SELF_URL}/api/email/track/${logId}" width="1" height="1" alt="" style="display:none" />`;
+      const htmlBody = (isHtml
         ? `<div style="font-family:sans-serif;font-size:14px;line-height:1.7">${safeBody}</div>`
         : `<div style="font-family:sans-serif;font-size:14px;line-height:1.6">${
             safeBody.split('\n').map(l => `<p style="margin:0 0 4px">${l || '&nbsp;'}</p>`).join('')
-          }</div>`;
+          }</div>`) + trackingPixel;
 
       const mailOpts = {
         from:    fromName ? `"${fromName}" <${fromEmail}>` : fromEmail,
@@ -431,17 +482,14 @@ router.post('/send', rlMiddleware('email'), async (req, res) => {
         ...(attachments.length > 0 ? { attachments } : {}),
       };
 
-      const logId = crypto.randomUUID();
-      const now   = new Date().toISOString().replace('T', ' ').slice(0, 19);
-
       try {
         const info  = await transport.sendMail(mailOpts);
         const msgId = info?.messageId || null;
 
         await db.prepare(`
-          INSERT INTO email_log (id, contact_id, user_id, subject, body_snapshot, delivery_status, message_id)
-          VALUES (?, ?, ?, ?, ?, 'sent', ?)
-        `).run(logId, contactId, userId, subject, textBody, msgId);
+          INSERT INTO email_log (id, contact_id, user_id, subject, body_snapshot, delivery_status, message_id, template_id)
+          VALUES (?, ?, ?, ?, ?, 'sent', ?, ?)
+        `).run(logId, contactId, userId, subject, textBody, msgId, sends[i].templateId || null);
 
         await db.prepare(`
           INSERT INTO email_delivery_events (id, email_log_id, contact_id, user_id, event_type, message_id, created_at)
@@ -527,7 +575,10 @@ router.post('/send', rlMiddleware('email'), async (req, res) => {
         results.push({ contactId, ok: false, error: err.message, bounced: isBounce, bounceType });
       }
 
-      if (i < sends.length - 1) await new Promise(r => setTimeout(r, 1000));
+      if (i < sends.length - 1) {
+        const delayMs = await getSendDelayMs();
+        await new Promise(r => setTimeout(r, delayMs));
+      }
     }
 
     const userRows = await db.prepare(`
@@ -660,6 +711,37 @@ router.get('/stats', async (req, res) => {
   const deliverability = {};
   for (const r of deliverabilityRows) deliverability[r.email_deliverable || 'unknown'] = parseInt(r.c);
 
+  // Per-template performance — "replied" approximates by the CURRENT status of
+  // any contact this template was ever sent to, so a contact who received
+  // multiple different templates before replying counts toward each of them.
+  // Good enough for "which of my templates is worth keeping," not exact attribution.
+  const templateRows = await db.prepare(`
+    SELECT el.template_id,
+           COUNT(*) AS sent,
+           SUM(CASE WHEN el.opened THEN 1 ELSE 0 END) AS opened,
+           SUM(CASE WHEN el.delivery_status IN ('hard_bounce','soft_bounce') THEN 1 ELSE 0 END) AS bounced,
+           COUNT(DISTINCT CASE WHEN s.status IN ('Replied','Interview') THEN el.contact_id END) AS replied
+    FROM email_log el
+    LEFT JOIN contact_user_state s ON s.contact_id = el.contact_id AND s.user_id = el.user_id
+    WHERE el.user_id = ? AND el.template_id IS NOT NULL
+    GROUP BY el.template_id
+  `).all(req.user.userId);
+  let templateNames = {};
+  if (templateRows.length) {
+    const names = await db.prepare(
+      `SELECT id, name FROM email_templates WHERE id IN (${templateRows.map(() => '?').join(',')})`
+    ).all(...templateRows.map(r => r.template_id));
+    templateNames = Object.fromEntries(names.map(n => [n.id, n.name]));
+  }
+  const byTemplate = templateRows.map(r => ({
+    templateId: r.template_id,
+    name:       templateNames[r.template_id] || '(deleted template)',
+    sent:       parseInt(r.sent),
+    opened:     parseInt(r.opened),
+    bounced:    parseInt(r.bounced),
+    replied:    parseInt(r.replied),
+  })).sort((a, b) => b.sent - a.sent);
+
   res.json({
     sentToday,
     dailyCap:  cap,
@@ -674,6 +756,7 @@ router.get('/stats', async (req, res) => {
       failed:    parseInt(billingRow.emails_failed    || 0),
     } : { month, sent: 0, delivered: 0, bounced: 0, failed: 0 },
     deliverability,
+    byTemplate,
   });
 });
 

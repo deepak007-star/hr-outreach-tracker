@@ -15,7 +15,10 @@ const { putResumeFile, getResumeFile, copyResumeFile, deleteResumeFile } = requi
 const router = express.Router();
 router.use(requireAuth);
 
-const MAX_VERSIONS = 5;
+// Raised from 5 now that resume bytes live in Postgres (resume_files table)
+// rather than local disk — the original storage-pressure rationale for a tiny
+// cap no longer applies.
+const MAX_VERSIONS = 10;
 const NOW = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
 
 // ── File storage helpers ───────────────────────────────────────────────────────
@@ -106,10 +109,20 @@ async function saveVaultVersion(userId, text, storedPath, mimeType, label, targe
 }
 
 // Delete the oldest vault version for a user, including its stored file bytes.
+// Starred ATS-template versions (is_ats_template = 1) are excluded from
+// eligibility — a user's best-performing/optimized resume shouldn't get
+// silently evicted just because it happens to be the oldest row. Falls back to
+// deleting the oldest ATS-template row only if every version is one (so
+// saving a new version is never permanently blocked).
 async function pruneOldest(userId) {
-  const oldest = await db.prepare(
-    'SELECT id, file_id FROM resume_versions WHERE user_id = ? ORDER BY created_at ASC LIMIT 1'
+  let oldest = await db.prepare(
+    'SELECT id, file_id FROM resume_versions WHERE user_id = ? AND is_ats_template = 0 ORDER BY created_at ASC LIMIT 1'
   ).get(userId);
+  if (!oldest) {
+    oldest = await db.prepare(
+      'SELECT id, file_id FROM resume_versions WHERE user_id = ? ORDER BY created_at ASC LIMIT 1'
+    ).get(userId);
+  }
   if (!oldest) return;
   await db.prepare('DELETE FROM resume_versions WHERE id = ?').run(oldest.id);
   await deleteResumeFile(oldest.file_id);

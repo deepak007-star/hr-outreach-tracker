@@ -11,11 +11,12 @@ const { extractFromJob }  = require('./extraction');
 const { classifyJob }     = require('./classification');
 const { storeJob }        = require('./storage');
 const { qaCheck }         = require('./qa');
-const { categorize, CATEGORY_LABELS } = require('./categorize');
+const { categorize, CATEGORY_LABELS, isLikelyStaffingAgency } = require('./categorize');
 const { lightweightSkillMatch, parseSkills } = require('../lib/skillMatch');
 const DEFAULT_KEYWORDS    = require('./defaultKeywords');
 const proxyRotator        = require('../lib/proxyRotator');
-const { pickWeightedKeywordWindow, recordBatch } = require('../lib/categoryYield');
+const { pickWeightedKeywordWindow, recordBatch, refreshOutcomeWeights } = require('../lib/categoryYield');
+const { discoverNewCompanyBoards } = require('./sourceDiscovery');
 const { runHealthChecks } = require('./pipelineHealth');
 const { embedTexts } = require('../lib/embeddingMatch');
 
@@ -241,7 +242,8 @@ async function runPipeline(triggeredBy = 'scheduler') {
           timeoutMs:   cfg.deep_fetch_timeout_ms || 10000,
           budgetMs:    cfg.deep_fetch_budget_ms || 90000, // hard overall cap
         });
-        console.log(`[Pipeline] Deep-fetch (http): enriched ${http.enriched}/${http.attempted} apply pages`);
+        console.log(`[Pipeline] Deep-fetch (http): enriched ${http.enriched}/${http.attempted} apply pages` +
+          (http.guessedEnriched ? ` (${http.guessedEnriched} via guessed company domain, e.g. LinkedIn-sourced jobs)` : ''));
         // Playwright fallback for JS-rendered pages — opt-IN only (heavy in-process)
         if (cfg.deep_fetch_browser === true && http.jsFallback?.length) {
           const br = await enrichWithBrowser(http.jsFallback, { cap: cfg.deep_fetch_browser_cap || 25 });
@@ -278,7 +280,9 @@ async function runPipeline(triggeredBy = 'scheduler') {
         tally.scanned++;
         if (emails.length) tally.withEmail++;
 
-        if (!emails.length) continue; // no contact found — skip classify/store
+        // No email AND no secondary contact channel (e.g. WhatsApp phone,
+        // see extraction.js) — genuinely no contact found, skip classify/store.
+        if (!emails.length && !job.contact_channel) continue;
 
         // Embed the posting (title+description) for the semantic skill-match
         // tier in /contacts (lib/embeddingMatch.js). Best-effort and
@@ -286,7 +290,9 @@ async function runPipeline(triggeredBy = 'scheduler') {
         // calls for a while after any failure (wrong model access, rate
         // limit, no key configured) — /contacts falls back to the free
         // synonym+fuzzy matcher (lib/skillMatch.js) for rows with no embedding.
-        try {
+        // Skipped for phone-only leads — not worth the API call for a channel
+        // that isn't ranked by skill-match anyway.
+        if (emails.length) try {
           const vecs = await embedTexts([`${job.title} ${job.description || ''}`.slice(0, 2000)]);
           if (vecs?.[0]) {
             job.embedding = vecs[0];
@@ -313,7 +319,7 @@ async function runPipeline(triggeredBy = 'scheduler') {
         }
 
         // QA
-        const qa = qaCheck(job, classResult);
+        const qa = qaCheck(job, classResult, cfg.min_confidence);
         Object.assign(job, qa);
 
         // Store — 'inserted' = truly new row, 'updated' = existing row refreshed
@@ -326,6 +332,13 @@ async function runPipeline(triggeredBy = 'scheduler') {
 
     console.log(`[Pipeline] Scanned ${scanned} unique jobs — ${totalNew} HR contacts found (${llmCalls} LLM classify calls, ${embedCalls} embed calls)`);
     await recordBatch(categoryTally);
+    // Refresh the reply/bounce outcome signal once per run (piggybacks on the
+    // pipeline's own 6h-default cadence — outcome data changes slowly, no
+    // need for its own separate interval).
+    await refreshOutcomeWeights();
+    // Probe a handful of newly-seen company domains for a public Greenhouse/
+    // Lever board, auto-growing the seed list beyond the static 15 companies.
+    await discoverNewCompanyBoards(unique, cfg);
 
     // ── 5. Update run record ───────────────────────────────────────────────
     const finishedAt = new Date().toISOString().replace('T', ' ').slice(0, 19);
@@ -458,11 +471,12 @@ async function syncJobIntelContacts(sinceMs = null) {
       try { emails = JSON.parse(posting.extracted_emails); } catch {}
       if (!emails.length) continue;
 
-      const categoryLabel = CATEGORY_LABELS[posting.category] || null;
+      const categoryLabel  = CATEGORY_LABELS[posting.category] || null;
+      const staffingTag    = isLikelyStaffingAgency(posting.company) ? '🏢 Staffing Agency' : null;
       const matchedSkills = adminSkills.length
         ? lightweightSkillMatch(adminSkills, `${posting.title || ''} ${posting.description || ''}`).matched.slice(0, 5)
         : [];
-      const tags = JSON.stringify([...new Set([categoryLabel, ...matchedSkills].filter(Boolean))]);
+      const tags = JSON.stringify([...new Set([categoryLabel, staffingTag, ...matchedSkills].filter(Boolean))]);
 
       for (const rawEmail of emails) {
         const email = cleanExtractedEmail(rawEmail);

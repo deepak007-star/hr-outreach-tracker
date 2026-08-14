@@ -10,6 +10,7 @@ import { useDraft, readDraft, clearDraft, useBeforeUnload } from '../hooks/useDr
 import { invalidateCache } from '../api/client.js';
 import PasswordVault from './PasswordVault.jsx';
 import ChangePassword from './ChangePassword.jsx';
+import DeleteAccount from './DeleteAccount.jsx';
 
 const PROFILE_CACHE_KEY = 'ss:profile';
 const PROFILE_CACHE_TTL = 5 * 60 * 1000; // 5 min
@@ -1040,6 +1041,7 @@ export default function ProfilePage({ onDirtyChange }) {
                 </p>
                 <PasswordVault isAdmin={false} />
               </div>
+              <DeleteAccount />
             </div>
           )}
         </div>

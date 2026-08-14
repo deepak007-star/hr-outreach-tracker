@@ -8,7 +8,7 @@ router.use(requireAuth, requireAdmin);
 const ALLOWED_SETTINGS_KEYS = new Set([
   'smtp_config', 'daily_send_cap', 'apify_api_key', 'apify_queries', 'apify_last_scrape',
   'unsubscribe_footer_text', 'purge_config', 'groq_api_key', 'groq_model',
-  'proxy_list',
+  'proxy_list', 'send_throttle_ms',
 ]);
 
 router.get('/', async (_, res) => {

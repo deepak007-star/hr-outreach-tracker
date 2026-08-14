@@ -1,5 +1,7 @@
-import { useMemo, useState, useCallback } from 'react';
+import { useMemo, useState, useCallback, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext.jsx';
+import { api } from '../api/client.js';
+import ActivityCalendar from './ActivityCalendar.jsx';
 import PrepHub from './PrepHub.jsx';
 import { Button, CardFlush, StatusPill, StatTile, Tabs, EmptyState } from './ui/index.js';
 import {
@@ -152,11 +154,32 @@ export default function Dashboard({
   onAddContact,
   onCompose,
   onGoToContacts,
+  activityKey = 0,
 }) {
   const { user } = useAuth();
   const [companySearch, setCompanySearch] = useState('');
   const [salarySearch,  setSalarySearch]  = useState('');
   const [resourceTab,   setResourceTab]   = useState('portals');
+  const [weekDigest,    setWeekDigest]    = useState(null); // { thisWeek, lastWeek }
+
+  // Week-over-week momentum — the stat tiles below are single-point snapshots
+  // with no sense of trend; this answers "am I doing more or less than last week."
+  useEffect(() => {
+    if (!user) return;
+    api.get('/stats/activity', { params: { days: 14 } }).then(rows => {
+      if (!Array.isArray(rows)) return;
+      const today = new Date();
+      const dayMs = 86_400_000;
+      const cutoff7  = new Date(today - 7 * dayMs).toISOString().slice(0, 10);
+      const cutoff14 = new Date(today - 14 * dayMs).toISOString().slice(0, 10);
+      let thisWeek = 0, lastWeek = 0;
+      for (const r of rows) {
+        if (r.date >= cutoff7)                       thisWeek += r.emails_sent;
+        else if (r.date >= cutoff14 && r.date < cutoff7) lastWeek += r.emails_sent;
+      }
+      setWeekDigest({ thisWeek, lastWeek });
+    }).catch(() => {});
+  }, [user, activityKey]);
 
   const hour     = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
@@ -176,7 +199,10 @@ export default function Dashboard({
   const replied        = pipeline.Replied   || 0;
   const emailed        = (pipeline.Sent || 0) + (pipeline.Opened || 0);
   const sent           = emailed + replied + interviews;
-  const responseRate   = emailed > 0 ? Math.round(((replied + interviews) / emailed) * 100) : 0;
+  // Denominator must be everyone ever emailed (`sent`), not `emailed` — the
+  // latter excludes contacts that already moved to Replied/Interview, which
+  // silently inflated this rate.
+  const responseRate   = sent > 0 ? Math.round(((replied + interviews) / sent) * 100) : 0;
   const activeOutreach = (pipeline.Sent || 0) + (pipeline.Opened || 0) + replied;
 
   // Same UTC-string-without-suffix parsing hazard as NotificationPanel.jsx —
@@ -187,6 +213,36 @@ export default function Dashboard({
     [...contacts].sort((a, b) => toDate(b.date_added) - toDate(a.date_added)).slice(0, 6),
     [contacts],
   );
+
+  // Contacts sitting in Sent/Opened for >7 days with no reply — a concrete
+  // follow-up list, not just the aggregate "keep the momentum" nudge below.
+  const stalledContacts = useMemo(() => {
+    const cutoffMs = Date.now() - 7 * 86_400_000;
+    return contacts
+      .filter(c => ['Sent', 'Opened'].includes(c.status) && c.date_last_contacted)
+      .map(c => ({ ...c, _staleDays: Math.floor((Date.now() - toDate(c.date_last_contacted).getTime()) / 86_400_000) }))
+      .filter(c => toDate(c.date_last_contacted).getTime() < cutoffMs)
+      .sort((a, b) => b._staleDays - a._staleDays)
+      .slice(0, 8);
+  }, [contacts]);
+
+  // Per-source response-rate breakdown — which channel (job-intel vs manual
+  // vs CSV import vs Apify) actually converts, not just where volume comes from.
+  const [showBreakdown, setShowBreakdown] = useState(false);
+  const sourceBreakdown = useMemo(() => {
+    const CONTACTED = new Set(['Sent', 'Opened', 'Replied', 'Interview', 'Rejected', 'Do Not Contact']);
+    const m = {};
+    contacts.forEach(c => {
+      const key = c.email_source || 'manual';
+      const g = m[key] || (m[key] = { key, contacted: 0, replied: 0, total: 0 });
+      g.total++;
+      if (CONTACTED.has(c.status)) g.contacted++;
+      if (['Replied', 'Interview'].includes(c.status)) g.replied++;
+    });
+    return Object.values(m)
+      .map(g => ({ ...g, rate: g.contacted ? Math.round((g.replied / g.contacted) * 100) : 0 }))
+      .sort((a, b) => b.total - a.total);
+  }, [contacts]);
 
   const { companyCount, myCompanies } = useMemo(() => {
     const all = [...new Set(contacts.map(c => c.company).filter(Boolean))];
@@ -268,6 +324,64 @@ export default function Dashboard({
           <StatTile icon={<Building2 size={18} />}      label="Companies"         value={companyCount}       sub="researched"          accent="slate"   />
         </div>
       </div>
+
+      {/* ── Week-over-week digest ────────────────────────────────────────────── */}
+      {weekDigest && (weekDigest.thisWeek > 0 || weekDigest.lastWeek > 0) && (
+        <div className="bg-brand-50 border border-brand-100 rounded-sm px-5 py-3 flex items-center justify-between flex-wrap gap-2">
+          <p className="text-sm text-brand-800">
+            <strong>{weekDigest.thisWeek}</strong> email{weekDigest.thisWeek !== 1 ? 's' : ''} sent this week
+            {weekDigest.lastWeek > 0 && (() => {
+              const delta = weekDigest.thisWeek - weekDigest.lastWeek;
+              const pct = Math.round((delta / weekDigest.lastWeek) * 100);
+              return (
+                <span className={delta >= 0 ? 'text-emerald-700' : 'text-red-600'}>
+                  {' '}({delta >= 0 ? '+' : ''}{pct}% vs last week's {weekDigest.lastWeek})
+                </span>
+              );
+            })()}
+          </p>
+        </div>
+      )}
+
+      {/* ── Activity calendar ─────────────────────────────────────────────────── */}
+      <ActivityCalendar refreshKey={activityKey} />
+
+      {/* ── Response rate by source — which channel actually converts ────────── */}
+      {sourceBreakdown.length > 1 && (
+        <div className="bg-white border border-gray-100 rounded-md shadow-card">
+          <button
+            onClick={() => setShowBreakdown(s => !s)}
+            className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-bold text-gray-500 uppercase tracking-widest hover:bg-gray-50 transition-colors"
+          >
+            <span>Response Rate by Source</span>
+            <span className="text-gray-400">{showBreakdown ? '▲' : '▼'}</span>
+          </button>
+          {showBreakdown && (
+            <div className="px-4 pb-3 overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-gray-400">
+                    <th className="text-left py-1 pr-3">Source</th>
+                    <th className="text-right py-1 pr-3">Total</th>
+                    <th className="text-right py-1 pr-3">Contacted</th>
+                    <th className="text-right py-1">Reply rate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sourceBreakdown.map(g => (
+                    <tr key={g.key} className="border-t border-gray-50">
+                      <td className="py-1.5 pr-3 font-medium text-gray-700 capitalize">{g.key.replace(/_/g, ' ')}</td>
+                      <td className="py-1.5 pr-3 text-right text-gray-500">{g.total}</td>
+                      <td className="py-1.5 pr-3 text-right text-gray-500">{g.contacted}</td>
+                      <td className="py-1.5 text-right text-gray-500">{g.contacted ? `${g.rate}%` : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Mid section: Pipeline + Recent + Pacing ────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
@@ -395,6 +509,42 @@ export default function Dashboard({
           </CardFlush>
         </div>
       </div>
+
+      {/* ── Stalled outreach — concrete follow-up list ───────────────────────── */}
+      {stalledContacts.length > 0 && (
+        <div className="space-y-2.5">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+              Stalled Outreach — {stalledContacts.length} waiting 7+ days
+            </p>
+            <button onClick={onGoToContacts}
+              className="text-xs text-brand-600 hover:text-brand-800 font-medium transition-colors">
+              View all →
+            </button>
+          </div>
+          <CardFlush>
+            <div className="divide-y divide-gray-50">
+              {stalledContacts.map(c => (
+                <button
+                  key={c.id}
+                  onClick={onGoToContacts}
+                  className="w-full flex items-center gap-3 px-5 py-3 hover:bg-gray-50/60 transition-colors text-left"
+                >
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-white text-xs font-semibold shrink-0">
+                    {(c.name || '?')[0].toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-800 truncate">{c.name}</p>
+                    <p className="text-xs text-gray-400 truncate">{[c.title, c.company].filter(Boolean).join(' @ ') || '—'}</p>
+                  </div>
+                  <StatusPill status={c.status} />
+                  <span className="text-xs text-amber-600 font-medium whitespace-nowrap">{c._staleDays}d ago</span>
+                </button>
+              ))}
+            </div>
+          </CardFlush>
+        </div>
+      )}
 
       {/* ── Resources tabbed panel ──────────────────────────────────────────── */}
       <div>

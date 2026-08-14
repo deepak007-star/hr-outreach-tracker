@@ -8,7 +8,9 @@ const db       = require('../db/database');
 const { requireAuth } = require('../middleware/auth');
 const { putResumeFile, getResumeFile, deleteResumeFile } = require('../services/resumeFiles');
 
-const MAX_VAULT = 5;
+// Kept in sync with resume-versions.js's MAX_VERSIONS — both cap the same
+// resume_versions table, raised from 5 now that bytes live in Postgres.
+const MAX_VAULT = 10;
 
 // Permanent resume storage directory
 const RESUME_DIR = path.join(__dirname, '../../uploads/resumes');

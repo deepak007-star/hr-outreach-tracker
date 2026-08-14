@@ -127,6 +127,7 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
   const [attachment,       setAttachment]       = useState(null);
   const [showAttachPicker, setShowAttachPicker] = useState(false);
   const [profile,          setProfile]          = useState(null);
+  const [templateId,       setTemplateId]       = useState(null);
 
   const subjRef      = useRef(null);
   const bodyEditorRef = useRef(null);
@@ -145,6 +146,7 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
     setSubject(t.subject || DEFAULT_SUBJECT);
     setBody(t.body || DEFAULT_BODY);
     if (t.attachment_json) setAttachment(t.attachment_json);
+    setTemplateId(t.id || null);
     toast.success(`Template applied: "${t.name}"`);
   }
 
@@ -187,7 +189,7 @@ export default function ComposeModal({ contacts, onClose, onSent }) {
     setSending(true);
     try {
       const payload = {
-        sends: eligible.map(p => ({ contactId: p.contactId, subject: p.subject, body: p.body })),
+        sends: eligible.map(p => ({ contactId: p.contactId, subject: p.subject, body: p.body, templateId })),
       };
       if (attachment) {
         payload.attachment = {

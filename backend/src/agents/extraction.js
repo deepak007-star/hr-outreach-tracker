@@ -108,6 +108,20 @@ async function extractFromJob(job) {
     }
   }
 
+  // No email found (regex or LLM), but a real Indian phone number was found in
+  // text that already showed outreach intent (WhatsApp-only hiring posts are
+  // common) — keep the posting with a secondary contact channel instead of
+  // discarding it. Never synced into the email-based Contacts table
+  // (contacts.email is required), only surfaced for browsing in Job Intel.
+  if (result.phones.length && hasOutreachIntent(text)) {
+    return {
+      extracted_emails:       '[]',
+      extracted_contact_name: job._author_name || null,
+      extraction_method:      'phone-only',
+      contact_channel:        `whatsapp:${result.phones[0]}`,
+    };
+  }
+
   return {
     extracted_emails:       '[]',
     extracted_contact_name: null,

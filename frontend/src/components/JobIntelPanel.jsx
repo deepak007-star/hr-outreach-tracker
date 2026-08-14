@@ -62,7 +62,13 @@ export default function JobIntelPanel() {
   const [total,     setTotal]     = useState(0);
   const [offset,    setOffset]    = useState(0);
   const [added,     setAdded]     = useState(new Set()); // emails already added this session
+  const [categoryYield, setCategoryYield] = useState([]);
+  const [showYield,     setShowYield]     = useState(false);
   const LIMIT = 30;
+
+  useEffect(() => {
+    api.get('/job-intel/category-yield').then(r => setCategoryYield(Array.isArray(r) ? r : [])).catch(() => {});
+  }, []);
 
   const [q,             setQ]            = useState('');
   const [source,        setSource]       = useState('');
@@ -157,6 +163,43 @@ export default function JobIntelPanel() {
               <div className="text-[10px] text-purple-400">{s.sub}</div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Category yield — which categories/keywords are actually converting */}
+      {categoryYield.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-lg">
+          <button
+            onClick={() => setShowYield(s => !s)}
+            className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50 transition-colors"
+          >
+            <span>📊 Category performance — where scrape effort is paying off</span>
+            <span className="text-gray-400">{showYield ? '▲' : '▼'}</span>
+          </button>
+          {showYield && (
+            <div className="px-3 pb-3 overflow-x-auto">
+              <table className="w-full text-[11px]">
+                <thead>
+                  <tr className="text-gray-400">
+                    <th className="text-left py-1 pr-3">Category</th>
+                    <th className="text-right py-1 pr-3">Scanned</th>
+                    <th className="text-right py-1 pr-3">Email yield</th>
+                    <th className="text-right py-1">Reply/bounce score</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {categoryYield.map(c => (
+                    <tr key={c.category} className="border-t border-gray-50">
+                      <td className="py-1 pr-3 font-medium text-gray-700">{c.label}</td>
+                      <td className="py-1 pr-3 text-right text-gray-500">{c.scanned}</td>
+                      <td className="py-1 pr-3 text-right text-gray-500">{c.emailYieldPct}%</td>
+                      <td className="py-1 text-right text-gray-500">{c.outcomeScore != null ? `${c.outcomeScore}%` : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
@@ -347,6 +390,17 @@ export default function JobIntelPanel() {
                       </div>
                     ))}
                   </div>
+
+                  {/* Phone-only lead (WhatsApp hiring post, no email) — informational
+                      only, can't be added to the HR List since it has no email. */}
+                  {!contact.emails.length && contact.contact_channel?.startsWith('whatsapp:') && (
+                    <div className="mb-2">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[12px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200"
+                        title="No email found — this posting only gave a WhatsApp number. Reach out manually; it can't be added to the HR List.">
+                        📱 WhatsApp: {contact.contact_channel.slice('whatsapp:'.length)}
+                      </span>
+                    </div>
+                  )}
 
                   {/* Contact name if AI found one */}
                   {contact.extracted_contact_name && (

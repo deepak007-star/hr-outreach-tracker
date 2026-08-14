@@ -243,6 +243,40 @@ router.put('/change-password', requireAuth, async (req, res) => {
   res.json({ ok: true, token: freshToken });
 });
 
+// ── DELETE /api/auth/me ────────────────────────────────────────────────────
+// Self-service account deletion — reuses the same cascade admin.js's delete
+// route already had (previously admin-only). Doesn't re-require the password
+// (same reasoning as change-password above: requireAuth's session token is
+// already sufficient proof, and some accounts — e.g. created via the Google
+// OAuth connect flow in oauth.js, see line ~137 there — have a random,
+// never-seen-by-the-user password_hash, so a password gate would make
+// deletion permanently impossible for them). Instead requires typing the
+// account's own email as a deliberate, accidental-click-proof confirmation.
+router.delete('/me', requireAuth, async (req, res) => {
+  const { confirmEmail } = req.body;
+  const user = await db.prepare('SELECT id, email, role FROM users WHERE id = ?').get(req.user.userId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  if (!confirmEmail || confirmEmail.trim().toLowerCase() !== user.email.toLowerCase()) {
+    return res.status(400).json({ error: 'Type your account email exactly to confirm deletion.' });
+  }
+
+  if (user.role === 'admin') {
+    const { cnt } = await db.prepare("SELECT COUNT(*) as cnt FROM users WHERE role = 'admin'").get();
+    if (parseInt(cnt) <= 1) {
+      return res.status(400).json({ error: 'You are the only admin — promote another user to admin before deleting this account.' });
+    }
+  }
+
+  try {
+    const { deleteUserCascade } = require('../lib/deleteUser');
+    await deleteUserCascade(user.id);
+    res.clearCookie('hr_session', CLEAR_COOKIE_OPTS);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── GET /api/auth/whoami  (admin only) ────────────────────────────────────
 const { requireAdmin } = require('../middleware/auth');
 router.get('/whoami', requireAuth, requireAdmin, async (req, res) => {

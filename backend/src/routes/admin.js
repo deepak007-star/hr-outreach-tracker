@@ -5,6 +5,7 @@ const bcrypt  = require('bcryptjs');
 const db      = require('../db/database');
 const { requireAuth, requireAdmin, invalidatePermCache } = require('../middleware/auth');
 const { decrypt } = require('../services/vaultCrypto');
+const { deleteUserCascade } = require('../lib/deleteUser');
 
 const router = express.Router();
 router.use(requireAuth, requireAdmin);
@@ -13,9 +14,13 @@ const VALID_PLANS = ['guest', 'demo', 'basic', 'advanced'];
 
 // GET /api/admin/users
 router.get('/users', async (req, res) => {
-  const users = await db.prepare(
-    'SELECT id, name, email, plan, role, created_at FROM users ORDER BY created_at ASC'
-  ).all();
+  const users = await db.prepare(`
+    SELECT u.id, u.name, u.email, u.plan, u.role, u.created_at,
+           s.status AS subscription_status, s.current_period_end
+    FROM users u
+    LEFT JOIN subscriptions s ON s.user_id = u.id
+    ORDER BY u.created_at ASC
+  `).all();
   res.json(users);
 });
 
@@ -34,11 +39,31 @@ router.put('/users/:id/role', async (req, res) => {
   res.json({ ok: true });
 });
 
-// PUT /api/admin/users/:id/plan
+// PUT /api/admin/users/:id/plan — the single plan-override endpoint (a
+// duplicate used to also live at payments.js's PUT /admin/plan/:userId, which
+// only touched users.plan and never the subscriptions row — an admin override
+// via that route got silently reverted the next time /auth/me's expiry check
+// ran, since it saw no matching active subscription). This one keeps both in sync.
 router.put('/users/:id/plan', async (req, res) => {
   const { plan } = req.body;
   if (!VALID_PLANS.includes(plan)) return res.status(400).json({ error: 'Invalid plan' });
+  const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
   await db.prepare('UPDATE users SET plan = ? WHERE id = ?').run(plan, req.params.id);
+
+  if (plan === 'basic' || plan === 'advanced') {
+    // Manual admin grant — give it a far-future period end so the automatic
+    // expiry-downgrade job (index.js) doesn't immediately revert this.
+    const periodEnd = new Date(Date.now() + 365 * 86_400_000).toISOString().replace('T', ' ').slice(0, 19);
+    await db.prepare(`
+      INSERT INTO subscriptions (id, user_id, plan, status, current_period_end, updated_at)
+      VALUES (?, ?, ?, 'active', ?, ?)
+      ON CONFLICT (user_id) DO UPDATE SET
+        plan = EXCLUDED.plan, status = 'active', current_period_end = EXCLUDED.current_period_end, updated_at = EXCLUDED.updated_at
+    `).run(require('crypto').randomUUID(), req.params.id, plan, periodEnd, now);
+  } else {
+    // Downgrade to guest/demo — clear any subscription so it can't resurrect the plan later.
+    await db.prepare(`UPDATE subscriptions SET status = 'cancelled', updated_at = ? WHERE user_id = ?`).run(now, req.params.id);
+  }
   res.json({ ok: true });
 });
 
@@ -47,26 +72,7 @@ router.delete('/users/:id', async (req, res) => {
   if (req.params.id === req.user.userId)
     return res.status(400).json({ error: "You can't delete your own account" });
   try {
-    const uid = req.params.id;
-    // Delete in FK-safe order — tables without ON DELETE CASCADE must go first
-    await db.prepare('DELETE FROM gmail_tracked_emails WHERE user_id = ?').run(uid);
-    await db.prepare('DELETE FROM gmail_tokens WHERE user_id = ?').run(uid);
-    await db.prepare('DELETE FROM oauth_accounts WHERE user_id = ?').run(uid);
-    await db.prepare('DELETE FROM delivery_billing_stats WHERE user_id = ?').run(uid);
-    await db.prepare('UPDATE email_log SET user_id = NULL WHERE user_id = ?').run(uid);
-    await db.prepare('DELETE FROM notifications WHERE user_id = ?').run(uid);
-    await db.prepare('DELETE FROM profiles WHERE user_id = ?').run(uid);
-    // Contacts belong to the user — nullify email_log FK first, then delete
-    const userContactIds = await db.prepare('SELECT id FROM contacts WHERE user_id = ?').all(uid);
-    if (userContactIds.length) {
-      const ph = userContactIds.map(() => '?').join(',');
-      const ids = userContactIds.map(r => r.id);
-      await db.prepare(`UPDATE email_log SET contact_id = NULL WHERE contact_id IN (${ph})`).run(...ids);
-      await db.prepare(`DELETE FROM contacts WHERE user_id = ?`).run(uid);
-    }
-    // Clean up reminder settings keys for this user (reminder_<userId> and reminder_email_sent_<userId>_*)
-    await db.prepare("DELETE FROM settings WHERE key LIKE ?").run(`reminder_${uid}%`);
-    await db.prepare('DELETE FROM users WHERE id = ?').run(uid);
+    await deleteUserCascade(req.params.id);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

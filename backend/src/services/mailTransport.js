@@ -71,6 +71,31 @@ async function sendViaGmailApi(oauthRow, mailOpts) {
   }
 }
 
+// Proactive check for a background job — attempts a token refresh (no email
+// sent, no Gmail send quota touched) and clears the stored token if it's dead,
+// same as sendViaGmailApi's reactive cleanup but before the user hits it mid-batch.
+async function checkOAuthTokenHealth(oauthRow) {
+  const oauth2 = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET, process.env.GOOGLE_REDIRECT_URI
+  );
+  oauth2.setCredentials({ refresh_token: decrypt(oauthRow.refresh_token) });
+  try {
+    await oauth2.getAccessToken();
+    return true;
+  } catch (err) {
+    const msg = (err.message || '').toLowerCase();
+    if (msg.includes('invalid_grant') || err.code === 401 || err.status === 401) {
+      try {
+        await db.prepare("DELETE FROM oauth_accounts WHERE user_id = ? AND provider = 'google'").run(oauthRow.user_id);
+      } catch (dbErr) {
+        console.error('[mailTransport] Failed to clear stale OAuth token:', dbErr.message);
+      }
+      return false;
+    }
+    return true; // transient/network error — don't punish the user for our own connectivity blip
+  }
+}
+
 // Returns { transport, fromEmail, fromName } for userId, falling back to
 // legacy SMTP if no OAuth account is connected, or null if nothing is set up.
 async function getTransportForUser(userId) {
@@ -94,4 +119,4 @@ async function getTransportForUser(userId) {
   return null;
 }
 
-module.exports = { getTransportForUser, getLegacySmtpConfig, createLegacyTransport };
+module.exports = { getTransportForUser, getLegacySmtpConfig, createLegacyTransport, checkOAuthTokenHealth };

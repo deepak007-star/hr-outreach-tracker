@@ -11,6 +11,7 @@ export default function ImportModal({ onClose, onImported }) {
   const [dragging, setDragging] = useState(false);
   const [result,   setResult]   = useState(null);
   const [loading,  setLoading]  = useState(false);
+  const [updateExisting, setUpdateExisting] = useState(false);
   const inputRef = useRef();
 
   const upload = async (file) => {
@@ -23,6 +24,7 @@ export default function ImportModal({ onClose, onImported }) {
     if (inputRef.current) inputRef.current.value = '';
     const fd = new FormData();
     fd.append('file', file);
+    fd.append('updateExisting', updateExisting ? 'true' : 'false');
     try {
       const res = await fetch(`${API_ROOT}/api/contacts/import`, {
         method: 'POST',
@@ -33,7 +35,9 @@ export default function ImportModal({ onClose, onImported }) {
       try { data = await res.json(); } catch { data = {}; }
       if (!res.ok) throw new Error(data.error || `Import failed (${res.status})`);
       setResult(data);
-      toast.success(`Imported ${data.imported} contact${data.imported !== 1 ? 's' : ''} — Excel updated`);
+      const parts = [`Imported ${data.imported}`];
+      if (data.updated) parts.push(`updated ${data.updated}`);
+      toast.success(`${parts.join(', ')} — Excel updated`);
     } catch (err) {
       toast.error(err.message || 'Import failed');
     } finally {
@@ -54,8 +58,20 @@ export default function ImportModal({ onClose, onImported }) {
             <p className="font-semibold">Required columns:</p>
             <p><span className="font-medium">name</span>, <span className="font-medium">email</span></p>
             <p className="text-brand-600">Optional: title, company, status, notes, tags, source_url (or url)</p>
-            <p className="text-brand-500 mt-1">Duplicate emails are silently skipped.</p>
+            <p className="text-brand-500 mt-1">
+              {updateExisting ? 'Duplicate emails will be updated with the new row\'s data.' : 'Duplicate emails are skipped.'}
+            </p>
           </div>
+
+          <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={updateExisting}
+              onChange={e => setUpdateExisting(e.target.checked)}
+              className="rounded border-gray-300"
+            />
+            Update existing contacts (overwrite name/title/company/notes/tags for matching emails)
+          </label>
 
           <div
             className={`border-2 border-dashed rounded-sm p-10 text-center cursor-pointer transition-colors
@@ -85,6 +101,12 @@ export default function ImportModal({ onClose, onImported }) {
                 <span className="text-gray-600">Imported</span>
                 <span className="font-semibold text-green-600">{result.imported}</span>
               </div>
+              {result.updated > 0 && (
+                <div className="px-4 py-2 flex justify-between">
+                  <span className="text-gray-600">Updated</span>
+                  <span className="font-semibold text-blue-600">{result.updated}</span>
+                </div>
+              )}
               <div className="px-4 py-2 flex justify-between">
                 <span className="text-gray-600">Skipped (missing fields or duplicate email)</span>
                 <span className="font-medium text-yellow-600">{result.skipped}</span>

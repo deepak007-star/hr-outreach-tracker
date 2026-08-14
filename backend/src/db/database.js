@@ -704,6 +704,22 @@ async function initialize() {
   // Razorpay payment gateway columns (added after subscriptions table is guaranteed to exist)
   await addCol('subscriptions', 'razorpay_subscription_id', `TEXT`);
   await addCol('subscriptions', 'razorpay_payment_id',      `TEXT`);
+  // Per-viewer follow-up reminder for a shared contact — lives alongside status/notes
+  // in contact_user_state rather than contacts, since it's the viewer's own plan, not
+  // shared identity.
+  await addCol('contact_user_state', 'follow_up_at', `TEXT`);
+  // Which template a send started from, for reply/bounce-rate-by-template stats.
+  await addCol('email_log', 'template_id', `TEXT`);
+  // Written whenever a contact's per-user status changes (see contactVisibility.js's
+  // upsertContactState) — unlocks time-in-stage views that were previously impossible
+  // since only sent_at existed. Lives on contact_user_state, not contacts, because
+  // status itself is per-viewer (contacts.status is a legacy column frozen at
+  // creation time and never updated again — see contacts.js's PUT /:id, which
+  // routes all status writes through contact_user_state instead).
+  await addCol('contact_user_state', 'status_changed_at', `TEXT`);
+  // Secondary contact channel for WhatsApp-only hiring posts (no email present) —
+  // see agents/storage.js.
+  await addCol('job_postings', 'contact_channel', `TEXT`);
 
   // ── One-time cleanup: contacts where the name field was imported as an email address.
   // Extracts the local part (before @) split on the first dot as a best-effort name.

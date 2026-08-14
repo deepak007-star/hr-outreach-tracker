@@ -16,13 +16,14 @@ router.use(requireAuth);
 // Shape a joined row (contacts c + this user's state s) into the API contact,
 // overlaying the viewer's own status/notes onto the shared identity.
 function shapeContact(r, userId) {
-  const { my_status, my_notes, ...c } = r;
+  const { my_status, my_notes, my_follow_up_at, ...c } = r;
   return {
     ...c,
-    status:    my_status || 'New',
-    notes:     my_notes ?? null,
-    tags:      JSON.parse(c.tags || '[]'),
-    is_shared: c.user_id !== userId,   // added by another user
+    status:       my_status || 'New',
+    notes:        my_notes ?? null,
+    follow_up_at: my_follow_up_at ?? null,
+    tags:         JSON.parse(c.tags || '[]'),
+    is_shared:    c.user_id !== userId,   // added by another user
   };
 }
 
@@ -40,30 +41,40 @@ const upload = multer({
 
 const VALID_STATUSES = ['New', 'Drafted', 'Sent', 'Opened', 'Replied', 'Interview', 'Rejected', 'Do Not Contact'];
 
+// Shared filter-building logic for GET / and GET /export, so exporting
+// respects the same status/source/search/tag(s) filters as the visible table
+// instead of always dumping the whole pool. `tags` accepts a comma-separated
+// list and AND-matches (a contact must carry every listed tag).
+function buildContactFilters({ status, search, source, tag, tags }, userId, pool) {
+  const where = [];
+  const p = [];
+  if (!pool)  { where.push('c.user_id = ?'); p.push(userId); }
+  if (status) { where.push(`COALESCE(s.status, 'New') = ?`); p.push(status); }
+  if (source) { where.push('c.email_source = ?'); p.push(source); }
+  if (search) {
+    where.push('(c.name ILIKE ? OR c.company ILIKE ? OR c.email ILIKE ? OR c.title ILIKE ?)');
+    const s = `%${search}%`;
+    p.push(s, s, s, s);
+  }
+  const tagList = tags ? String(tags).split(',').map(t => t.trim()).filter(Boolean) : (tag ? [tag] : []);
+  for (const t of tagList) { where.push('c.tags ILIKE ?'); p.push(`%"${t}"%`); }
+  return { where, params: p };
+}
+
 // ── GET /api/contacts  ─────────────────────────────────────────────────────
 router.get('/', async (req, res) => {
-  const { status, search, source, tag } = req.query;
+  const { status, search, source, tag, tags } = req.query;
   const userId = req.user.userId;
   const pool   = canSeePool(req.user);   // subscribers/admins see everyone's contacts
 
   // Join this user's own state so status/notes reflect the viewer, not the owner
   let q = `
-    SELECT c.*, s.status AS my_status, s.notes AS my_notes
+    SELECT c.*, s.status AS my_status, s.notes AS my_notes, s.follow_up_at AS my_follow_up_at
     FROM contacts c
     LEFT JOIN contact_user_state s ON s.contact_id = c.id AND s.user_id = ?
   `;
-  const p = [userId];
-  const where = [];
-
-  if (!pool)   { where.push('c.user_id = ?'); p.push(userId); }
-  if (status)  { where.push(`COALESCE(s.status, 'New') = ?`); p.push(status); }
-  if (source)  { where.push('c.email_source = ?'); p.push(source); }
-  if (search)  {
-    where.push('(c.name ILIKE ? OR c.company ILIKE ? OR c.email ILIKE ? OR c.title ILIKE ?)');
-    const s = `%${search}%`;
-    p.push(s, s, s, s);
-  }
-  if (tag)     { where.push('c.tags ILIKE ?'); p.push(`%"${tag}"%`); }
+  const { where, params: wp } = buildContactFilters({ status, search, source, tag, tags }, userId, pool);
+  const p = [userId, ...wp];
 
   if (where.length) q += ' WHERE ' + where.join(' AND ');
   q += ' ORDER BY c.date_added DESC';
@@ -105,25 +116,61 @@ router.get('/tags', async (req, res) => {
   }
 });
 
+// ── GET /api/contacts/follow-ups/due  ──────────────────────────────────────
+// This viewer's contacts with a follow_up_at reminder that has arrived —
+// follow_up_at lives per-viewer in contact_user_state, so setting one on a
+// shared-pool contact never affects another user's reminders.
+router.get('/follow-ups/due', async (req, res) => {
+  const userId = req.user.userId;
+  const pool   = canSeePool(req.user);
+  const now    = new Date().toISOString().replace('T', ' ').slice(0, 19);
+  try {
+    const rows = await db.prepare(`
+      SELECT c.*, s.status AS my_status, s.notes AS my_notes, s.follow_up_at AS my_follow_up_at
+      FROM contacts c
+      JOIN contact_user_state s ON s.contact_id = c.id AND s.user_id = ?
+      WHERE s.follow_up_at IS NOT NULL AND s.follow_up_at <= ? ${pool ? '' : 'AND c.user_id = ?'}
+      ORDER BY s.follow_up_at ASC
+    `).all(...(pool ? [userId, now] : [userId, now, userId]));
+    res.json(rows.map(r => shapeContact(r, userId)));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── GET /api/contacts/export  ──────────────────────────────────────────────
 // Generates the Excel on-demand for the contacts the user can see, with the
 // viewer's own status/notes overlaid.
 router.get('/export', async (req, res) => {
+  const { status, search, source, tag, tags, format } = req.query;
   const userId = req.user.userId;
   const pool   = canSeePool(req.user);
   try {
-    const rows = await db.prepare(`
-      SELECT c.*, s.status AS my_status, s.notes AS my_notes
+    let q = `
+      SELECT c.*, s.status AS my_status, s.notes AS my_notes, s.follow_up_at AS my_follow_up_at
       FROM contacts c
       LEFT JOIN contact_user_state s ON s.contact_id = c.id AND s.user_id = ?
-      ${pool ? '' : 'WHERE c.user_id = ?'}
-      ORDER BY c.date_added DESC
-    `).all(...(pool ? [userId] : [userId, userId]));
+    `;
+    const { where, params: wp } = buildContactFilters({ status, search, source, tag, tags }, userId, pool);
+    const p = [userId, ...wp];
+    if (where.length) q += ' WHERE ' + where.join(' AND ');
+    q += ' ORDER BY c.date_added DESC';
+
+    const rows = await db.prepare(q).all(...p);
     const contacts = rows.map(r => shapeContact(r, userId));
     // Built in-memory (not the shared EXCEL_PATH file) so a concurrent
     // syncExcel() write from another user's request can't race with this
     // download and serve them someone else's contact list.
     const buf = await buildExcelBuffer(contacts);
+    if (format === 'csv') {
+      const ExcelJS2 = require('exceljs');
+      const wb = new ExcelJS2.Workbook();
+      await wb.xlsx.load(buf);
+      const csvBuf = await wb.csv.writeBuffer();
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', 'attachment; filename="HR_Outreach_Tracker.csv"');
+      return res.send(csvBuf);
+    }
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', 'attachment; filename="HR_Outreach_Tracker.xlsx"');
     res.send(buf);
@@ -138,6 +185,7 @@ router.post('/import', upload.single('file'), async (req, res) => {
   const userId  = req.user.userId;
   const filePath = req.file.path;
   const isCSV    = /\.csv$/i.test(req.file.originalname);
+  const updateExisting = req.body.updateExisting === 'true';
 
   try {
     const wb = new ExcelJS.Workbook();
@@ -166,14 +214,33 @@ router.post('/import', upload.single('file'), async (req, res) => {
     const getCell = (row, colIdx) =>
       colIdx < 0 ? '' : (row.getCell(colIdx + 1).value?.toString().trim() || '');
 
-    const stmt = db.prepare(`
+    // RETURNING id — on an update, ON CONFLICT DO UPDATE keeps the EXISTING row's
+    // primary key, not the freshly generated one bound as a param below, so the
+    // real id must be read back rather than assumed (otherwise upsertState()
+    // would write per-user status/notes against a contact id that doesn't exist).
+    const stmt = db.prepare(updateExisting ? `
+      INSERT INTO contacts
+        (id, user_id, name, title, company, email, email_source, email_confidence, status, notes, tags, source_url)
+      VALUES (?, ?, ?, ?, ?, ?, 'csv_import', 'unknown', ?, ?, ?, ?)
+      ON CONFLICT (email, user_id) DO UPDATE SET
+        name = EXCLUDED.name, title = EXCLUDED.title, company = EXCLUDED.company,
+        notes = EXCLUDED.notes, tags = EXCLUDED.tags, source_url = EXCLUDED.source_url
+      RETURNING id
+    ` : `
       INSERT INTO contacts
         (id, user_id, name, title, company, email, email_source, email_confidence, status, notes, tags, source_url)
       VALUES (?, ?, ?, ?, ?, ?, 'csv_import', 'unknown', ?, ?, ?, ?)
       ON CONFLICT (email, user_id) DO NOTHING
+      RETURNING id
     `);
 
-    let imported = 0, skipped = 0;
+    // Pre-fetch existing emails so imported/updated counts stay meaningful
+    // (ON CONFLICT DO UPDATE reports a row change for both new and updated rows).
+    const existingEmails = new Set(
+      (await db.prepare('SELECT email FROM contacts WHERE user_id = ?').all(userId)).map(r => r.email)
+    );
+
+    let imported = 0, updated = 0, skipped = 0;
     const errors = [];
 
     const parsedRows = [];
@@ -202,14 +269,14 @@ router.post('/import', upload.single('file'), async (req, res) => {
 
     for (const r of parsedRows) {
       try {
-        const id = crypto.randomUUID();
-        const result = await stmt.run(
-          id, userId, r.name, r.title, r.company,
+        const newId = crypto.randomUUID();
+        const result = await stmt.get(
+          newId, userId, r.name, r.title, r.company,
           r.email, r.status, r.notes, JSON.stringify(r.tags), r.source_url
         );
-        if (result.changes > 0) {
-          imported++;
-          await upsertState(id, userId, { status: r.status, notes: r.notes });
+        if (result?.id) {
+          if (existingEmails.has(r.email)) updated++; else imported++;
+          await upsertState(result.id, userId, { status: r.status, notes: r.notes });
         } else skipped++;
       } catch (e) {
         errors.push({ row: r.rowNum, email: r.email, error: e.message });
@@ -217,7 +284,7 @@ router.post('/import', upload.single('file'), async (req, res) => {
     }
 
     fs.unlinkSync(filePath);
-    res.json({ imported, skipped, errors });
+    res.json({ imported, updated, skipped, errors });
 
   } catch (err) {
     try { fs.unlinkSync(filePath); } catch {}
@@ -275,13 +342,44 @@ router.post('/bulk-status', async (req, res) => {
   }
 });
 
+// ── POST /api/contacts/bulk-tags  ──────────────────────────────────────────
+// Tags are shared-identity (like name/company), so only the contact's owner
+// may change them — same rule PUT /:id already enforces for IDENTITY fields.
+router.post('/bulk-tags', async (req, res) => {
+  const { ids, tags, mode = 'add' } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0 || !Array.isArray(tags) || tags.length === 0)
+    return res.status(400).json({ error: 'ids[] and tags[] required' });
+  if (!['add', 'remove'].includes(mode))
+    return res.status(400).json({ error: 'mode must be "add" or "remove"' });
+
+  const userId = req.user.userId;
+  try {
+    const ph = ids.map(() => '?').join(',');
+    const rows = await db.prepare(`SELECT id, tags FROM contacts WHERE id IN (${ph}) AND user_id = ?`).all(...ids, userId);
+
+    let updated = 0;
+    for (const r of rows) {
+      let current = [];
+      try { current = JSON.parse(r.tags || '[]'); } catch {}
+      const next = mode === 'add'
+        ? [...new Set([...current, ...tags])]
+        : current.filter(t => !tags.includes(t));
+      await db.prepare('UPDATE contacts SET tags = ? WHERE id = ?').run(JSON.stringify(next), r.id);
+      updated++;
+    }
+    res.json({ ok: true, updated });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── GET /api/contacts/:id  ─────────────────────────────────────────────────
 router.get('/:id', async (req, res) => {
   const userId = req.user.userId;
   const pool   = canSeePool(req.user);
   try {
     const r = await db.prepare(`
-      SELECT c.*, s.status AS my_status, s.notes AS my_notes
+      SELECT c.*, s.status AS my_status, s.notes AS my_notes, s.follow_up_at AS my_follow_up_at
       FROM contacts c
       LEFT JOIN contact_user_state s ON s.contact_id = c.id AND s.user_id = ?
       WHERE c.id = ? ${pool ? '' : 'AND c.user_id = ?'}
@@ -356,8 +454,9 @@ router.put('/:id', async (req, res) => {
       }
     }
     const stateUpdate = {};
-    if (req.body.status !== undefined) stateUpdate.status = req.body.status;
-    if (req.body.notes  !== undefined) stateUpdate.notes  = req.body.notes;
+    if (req.body.status       !== undefined) stateUpdate.status       = req.body.status;
+    if (req.body.notes        !== undefined) stateUpdate.notes        = req.body.notes;
+    if (req.body.follow_up_at !== undefined) stateUpdate.follow_up_at = req.body.follow_up_at;
 
     if (!sets.length && !Object.keys(stateUpdate).length)
       return res.status(400).json({ error: 'No valid fields to update' });
@@ -374,7 +473,7 @@ router.put('/:id', async (req, res) => {
     }
 
     const r = await db.prepare(`
-      SELECT c.*, s.status AS my_status, s.notes AS my_notes
+      SELECT c.*, s.status AS my_status, s.notes AS my_notes, s.follow_up_at AS my_follow_up_at
       FROM contacts c
       LEFT JOIN contact_user_state s ON s.contact_id = c.id AND s.user_id = ?
       WHERE c.id = ?

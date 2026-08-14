@@ -224,6 +224,40 @@ async function webhookHandler(req, res) {
         );
         console.log(`[Payments] payment.captured: user=${userId} plan=${plan}`);
       }
+    } else if (type === 'payment.failed') {
+      // Auto-renewal failed (expired card, insufficient funds, etc). Don't
+      // downgrade immediately — Razorpay retries failed renewals — but flag it
+      // so the user can fix their payment method before access actually lapses.
+      const payment = event.payload?.payment?.entity;
+      const userId  = payment?.notes?.userId;
+      if (userId) {
+        const now = new Date().toISOString().slice(0, 19);
+        await database.prepare(
+          "UPDATE subscriptions SET status = 'past_due', updated_at = ? WHERE user_id = ?"
+        ).run(now, userId);
+        await database.prepare(
+          `INSERT INTO notifications (id, user_id, type, title, body) VALUES (?, ?, 'warning', ?, ?)`
+        ).run(
+          randomUUID(), userId,
+          'Payment failed',
+          'Your recent subscription payment failed. Please update your payment method in Plans to avoid losing access.'
+        );
+        console.log(`[Payments] payment.failed: user=${userId}`);
+      }
+    } else if (type === 'refund.processed' || type === 'refund.created') {
+      // A refund means the user got their money back — downgrade immediately
+      // rather than waiting for the (now-meaningless) current_period_end.
+      const refund  = event.payload?.refund?.entity;
+      const payment = event.payload?.payment?.entity;
+      const userId  = payment?.notes?.userId || refund?.notes?.userId;
+      if (userId) {
+        const now = new Date().toISOString().slice(0, 19);
+        await database.prepare(
+          "UPDATE subscriptions SET status = 'refunded', updated_at = ? WHERE user_id = ?"
+        ).run(now, userId);
+        await database.prepare("UPDATE users SET plan = 'demo' WHERE id = ?").run(userId);
+        console.log(`[Payments] refund processed: user=${userId} — downgraded to demo`);
+      }
     }
 
     res.json({ received: true });
@@ -248,17 +282,12 @@ router.get('/all', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-router.put('/admin/plan/:userId', requireAuth, requireAdmin, async (req, res) => {
-  const { plan } = req.body;
-  const validPlans = ['guest', 'demo', 'basic', 'advanced'];
-  if (!validPlans.includes(plan)) return res.status(400).json({ error: 'Invalid plan' });
-  try {
-    await database.prepare('UPDATE users SET plan = ? WHERE id = ?').run(plan, req.params.userId);
-    res.json({ success: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
+// Plan overrides live at admin.js's PUT /api/admin/users/:id/plan — this used
+// to be a second, duplicate endpoint that only touched users.plan (never the
+// subscriptions row), so a change made here got silently reverted the next
+// time the expiry-downgrade job or /auth/me ran. Removed rather than kept in
+// sync with two copies of the same logic; nothing in the frontend called this
+// path (it called admin.js's route directly).
 
 // POST /api/payments/webhook — must be mounted on raw body (index.js preserves rawBody)
 router.post('/webhook', webhookHandler);

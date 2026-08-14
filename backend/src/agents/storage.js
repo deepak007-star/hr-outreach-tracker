@@ -4,15 +4,16 @@ const db = require('../db/database');
 
 /**
  * Write one fully-processed posting to job_postings.
- * Only persists rows where at least one email was extracted —
- * the pipeline's goal is HR contacts, not a job board.
+ * Only persists rows where at least one email was extracted, OR a secondary
+ * contact channel (e.g. WhatsApp phone, see extraction.js's phone fallback)
+ * was found — the pipeline's goal is real HR contacts, not a job board, but a
+ * phone-only lead is still a real, non-hallucinated contact worth surfacing.
  * Returns 'inserted' (truly new row) | 'updated' (existing row refreshed) | 'skipped' | 'no_contact'.
  */
 async function storeJob(job) {
-  // Gate: only keep rows that have a real extracted email
   let emails = [];
   try { emails = JSON.parse(job.extracted_emails || '[]'); } catch {}
-  if (!emails.length) return 'no_contact';
+  if (!emails.length && !job.contact_channel) return 'no_contact';
   const id = randomUUID();
   try {
     // RETURNING (xmax = 0) AS is_new: xmax=0 means a fresh INSERT; xmax!=0 means ON CONFLICT UPDATE
@@ -23,8 +24,8 @@ async function storeJob(job) {
         extracted_emails, extracted_contact_name, extraction_method,
         is_relevant, seniority, classification_confidence, classification_reason,
         fingerprint, duplicate_of,
-        needs_review, review_reason, category, embedding
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        needs_review, review_reason, category, embedding, contact_channel
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT (source, external_id) DO UPDATE SET
         description           = EXCLUDED.description,
         extracted_emails      = COALESCE(NULLIF(EXCLUDED.extracted_emails,'[]'), job_postings.extracted_emails),
@@ -36,7 +37,8 @@ async function storeJob(job) {
         needs_review          = EXCLUDED.needs_review,
         review_reason         = EXCLUDED.review_reason,
         category              = COALESCE(EXCLUDED.category, job_postings.category),
-        embedding             = COALESCE(EXCLUDED.embedding, job_postings.embedding)
+        embedding             = COALESCE(EXCLUDED.embedding, job_postings.embedding),
+        contact_channel       = COALESCE(EXCLUDED.contact_channel, job_postings.contact_channel)
       RETURNING (xmax = 0) AS is_new
     `).get(
       id,
@@ -62,6 +64,7 @@ async function storeJob(job) {
       job.review_reason    || null,
       job.category         || null,
       job.embedding         ? JSON.stringify(job.embedding) : null,
+      job.contact_channel   || null,
     );
     return row?.is_new ? 'inserted' : 'updated';
   } catch (e) {

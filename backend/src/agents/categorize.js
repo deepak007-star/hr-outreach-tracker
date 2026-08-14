@@ -27,6 +27,10 @@ const GENERIC = [
 
 const ALL_CATEGORIES = [...SPECIFIC, ...GENERIC];
 const CATEGORY_LABELS = Object.fromEntries(ALL_CATEGORIES.map(c => [c.key, c.label]));
+// Reverse lookup — contacts.tags stores the human label (see orchestrator.js's
+// syncJobIntelContacts), but categoryYield.js's weights are keyed by the
+// short key categorize() returns, so outcome tracking needs to translate back.
+const LABEL_TO_KEY = Object.fromEntries(ALL_CATEGORIES.map(c => [c.label, c.key]));
 
 function tokenize(str) {
   return (str || '').toLowerCase().match(/[a-z0-9+.#/]+/g) || [];
@@ -47,4 +51,19 @@ function categorize(job) {
   return best ? best.key : 'general';
 }
 
-module.exports = { categorize, CATEGORY_LABELS, ALL_CATEGORIES };
+// Third-party staffing/consultancy reposts are a common LinkedIn spam pattern —
+// same job re-shared by a dozen agencies, each producing a low-value generic
+// inbox contact instead of the actual hiring company. Soft signal only (a
+// filterable tag), never a hard drop — some staffing contacts are still worth
+// having.
+const STAFFING_KEYWORDS = [
+  'staffing', 'consultancy', 'consultants', 'recruitment', 'recruiters',
+  'manpower', 'outsourcing', 'it services', 'talent solutions', 'hr solutions',
+  'placement', 'headhunt',
+];
+function isLikelyStaffingAgency(companyName) {
+  const lc = (companyName || '').toLowerCase();
+  return STAFFING_KEYWORDS.some(k => lc.includes(k));
+}
+
+module.exports = { categorize, CATEGORY_LABELS, ALL_CATEGORIES, LABEL_TO_KEY, isLikelyStaffingAgency };

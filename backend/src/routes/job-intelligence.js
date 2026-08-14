@@ -5,7 +5,7 @@ const db            = require('../db/database');
 const { requireAuth, requireAdmin, SECRET } = require('../middleware/auth');
 const { runPipeline, syncJobIntelContacts, getConfig, saveConfig, DEFAULT_CONFIG } = require('../agents/orchestrator');
 const { tokenize, keywordTokens } = require('../agents/relevanceFilter');
-const { categorize } = require('../agents/categorize');
+const { categorize, CATEGORY_LABELS } = require('../agents/categorize');
 const { lightweightSkillMatch, parseSkills } = require('../lib/skillMatch');
 const { getUserSkillEmbeddings, matchAgainstPostingEmbedding } = require('../lib/embeddingMatch');
 const DEFAULT_KEYWORDS = require('../agents/defaultKeywords');
@@ -74,7 +74,10 @@ function relevanceScore(job, { prefTitles, skillMatch, skillCategory }) {
 router.get('/contacts', softAuth, async (req, res) => {
   try {
     const { q, source, category, since, min_skill_match, limit = 50, offset = 0 } = req.query;
-    const conditions = [`extracted_emails != '[]'`];
+    // Also surface phone-only leads (WhatsApp-only hiring posts with no email) —
+    // read-only/informational here; they never get synced into the Contacts
+    // table since that's an email-outreach tool and these have no real email.
+    const conditions = [`(extracted_emails != '[]' OR contact_channel IS NOT NULL)`];
     const params     = [];
 
     if (q) {
@@ -180,12 +183,50 @@ router.get('/contacts', softAuth, async (req, res) => {
   }
 });
 
+// ── GET /api/job-intel/status-badge ── lightweight, non-admin health signal ──
+// The full /health report below is admin-only (source-level detail), but a
+// solo user browsing the app has no way to tell scraping is degraded without
+// opening the Job Intel tab. This exposes just the ok/low_yield/proxy_pool_dead
+// flag so the main nav can show a badge.
+router.get('/status-badge', async (req, res) => {
+  try {
+    const row = await db.prepare(`SELECT value FROM settings WHERE key = 'antibot_status'`).get();
+    let parsed = null;
+    try { parsed = JSON.parse(row?.value || 'null'); } catch {}
+    res.json({ status: parsed?.status || 'ok' });
+  } catch (e) {
+    res.json({ status: 'ok' });
+  }
+});
+
 // ── GET /api/job-intel/categories ── distinct tech-stack category list + counts ──
 router.get('/categories', async (req, res) => {
   try {
     const rows = await db.prepare(
       `SELECT category, COUNT(*) as count FROM job_postings WHERE extracted_emails != '[]' AND category IS NOT NULL GROUP BY category ORDER BY count DESC`
     ).all();
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── GET /api/job-intel/category-yield ── which categories actually convert ──
+// Was previously admin-only visibility (buried in the Admin Panel's health
+// card) — surfaced here too so the person actually browsing Job Intel
+// contacts can see which categories/keywords are worth focusing on next.
+router.get('/category-yield', softAuth, async (req, res) => {
+  try {
+    const { getYieldWeights, getOutcomeWeights, getStats } = require('../lib/categoryYield');
+    const [stats, emailYield, outcomeYield] = await Promise.all([getStats(), getYieldWeights(), getOutcomeWeights()]);
+    const rows = Object.keys(stats).map(cat => ({
+      category:      cat,
+      label:          CATEGORY_LABELS[cat] || cat,
+      scanned:        stats[cat].scanned,
+      withEmail:      stats[cat].withEmail,
+      emailYieldPct:  Math.round((emailYield[cat] || 0) * 100),
+      outcomeScore:   outcomeYield[cat] != null ? Math.round(outcomeYield[cat] * 100) : null,
+    })).sort((a, b) => b.scanned - a.scanned);
     res.json(rows);
   } catch (e) {
     res.status(500).json({ error: e.message });

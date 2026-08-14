@@ -105,8 +105,9 @@ export default function App() {
   const [search,         setSearch]         = useState('');  // debounced (sent to API)
   const [statusFilter,   setStatusFilter]   = useState('');
   const [sourceFilter,   setSourceFilter]   = useState('');
-  const [tagFilter,      setTagFilter]      = useState('');
+  const [tagFilters,     setTagFilters]     = useState([]); // multi-select, AND-matched
   const [availableTags,  setAvailableTags]  = useState([]);
+  const [bulkTagInput,   setBulkTagInput]   = useState('');
   const [titleFilter,    setTitleFilter]    = useState('');
   const [segment,        setSegment]        = useState('all'); // all | not_contacted | contacted
   const [selected,       setSelected]       = useState([]);
@@ -171,7 +172,7 @@ export default function App() {
       if (search)       params.search = search;
       if (statusFilter) params.status = statusFilter;
       if (sourceFilter) params.source = sourceFilter;
-      if (tagFilter)    params.tag    = tagFilter;
+      if (tagFilters.length) params.tags  = tagFilters.join(',');
       const data = await api.get('/contacts', { params });
       setContacts(data);
     } catch {
@@ -179,7 +180,19 @@ export default function App() {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [search, statusFilter, sourceFilter, tagFilter, user]);
+  }, [search, statusFilter, sourceFilter, tagFilters, user]);
+
+  // Job Intel health badge in the nav — antibot_status is otherwise only
+  // visible inside the Job Intel tab itself, so a degraded scrape run is
+  // invisible until the user happens to open it.
+  const [jobIntelStatus, setJobIntelStatus] = useState('ok');
+  useEffect(() => {
+    if (!user) return;
+    const check = () => api.get('/job-intel/status-badge').then(r => setJobIntelStatus(r.status || 'ok')).catch(() => {});
+    check();
+    const t = setInterval(check, 5 * 60_000);
+    return () => clearInterval(t);
+  }, [user]);
 
   const fetchAvailableTags = useCallback(() => {
     if (!user) return;
@@ -321,6 +334,20 @@ export default function App() {
 
   // ── CRUD handlers ──────────────────────────────────────────────────────
   const handleCreate = async (data) => {
+    // Soft-duplicate check: same name+company (case-insensitive) under a
+    // different email — e.g. a typo'd address or personal-vs-work address for
+    // the same recruiter. Non-blocking; the user can still proceed.
+    const nameLc    = data.name?.trim().toLowerCase();
+    const companyLc = data.company?.trim().toLowerCase();
+    const dup = companyLc && contacts.find(c =>
+      c.name?.trim().toLowerCase() === nameLc && c.company?.trim().toLowerCase() === companyLc
+    );
+    if (dup) {
+      const proceed = await confirm(
+        `A contact named "${dup.name}" at "${dup.company}" already exists (${dup.email}). Add this one anyway?`
+      );
+      if (!proceed) return;
+    }
     try {
       await api.post('/contacts', data);
       toast.success('Contact added — Excel updated');
@@ -379,12 +406,41 @@ export default function App() {
     }
   };
 
-  const handleStatusChange = (id, status) => handleUpdate(id, { status });
+  const handleBulkTags = async (mode) => {
+    const tags = bulkTagInput.split(',').map(t => t.trim()).filter(Boolean);
+    if (!tags.length) return;
+    try {
+      await api.post('/contacts/bulk-tags', { ids: selected, tags, mode });
+      toast.success(`Tags ${mode === 'add' ? 'added to' : 'removed from'} ${selected.length} contacts`);
+      setBulkTagInput('');
+      fetchContacts();
+      fetchAvailableTags();
+    } catch {
+      toast.error('Tag update failed');
+    }
+  };
 
-  const handleExport = () => {
+  const handleStatusChange = (id, status) => handleUpdate(id, { status });
+  const handleSetFollowUp  = async (id, dateStr) => {
+    try {
+      await api.put(`/contacts/${id}`, { follow_up_at: dateStr ? `${dateStr} 09:00:00` : null });
+      toast.success(dateStr ? `Follow-up set for ${dateStr}` : 'Follow-up cleared');
+      fetchContacts();
+    } catch {
+      toast.error('Could not set follow-up');
+    }
+  };
+
+  const handleExport = (format = 'xlsx') => {
     if (!user) { setShowAuthModal(true); toast.error('Sign in to download the Excel file'); return; }
-    window.open(`${API_ROOT}/api/contacts/export`, '_blank');
-    toast('Excel download started');
+    const params = new URLSearchParams();
+    if (search)            params.set('search', search);
+    if (statusFilter)      params.set('status', statusFilter);
+    if (sourceFilter)      params.set('source', sourceFilter);
+    if (tagFilters.length) params.set('tags', tagFilters.join(','));
+    if (format === 'csv')  params.set('format', 'csv');
+    window.open(`${API_ROOT}/api/contacts/export?${params.toString()}`, '_blank');
+    toast(`${format === 'csv' ? 'CSV' : 'Excel'} download started`);
   };
 
   const openAdd  = () => { setEditingContact(null); setShowForm(true); };
@@ -490,8 +546,16 @@ export default function App() {
                       : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'
                   } ${locked ? 'opacity-40' : ''}`}
                 >
-                  <span className={isActive ? 'text-brand-600' : 'text-gray-400 group-hover:text-gray-500'}>
+                  <span className={`relative ${isActive ? 'text-brand-600' : 'text-gray-400 group-hover:text-gray-500'}`}>
                     {locked ? <Lock size={14} /> : tab.icon}
+                    {tab.id === 'job-intel' && jobIntelStatus !== 'ok' && (
+                      <span
+                        title={jobIntelStatus === 'proxy_pool_dead' ? 'Job Intel: proxy pool dead' : 'Job Intel: low yield'}
+                        className={`absolute -top-1 -right-1.5 w-2 h-2 rounded-full ${
+                          jobIntelStatus === 'proxy_pool_dead' ? 'bg-red-500' : 'bg-amber-500'
+                        }`}
+                      />
+                    )}
                   </span>
                   {tab.label}
                 </button>
@@ -520,6 +584,7 @@ export default function App() {
             onAddContact={() => { goTo('contacts'); setContactSubTab('my'); openAdd(); }}
             onCompose={() => { if (!user) { setShowAuthModal(true); return; } setComposeContacts(contacts.filter(c => c.status === 'New').slice(0, 1)); setShowCompose(true); }}
             onGoToContacts={() => { goTo('contacts'); setContactSubTab('my'); }}
+            activityKey={activityKey}
           />
         )}
 
@@ -685,17 +750,18 @@ export default function App() {
               </select>
               {availableTags.length > 0 && (
                 <select
-                  value={tagFilter}
-                  onChange={e => setTagFilter(e.target.value)}
-                  title="Filter by tag — Job Intel contacts are auto-tagged by matched category/skills"
-                  className="border border-gray-200 rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none bg-white"
+                  multiple
+                  value={tagFilters}
+                  onChange={e => setTagFilters(Array.from(e.target.selectedOptions, o => o.value))}
+                  title="Filter by tag (ctrl/cmd-click for multiple — a contact must carry ALL selected tags). Job Intel contacts are auto-tagged by matched category/skills."
+                  size={Math.min(4, availableTags.length)}
+                  className="border border-gray-200 rounded-sm px-3 py-1 text-sm focus:ring-2 focus:ring-brand-300 outline-none bg-white"
                 >
-                  <option value="">All Tags</option>
                   {availableTags.map(t => <option key={t.tag} value={t.tag}>{t.tag} ({t.count})</option>)}
                 </select>
               )}
-              {(searchInput || statusFilter || sourceFilter || tagFilter || titleFilter || segment !== 'all') && (
-                <button onClick={() => { setSearchInput(''); setSearch(''); setStatusFilter(''); setSourceFilter(''); setTagFilter(''); setTitleFilter(''); setSegment('all'); }}
+              {(searchInput || statusFilter || sourceFilter || tagFilters.length || titleFilter || segment !== 'all') && (
+                <button onClick={() => { setSearchInput(''); setSearch(''); setStatusFilter(''); setSourceFilter(''); setTagFilters([]); setTitleFilter(''); setSegment('all'); }}
                   className="text-xs text-gray-400 hover:text-gray-600 underline">
                   Clear
                 </button>
@@ -734,9 +800,13 @@ export default function App() {
                 className="text-xs border border-gray-200 rounded-sm px-3 py-1.5 bg-white hover:bg-gray-50 font-medium transition text-gray-500">
                 Import CSV / Excel
               </button>
-              <button onClick={handleExport}
+              <button onClick={() => handleExport('xlsx')}
                 className="text-xs border border-gray-200 rounded-sm px-3 py-1.5 bg-white hover:bg-gray-50 font-medium transition text-gray-500">
                 Download Excel
+              </button>
+              <button onClick={() => handleExport('csv')}
+                className="text-xs border border-gray-200 rounded-sm px-3 py-1.5 bg-white hover:bg-gray-50 font-medium transition text-gray-500">
+                Download CSV
               </button>
             </div>
           </div>
@@ -827,6 +897,21 @@ export default function App() {
                   <option value="" disabled>Change status…</option>
                   {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
+                <input
+                  type="text"
+                  placeholder="tag1, tag2…"
+                  value={bulkTagInput}
+                  onChange={e => setBulkTagInput(e.target.value)}
+                  className="border border-gray-200 rounded-sm px-2 py-1 text-xs w-28 focus:ring-2 focus:ring-brand-300 outline-none"
+                />
+                <button onClick={() => handleBulkTags('add')} disabled={!bulkTagInput.trim()}
+                  className="text-xs text-brand-700 hover:text-brand-900 font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
+                  + Tag
+                </button>
+                <button onClick={() => handleBulkTags('remove')} disabled={!bulkTagInput.trim()}
+                  className="text-xs text-gray-500 hover:text-gray-700 font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
+                  − Tag
+                </button>
                 <button
                   onClick={handleBulkCompose}
                   className={`px-3 py-1 rounded-sm text-xs font-semibold transition flex items-center gap-1.5 ${
@@ -854,6 +939,7 @@ export default function App() {
             onDelete={handleDelete}
             onStatusChange={handleStatusChange}
             onSendEmail={handleSendEmail}
+            onSetFollowUp={handleSetFollowUp}
             isAuthenticated={!!user}
             onLoginRequest={() => setShowAuthModal(true)}
             visibleLimit={visibleLimit}

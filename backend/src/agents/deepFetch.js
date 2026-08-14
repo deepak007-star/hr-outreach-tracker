@@ -43,40 +43,75 @@ function needsFetch(job) {
     && !extractContacts(job.description || '').emails.length;
 }
 
+// LinkedIn post URLs are login-walled (no static HTML to scan), so SKIP_HOSTS
+// excludes them from needsFetch() above — but Stage 0b's LinkedIn feed scrape
+// is the pipeline's single richest source, so those jobs never got deep-fetched
+// at all. Instead of the (login-walled) post URL, guess the COMPANY'S OWN
+// domain from its name and fetch that. Guesses are frequently wrong, so a
+// same-company sanity check on the fetched page gates whether anything found
+// there is trusted — this must never attach a real email to the wrong company.
+const COMPANY_SUFFIXES = /\b(pvt\.?|private|ltd\.?|limited|llc|inc\.?|corp\.?|corporation|technologies|technology|solutions|systems|labs|software|services|group|co\.?)\b/gi;
+function guessCompanyDomain(companyName) {
+  if (!companyName) return null;
+  const slug = companyName.toLowerCase().replace(COMPANY_SUFFIXES, '').replace(/[^a-z0-9]+/g, '').trim();
+  if (slug.length < 3) return null;
+  return `https://www.${slug}.com`;
+}
+function needsGuessedFetch(job) {
+  return job.apply_url
+    && /linkedin\.com/i.test(job.apply_url)
+    && !extractContacts(job.description || '').emails.length
+    && !!guessCompanyDomain(job.company || job.company_name);
+}
+
 // Fetch + scan apply pages concurrently. Mutates jobs in place (sets the
 // _pre_contact_email / _pre_all_contacts fast-path fields extractFromJob reads).
 async function enrichWithPageEmails(jobs, { cap = 150, concurrency = 8, timeoutMs = 10000, budgetMs = 90000 } = {}) {
-  const targets = jobs.filter(needsFetch).slice(0, cap);
-  let enriched = 0, jsFallbackList = [], idx = 0, loggedOneFailure = false;
+  const direct  = jobs.filter(needsFetch);
+  const guessed = jobs.filter(j => !needsFetch(j) && needsGuessedFetch(j));
+  const targets = [...direct, ...guessed].slice(0, cap);
+  let enriched = 0, guessedEnriched = 0, jsFallbackList = [], idx = 0, loggedOneFailure = false;
   const deadline = Date.now() + budgetMs;   // hard overall cap so a run never bogs down
 
   async function worker() {
     while (idx < targets.length && Date.now() < deadline) {
       const job = targets[idx++];
+      const isGuessed = !needsFetch(job); // already filtered to direct-or-guessed above
+      const fetchUrl  = isGuessed ? guessCompanyDomain(job.company || job.company_name) : job.apply_url;
       try {
         // Direct (noProxy): apply pages don't IP-block, and routing them through
         // slow free proxies is what stalled the pipeline.
-        const html = await common.get(job.apply_url, { delay: 0, timeout: timeoutMs, noProxy: true });
+        const html = await common.get(fetchUrl, { delay: 0, timeout: timeoutMs, noProxy: true });
+        if (isGuessed) {
+          // Guessed domain must actually mention the company before we trust
+          // anything on it — otherwise a wrong guess silently misattributes a
+          // real email (from an unrelated company) to this job posting.
+          const textLc = (typeof html === 'string' ? html : '').toLowerCase();
+          const firstWord = (job.company || job.company_name || '').toLowerCase().split(/\s+/)[0];
+          if (!firstWord || firstWord.length < 3 || !textLc.includes(firstWord)) continue;
+        }
         const emails = pageEmails(html);
         if (emails.length) {
           job._pre_contact_email = emails[0];
           job._pre_all_contacts  = JSON.stringify({ emails });
-          job._deep = 'http';
+          job._deep = isGuessed ? 'http-guessed-domain' : 'http';
           enriched++;
-        } else if (typeof html === 'string' && html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length < 400) {
+          if (isGuessed) guessedEnriched++;
+        } else if (!isGuessed && typeof html === 'string' && html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length < 400) {
           jsFallbackList.push(job); // sparse HTML → likely JS-rendered
         }
       } catch (e) {
-        // Expected per-page (dead proxy / timeout / 4xx) — not worth logging
-        // every occurrence, but a systemic bug here would otherwise be
-        // completely invisible (only symptom: enriched count silently at 0).
+        // Expected per-page (dead proxy / timeout / 4xx / guessed domain doesn't
+        // exist) — not worth logging every occurrence, but a systemic bug here
+        // would otherwise be completely invisible (only symptom: enriched count
+        // silently at 0).
         if (!loggedOneFailure) { loggedOneFailure = true; console.warn('[deepFetch] first failure this run (further ones suppressed):', e.message); }
       }
     }
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, targets.length) }, worker));
 
-  return { attempted: targets.length, enriched, jsFallback: jsFallbackList };
+  return { attempted: targets.length, enriched, guessedEnriched, jsFallback: jsFallbackList };
 }
 
 // Optional Playwright fallback for a small set of JS-rendered apply pages.

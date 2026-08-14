@@ -40,16 +40,79 @@ async function recordBatch(tally) {
   }
 }
 
+const OUTCOME_KEY = 'job_intel_category_outcome';
+
+/**
+ * Recompute per-category OUTCOME quality — of the job-intel contacts a
+ * category has actually produced, how many were worth having (replied) vs
+ * a dead end (bounced)? This is a different signal than scanned/withEmail
+ * above (which only measures "did this category produce an email at all") —
+ * a category could have a great email-yield rate but mostly bounce or never
+ * get a reply, and this is what would surface that. Uses the category LABEL
+ * already written as the first tag by orchestrator.js's syncJobIntelContacts,
+ * translated back to the short key via categorize.js's LABEL_TO_KEY.
+ */
+async function refreshOutcomeWeights() {
+  try {
+    const { LABEL_TO_KEY } = require('../agents/categorize');
+    const rows = await db.prepare(`
+      SELECT c.tags, c.email_deliverable, cus.status
+      FROM contacts c
+      LEFT JOIN contact_user_state cus ON cus.contact_id = c.id
+      WHERE c.email_source = 'job-intel'
+    `).all();
+
+    const outcome = {};
+    for (const r of rows) {
+      let tags = [];
+      try { tags = JSON.parse(r.tags || '[]'); } catch {}
+      const cat = LABEL_TO_KEY[tags[0]];
+      if (!cat) continue;
+      const o = outcome[cat] || (outcome[cat] = { contacted: 0, replied: 0, bounced: 0 });
+      const status = r.status || 'New';
+      if (!['New', 'Drafted'].includes(status)) o.contacted++;
+      if (['Replied', 'Interview'].includes(status)) o.replied++;
+      if (['hard_bounce', 'flagged'].includes(r.email_deliverable)) o.bounced++;
+    }
+    await db.prepare(`
+      INSERT INTO settings (key, value) VALUES (?, ?)
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+    `).run(OUTCOME_KEY, JSON.stringify(outcome));
+    return outcome;
+  } catch (e) {
+    console.warn('[categoryYield] refreshOutcomeWeights failed (non-fatal):', e.message);
+    return {};
+  }
+}
+
+async function getOutcomeWeights() {
+  const row = await db.prepare(`SELECT value FROM settings WHERE key = ?`).get(OUTCOME_KEY).catch(() => null);
+  let outcome = {};
+  try { outcome = JSON.parse(row?.value || '{}'); } catch {}
+  const weights = {};
+  for (const [cat, o] of Object.entries(outcome)) {
+    const replyRate     = (o.replied + 1) / (o.contacted + 2);         // Laplace-smoothed
+    const bouncePenalty = o.contacted > 0 ? Math.max(0, 1 - o.bounced / o.contacted) : 1;
+    weights[cat] = replyRate * bouncePenalty;
+  }
+  return weights;
+}
+
 /**
  * Laplace-smoothed yield rate per category — (withEmail+1)/(scanned+2) so an
  * unseen or barely-seen category starts near 0.5 (unbiased) instead of 0,
  * and a single lucky/unlucky run can't swing the weight to an extreme.
+ * Blended with the outcome-quality signal above (weight to 30%, since outcome
+ * data is much sparser — most categories will have zero replies for a long
+ * time and shouldn't dominate the pick until there's real signal).
  */
 async function getYieldWeights() {
-  const stats = await getStats();
+  const stats   = await getStats();
+  const outcome = await getOutcomeWeights();
   const weights = {};
   for (const [cat, s] of Object.entries(stats)) {
-    weights[cat] = (s.withEmail + 1) / (s.scanned + 2);
+    const emailYield = (s.withEmail + 1) / (s.scanned + 2);
+    weights[cat] = outcome[cat] != null ? emailYield * 0.7 + outcome[cat] * 0.3 : emailYield;
   }
   return weights;
 }
@@ -109,4 +172,7 @@ async function pickWeightedKeywordWindow(allKeywords, windowSize, rotationPrefix
   return picked;
 }
 
-module.exports = { recordBatch, getYieldWeights, weightedCategoryPick, pickWeightedKeywordWindow, SETTINGS_KEY };
+module.exports = {
+  recordBatch, getYieldWeights, weightedCategoryPick, pickWeightedKeywordWindow, SETTINGS_KEY,
+  refreshOutcomeWeights, getOutcomeWeights, OUTCOME_KEY,
+};

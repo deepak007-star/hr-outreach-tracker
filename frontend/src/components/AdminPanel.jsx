@@ -716,10 +716,25 @@ function UsersSection() {
                       )}
                     </td>
                     <td className="px-4 py-3.5">
-                      <select value={u.plan || 'demo'} onChange={e => changePlan(u.id, e.target.value)}
-                        className="text-xs border border-gray-200 rounded-sm px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-brand-300 cursor-pointer">
-                        {PLANS.map(p => <option key={p} value={p}>{p}</option>)}
-                      </select>
+                      <div className="flex items-center gap-1.5">
+                        <select value={u.plan || 'demo'} onChange={e => changePlan(u.id, e.target.value)}
+                          className="text-xs border border-gray-200 rounded-sm px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-brand-300 cursor-pointer">
+                          {PLANS.map(p => <option key={p} value={p}>{p}</option>)}
+                        </select>
+                        {u.subscription_status && (u.plan === 'basic' || u.plan === 'advanced') && (
+                          <span
+                            title={u.current_period_end ? `Renews/expires ${fmtDate(u.current_period_end)}` : ''}
+                            className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap ${
+                              u.subscription_status === 'active'    ? 'bg-green-100 text-green-700' :
+                              u.subscription_status === 'cancelled' ? 'bg-amber-100 text-amber-700'  :
+                              u.subscription_status === 'past_due'  ? 'bg-red-100 text-red-700'      :
+                              'bg-gray-100 text-gray-500'
+                            }`}
+                          >
+                            {u.subscription_status === 'cancelled' ? 'lapsing' : u.subscription_status}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3.5">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -761,6 +776,8 @@ function DataManagementSection() {
   const [running,  setRunning]  = useState(false);
   const [purging,  setPurging]  = useState(false);
   const [jobStats, setJobStats] = useState(null);
+  const [throttleMs, setThrottleMs] = useState(1000);
+  const [savingThrottle, setSavingThrottle] = useState(false);
 
   useEffect(() => {
     api.get('/github-backup/status').then(s => {
@@ -771,7 +788,18 @@ function DataManagementSection() {
       setGhCfg(prev => ({ ...prev, ...c }));
     }).catch(() => {});
     api.get('/scraped-jobs/stats').then(setJobStats).catch(() => {});
+    api.get('/settings').then(s => setThrottleMs(parseInt(s.send_throttle_ms) || 1000)).catch(() => {});
   }, []);
+
+  async function saveThrottle() {
+    setSavingThrottle(true);
+    try {
+      await api.put('/settings', { send_throttle_ms: throttleMs });
+      toast.success('Send throttle saved');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Save failed');
+    } finally { setSavingThrottle(false); }
+  }
 
   async function savePurgeConfig() {
     setSaving(true);
@@ -822,6 +850,28 @@ function DataManagementSection() {
           ))}
         </div>
       )}
+
+      {/* Email send throttle */}
+      <div className="bg-white border rounded-md p-5 space-y-3">
+        <h3 className="font-bold text-gray-800">Email Send Throttle</h3>
+        <p className="text-sm text-gray-500">Base delay between emails in a batch send, across all users. A random 0–50% jitter is added on top so the gap isn't a fixed, fingerprintable interval.</p>
+        <div className="flex items-end gap-3">
+          <div>
+            <label className="text-xs font-semibold text-gray-500 block mb-1">Base delay (ms)</label>
+            <input
+              type="number"
+              min="200" max="10000" step="100"
+              value={throttleMs}
+              onChange={e => setThrottleMs(parseInt(e.target.value) || 1000)}
+              className="w-32 border rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none"
+            />
+          </div>
+          <button onClick={saveThrottle} disabled={savingThrottle}
+            className="px-4 py-2 bg-brand-600 text-white rounded-sm text-sm font-semibold hover:bg-brand-700 disabled:opacity-50 transition">
+            {savingThrottle ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
 
       {/* Purge Config */}
       <div className="bg-white border rounded-md p-5 space-y-4">

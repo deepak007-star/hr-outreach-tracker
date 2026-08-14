@@ -4,6 +4,7 @@ import { api } from '../api/client.js';
 import { extractSkills } from '../data/techSkills.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { modifyResume, downloadAsPdf, downloadAsWord, normalizeResumeText } from '../utils/resumeUtils.js';
+import { analyzeAts } from '../utils/atsUtils.js';
 import ResumePreview from './ResumePreview.jsx';
 import StepGuide from './StepGuide.jsx';
 
@@ -42,31 +43,82 @@ function StatusBadge({ status }) {
 }
 
 // ── Match score ring (mirrors JobAnalyzer's, computed across all jobs) ────
-function MatchScoreCard({ score, presentCount, missingCount }) {
+// `score` is the real 6-factor ATS score against the combined text of every
+// fetched job, not just a skills-present ratio. `afterScore` shows the delta
+// once skills have been merged in.
+function MatchScoreCard({ score, afterScore, breakdown, presentCount, missingCount }) {
   const ring = score >= 70 ? 'border-emerald-500' : score >= 40 ? 'border-amber-400' : 'border-red-400';
   return (
     <div className="bg-white rounded-md shadow-card border border-gray-100 p-5 flex items-center gap-5">
-      <div className={`w-20 h-20 rounded-full border-4 ${ring} flex flex-col items-center justify-center shrink-0`}>
-        <span className="font-display text-2xl font-bold text-stone-900 leading-none">{score}</span>
-        <span className="text-[10px] text-stone-400">/100</span>
+      <div className="flex items-center gap-3 shrink-0">
+        <div className={`w-20 h-20 rounded-full border-4 ${ring} flex flex-col items-center justify-center`}>
+          <span className="font-display text-2xl font-bold text-stone-900 leading-none">{score}</span>
+          <span className="text-[10px] text-stone-400">/100</span>
+        </div>
+        {afterScore != null && afterScore !== score && (
+          <>
+            <span className="text-stone-300 text-lg">→</span>
+            <div className="w-20 h-20 rounded-full border-4 border-emerald-500 flex flex-col items-center justify-center">
+              <span className="font-display text-2xl font-bold text-emerald-700 leading-none">{afterScore}</span>
+              <span className="text-[10px] text-emerald-500">after adding</span>
+            </div>
+          </>
+        )}
       </div>
       <div className="flex-1 space-y-1.5">
-        <p className="text-xs font-semibold text-stone-600 uppercase tracking-wide">Combined Skill Match</p>
-        <div className="flex items-center gap-3 text-xs">
-          <span className="w-16 text-stone-500 shrink-0">Present</span>
-          <div className="flex-1 h-1.5 rounded-full bg-stone-100 overflow-hidden">
-            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${score}%` }} />
+        <p className="text-xs font-semibold text-stone-600 uppercase tracking-wide">Combined ATS Match</p>
+        {breakdown ? (
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+            {breakdown.map(b => (
+              <div key={b.label} className="flex items-center gap-2 text-[11px]">
+                <span className="flex-1 text-stone-500 truncate">{b.label}</span>
+                <span className="text-stone-600 font-medium">{b.score}/{b.max}</span>
+              </div>
+            ))}
           </div>
-          <span className="w-6 text-right text-stone-500 font-medium">{presentCount}</span>
-        </div>
-        <div className="flex items-center gap-3 text-xs">
-          <span className="w-16 text-stone-500 shrink-0">Missing</span>
-          <div className="flex-1 h-1.5 rounded-full bg-stone-100 overflow-hidden">
-            <div className="h-full rounded-full bg-red-400" style={{ width: `${100 - score}%` }} />
-          </div>
-          <span className="w-6 text-right text-stone-500 font-medium">{missingCount}</span>
-        </div>
+        ) : (
+          <>
+            <div className="flex items-center gap-3 text-xs">
+              <span className="w-16 text-stone-500 shrink-0">Present</span>
+              <div className="flex-1 h-1.5 rounded-full bg-stone-100 overflow-hidden">
+                <div className="h-full rounded-full bg-emerald-500" style={{ width: `${score}%` }} />
+              </div>
+              <span className="w-6 text-right text-stone-500 font-medium">{presentCount}</span>
+            </div>
+            <div className="flex items-center gap-3 text-xs">
+              <span className="w-16 text-stone-500 shrink-0">Missing</span>
+              <div className="flex-1 h-1.5 rounded-full bg-stone-100 overflow-hidden">
+                <div className="h-full rounded-full bg-red-400" style={{ width: `${100 - score}%` }} />
+              </div>
+              <span className="w-6 text-right text-stone-500 font-medium">{missingCount}</span>
+            </div>
+          </>
+        )}
       </div>
+    </div>
+  );
+}
+
+// ── Other ATS suggestions — same as JobAnalyzer's, skills already have a UI ──
+function AtsSuggestions({ suggestions }) {
+  const other = (suggestions || []).filter(s => s.id !== 'skills');
+  if (!other.length) return null;
+  return (
+    <div className="space-y-2 border-t pt-4">
+      <p className="text-xs font-bold text-gray-700 uppercase tracking-wide">Other ATS Suggestions</p>
+      {other.map(s => (
+        <div key={s.id} className="bg-amber-50 border border-amber-200 rounded-sm p-2.5">
+          <p className="text-xs font-semibold text-amber-800">{s.title}</p>
+          <p className="text-[11px] text-amber-700 mt-0.5">{s.description}</p>
+          {s.items?.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {s.items.slice(0, 8).map((it, i) => (
+                <span key={i} className="text-[10px] bg-white border border-amber-200 text-amber-700 px-1.5 py-0.5 rounded">{it}</span>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -112,6 +164,21 @@ export default function BulkJobAnalyzer() {
   const presentSkills = useMemo(() => allJobSkills.filter(s =>  resumeSkills.includes(s)), [allJobSkills, resumeSkills]);
 
   const modifiedText = useMemo(() => modifyResume(resumeText, addedSkills), [resumeText, addedSkills]);
+
+  // Combined text of every successfully-fetched job — analyzeAts' keyword
+  // extraction works fine against a concatenation of multiple postings.
+  const combinedJobContent = useMemo(
+    () => jobs.filter(j => j.status === 'done').map(j => j.content).join('\n\n'),
+    [jobs],
+  );
+  const atsBefore = useMemo(
+    () => analyzeAts(resumeText, combinedJobContent, allJobSkills, resumeSkills),
+    [resumeText, combinedJobContent, allJobSkills, resumeSkills],
+  );
+  const atsAfter = useMemo(
+    () => (addedSkills.length ? analyzeAts(modifiedText, combinedJobContent, allJobSkills, [...resumeSkills, ...addedSkills]) : null),
+    [modifiedText, combinedJobContent, allJobSkills, resumeSkills, addedSkills],
+  );
 
   const jobUrls = useMemo(() => {
     return urlsInput.split('\n').map(l => l.trim()).filter(Boolean);
@@ -226,7 +293,6 @@ export default function BulkJobAnalyzer() {
   const hasResume  = resumeText.trim().length > 50;
   const showAnalysis = hasJobs && hasResume;
   const showPreview  = addedSkills.length > 0 && hasResume;
-  const matchScore   = allJobSkills.length ? Math.round((presentSkills.length / allJobSkills.length) * 100) : 0;
 
   return (
     <div className="space-y-4">
@@ -242,8 +308,14 @@ export default function BulkJobAnalyzer() {
       <StepGuide steps={STEPS} />
 
       {/* ── Combined match score ─────────────────────────────────────────── */}
-      {showAnalysis && (
-        <MatchScoreCard score={matchScore} presentCount={presentSkills.length} missingCount={missingSkills.length} />
+      {showAnalysis && atsBefore && (
+        <MatchScoreCard
+          score={atsBefore.overall}
+          afterScore={atsAfter?.overall}
+          breakdown={atsBefore.breakdown}
+          presentCount={presentSkills.length}
+          missingCount={missingSkills.length}
+        />
       )}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
 
@@ -403,6 +475,9 @@ export default function BulkJobAnalyzer() {
               )}
             </div>
           )}
+
+          {/* Other ATS suggestions */}
+          {showAnalysis && atsBefore && <AtsSuggestions suggestions={atsBefore.suggestions} />}
 
           {/* Modified resume preview + download */}
           {showPreview && (

@@ -349,6 +349,33 @@ async function main() {
   setTimeout(runEmailVerification, 15_000); // startup check after 15s
   setInterval(runEmailVerification, 24 * 3_600_000); // every 24h
 
+  // ── Daily Google OAuth token health check ──────────────────────────────────
+  // mailTransport.js's sendViaGmailApi already clears a dead refresh token
+  // reactively (on the next real send attempt) — this catches it proactively
+  // so a revoked/expired token surfaces as a notification, not a failed batch send.
+  async function runOAuthHealthCheck() {
+    try {
+      const { checkOAuthTokenHealth } = require('./services/mailTransport');
+      const rows = await database.prepare(
+        "SELECT user_id, refresh_token FROM oauth_accounts WHERE provider = 'google'"
+      ).all();
+      for (const row of rows) {
+        const healthy = await checkOAuthTokenHealth(row);
+        if (!healthy) {
+          await database.prepare(
+            `INSERT INTO notifications (id, user_id, type, title, body) VALUES (?, ?, 'warning', ?, ?)`
+          ).run(
+            randomUUID(), row.user_id,
+            'Google account disconnected',
+            'Your Gmail connection expired or was revoked. Reconnect it in Email / SMTP Settings to keep sending outreach emails.'
+          );
+        }
+      }
+    } catch (e) { console.error('[OAuth health check]', e.message); }
+  }
+  setTimeout(runOAuthHealthCheck, 30_000);
+  setInterval(runOAuthHealthCheck, 24 * 3_600_000);
+
   // ── Daily scraper-job purge + GitHub backup ─────────────────────────────────
   async function runDailyPurgeAndBackup() {
     try {
@@ -447,6 +474,63 @@ async function main() {
   }
   setTimeout(downgradeExpiredSubscriptions, 20_000);
   setInterval(downgradeExpiredSubscriptions, 24 * 3_600_000);
+
+  // ── Plan-expiry-approaching reminder (startup + daily) ────────────────────
+  // Proactively warns a paying user a few days before their subscription
+  // lapses, instead of them only discovering it when the silent downgrade
+  // above fires. Same "send to self via the user's own connected transport"
+  // pattern reminder.js already uses for the daily-outreach-goal email.
+  async function notifyExpiringSubscriptions() {
+    try {
+      const now      = new Date();
+      const nowStr   = now.toISOString().replace('T', ' ').slice(0, 19);
+      const cutoff   = new Date(now.getTime() + 3 * 86_400_000).toISOString().replace('T', ' ').slice(0, 19);
+      const today    = now.toISOString().slice(0, 10);
+      const expiring = await database.prepare(`
+        SELECT s.user_id, s.current_period_end, u.email, u.name
+        FROM subscriptions s JOIN users u ON u.id = s.user_id
+        WHERE s.status = 'active' AND s.current_period_end BETWEEN ? AND ?
+      `).all(nowStr, cutoff);
+
+      for (const row of expiring) {
+        const dedupKey = `plan_expiry_notified_${row.user_id}_${today}`;
+        const already  = await database.prepare('SELECT value FROM settings WHERE key = ?').get(dedupKey);
+        if (already) continue;
+
+        const expiryDate = row.current_period_end.slice(0, 10);
+        await database.prepare(
+          `INSERT INTO notifications (id, user_id, type, title, body) VALUES (?, ?, 'info', ?, ?)`
+        ).run(
+          randomUUID(), row.user_id,
+          'Your plan renews soon',
+          `Your subscription renews/expires on ${expiryDate}. Update your payment method in Plans if you don't want it to lapse.`
+        );
+
+        try {
+          const { getTransportForUser } = require('./services/mailTransport');
+          const mail = await getTransportForUser(row.user_id);
+          if (mail) {
+            await mail.transport.sendMail({
+              from:    mail.fromName ? `"${mail.fromName}" <${mail.fromEmail}>` : mail.fromEmail,
+              to:      row.email,
+              subject: 'Your HR Outreach Tracker plan renews soon',
+              text:    `Hi ${row.name},\n\nYour subscription renews/expires on ${expiryDate}. If you don't want it to lapse, make sure your payment method is up to date.\n\n— HR Outreach Tracker`,
+            });
+          }
+        } catch (e) {
+          console.warn('[Subscriptions] expiry reminder email failed (non-fatal):', e.message);
+        }
+
+        await database.prepare(
+          `INSERT INTO settings (key, value) VALUES (?, '1') ON CONFLICT (key) DO UPDATE SET value = '1'`
+        ).run(dedupKey);
+      }
+    } catch (e) {
+      console.error('[Subscriptions] expiry reminder error:', e.message);
+    }
+  }
+  setTimeout(notifyExpiringSubscriptions, 25_000);
+  setInterval(notifyExpiringSubscriptions, 24 * 3_600_000);
 
   // ── Auto-proxy pool refresh (startup + on its configured cadence) ─────────
   // Keeps a large, validated free-proxy pool warm in the background so the Job
