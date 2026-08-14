@@ -279,11 +279,19 @@ export default function AskReferral() {
   const filtered = users.filter(u => {
     if (!search.trim()) return true;
     const q = search.toLowerCase();
+    // u.skills arrives as a real array in some responses and a JSON string in
+    // others (see ComposeModal.jsx/UserCard's Array.isArray-first guard below)
+    // — JSON.parse-ing an array throws, silently dropping it to [] here and
+    // making the search box never match by skill for those users.
     let skills = [];
-    try {
-      const parsed = JSON.parse(u.skills || '[]');
-      skills = Array.isArray(parsed) ? parsed : [];
-    } catch {}
+    if (Array.isArray(u.skills)) {
+      skills = u.skills;
+    } else {
+      try {
+        const parsed = JSON.parse(u.skills || '[]');
+        skills = Array.isArray(parsed) ? parsed : [];
+      } catch {}
+    }
     return (
       u.name?.toLowerCase().includes(q) ||
       u.email?.toLowerCase().includes(q) ||

@@ -299,7 +299,7 @@ router.get('/posts', requireAuth, async (req, res) => {
   const rows = await db.prepare(sql).all(...params);
   const posts = rows.map(p => ({
     ...p,
-    tech_stack: JSON.parse(p.tech_stack || '[]'),
+    tech_stack: (() => { try { return JSON.parse(p.tech_stack || '[]'); } catch { return []; } })(),
   }));
   res.json(posts);
 });

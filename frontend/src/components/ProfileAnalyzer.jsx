@@ -21,7 +21,11 @@ function scoreProfile(profile) {
   const results = CHECKS.map(c => {
     let present = false;
     if (c.key === '_skills') {
-      try { present = JSON.parse(profile?.skills || '[]').length >= 5; } catch { present = false; }
+      // profile.skills is already an array by the time it reaches this component
+      // (parsed server-side) — JSON.parse-ing it again always throws, so this
+      // check silently registered every profile as "missing skills."
+      const s = Array.isArray(profile?.skills) ? profile.skills : (() => { try { return JSON.parse(profile?.skills || '[]'); } catch { return []; } })();
+      present = s.length >= 5;
     } else if (c.key === 'resume_text') {
       present = !!(profile?.resume_text?.trim());
     } else {
@@ -150,7 +154,11 @@ function priority(weight) {
 // ── Skills inline editor ──────────────────────────────────────────────────────
 function SkillsEditor({ profile, onSave, onClose }) {
   const resumeSkills  = useMemo(() => extractSkills(profile?.resume_text || ''), [profile?.resume_text]);
-  const existing      = useMemo(() => { try { return JSON.parse(profile?.skills || '[]'); } catch { return []; } }, [profile?.skills]);
+  // Same double-parse hazard — profile.skills is already an array.
+  const existing = useMemo(() => {
+    if (Array.isArray(profile?.skills)) return profile.skills;
+    try { return JSON.parse(profile?.skills || '[]'); } catch { return []; }
+  }, [profile?.skills]);
   const [skills, setSkills] = useState(existing);
   const [input,  setInput]  = useState('');
   const [saving, setSaving] = useState(false);

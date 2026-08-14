@@ -399,7 +399,16 @@ function ResumeSkillsTab({ profile, onSave }) {
   const fileRef    = useRef(null);
   const textareaRef = useRef(null);
 
-  const skills = useMemo(() => { try { return JSON.parse(profile?.skills || '[]'); } catch { return []; } }, [profile?.skills]);
+  // profile.skills arrives from GET /api/profile ALREADY parsed to a real array
+  // (backend/src/routes/profile.js parses it server-side) — JSON.parse-ing an
+  // array coerces it to a comma-joined string first, which is invalid JSON and
+  // always throws, silently caught into `[]`. That emptied list then gets
+  // spread over on every add/save below, permanently wiping the user's real
+  // saved skills. Array.isArray must be checked first.
+  const skills = useMemo(() => {
+    if (Array.isArray(profile?.skills)) return profile.skills;
+    try { return JSON.parse(profile?.skills || '[]'); } catch { return []; }
+  }, [profile?.skills]);
 
   const suggestions = useMemo(() =>
     getSuggestedSkills(profile?.current_title || '', skills).slice(0, 24),
@@ -907,7 +916,11 @@ export default function ProfilePage({ onDirtyChange }) {
     setEditHero(false);
   }
 
-  const skills = useMemo(() => { try { return JSON.parse(profile?.skills || '[]'); } catch { return []; } }, [profile?.skills]);
+  // Same double-parse hazard as above — profile.skills is already an array.
+  const skills = useMemo(() => {
+    if (Array.isArray(profile?.skills)) return profile.skills;
+    try { return JSON.parse(profile?.skills || '[]'); } catch { return []; }
+  }, [profile?.skills]);
 
   if (!profile) {
     return (

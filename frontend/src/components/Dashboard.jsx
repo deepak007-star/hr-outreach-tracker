@@ -179,8 +179,12 @@ export default function Dashboard({
   const responseRate   = emailed > 0 ? Math.round(((replied + interviews) / emailed) * 100) : 0;
   const activeOutreach = (pipeline.Sent || 0) + (pipeline.Opened || 0) + replied;
 
+  // Same UTC-string-without-suffix parsing hazard as NotificationPanel.jsx —
+  // harmless for straight comparison since both sides shift equally, but
+  // normalize anyway so this doesn't silently break if the format ever varies.
+  const toDate = (s) => new Date(s?.includes('T') ? s : s?.replace(' ', 'T') + 'Z');
   const recent = useMemo(() =>
-    [...contacts].sort((a, b) => new Date(b.date_added) - new Date(a.date_added)).slice(0, 6),
+    [...contacts].sort((a, b) => toDate(b.date_added) - toDate(a.date_added)).slice(0, 6),
     [contacts],
   );
 

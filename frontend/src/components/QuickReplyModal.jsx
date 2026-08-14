@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { toast } from 'react-hot-toast';
 import { api } from '../api/client.js';
 
@@ -54,8 +54,13 @@ export default function QuickReplyModal({ email, onClose, onSent, myName = '' })
     setCustomized(false);
   }
 
-  // Apply first template on first render
-  useState(() => { applyTemplate(0); }, []);
+  // Apply first template on first render — was `useState(fn, [])`, a
+  // copy-paste of useEffect's signature. useState only takes one arg (or a
+  // lazy initializer); the second arg was silently ignored, and calling
+  // applyTemplate's four setStates from inside a lazy initializer only
+  // "worked" by React's tolerance for same-component updates during the
+  // initial render. Fragile under Strict Mode's double-invoke.
+  useEffect(() => { applyTemplate(0); }, []);
 
   async function handleSend() {
     if (!body.trim()) return toast.error('Reply body cannot be empty');

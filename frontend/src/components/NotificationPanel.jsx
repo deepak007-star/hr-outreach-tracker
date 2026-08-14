@@ -62,7 +62,12 @@ export default function NotificationPanel() {
 
   function timeAgo(iso) {
     if (!iso) return '';
-    const diff = Date.now() - new Date(iso).getTime();
+    // Backend timestamps are UTC 'YYYY-MM-DD HH:MM:SS' with no timezone suffix
+    // (see CLAUDE.md) — new Date(iso) parses that as LOCAL time, not UTC, so a
+    // just-created notification showed as several hours old for IST users.
+    // Same fix already applied in ResumeVault.jsx's formatDate().
+    const normalized = iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z';
+    const diff = Date.now() - new Date(normalized).getTime();
     const min  = Math.floor(diff / 60_000);
     if (min < 1)   return 'just now';
     if (min < 60)  return `${min}m ago`;

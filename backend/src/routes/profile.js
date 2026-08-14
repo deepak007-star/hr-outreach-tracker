@@ -58,7 +58,16 @@ router.use(requireAuth);
 router.get('/', async (req, res) => {
   const profile = await db.prepare('SELECT * FROM profiles WHERE user_id = ?').get(req.user.userId);
   if (!profile) return res.json({});
-  try { profile.skills = JSON.parse(profile.skills || '[]'); } catch { profile.skills = []; }
+  // Some existing rows are double-JSON-encoded (confirmed live against real
+  // data — a prior write path stringified an already-stringified array), so a
+  // single parse can legitimately yield a STRING, not an array. Unwrap up to
+  // twice — same pattern as lib/skillMatch.js's parseSkills() — so these
+  // users' real skills come back intact instead of silently appearing empty.
+  let v = profile.skills;
+  for (let i = 0; i < 2 && typeof v === 'string'; i++) {
+    try { v = JSON.parse(v || '[]'); } catch { v = []; break; }
+  }
+  profile.skills = Array.isArray(v) ? v : [];
   // Expose whether an original file is available (DB bytes first, then legacy disk)
   profile.has_resume_file = !!profile.resume_file_id || !!(profile.resume_file_path && fs.existsSync(profile.resume_file_path));
   delete profile.resume_file_path;
