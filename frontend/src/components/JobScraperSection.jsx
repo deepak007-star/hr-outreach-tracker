@@ -71,6 +71,7 @@ export default function JobScraperSection() {
   const [pages,       setPages]       = useState(1);
   const [profile,     setProfile]     = useState(null);
   const [suppressProfileFilter, setSuppressProfileFilter] = useState(false);
+  const [fetchError,  setFetchError]  = useState(null); // 'auth' | 'other' | null
   const logsEndRef = useRef(null);
 
   const cat = CATEGORIES.find(c => c.id === activeCat) || CATEGORIES[0];
@@ -84,7 +85,13 @@ export default function JobScraperSection() {
   // Fetch stored jobs — when no manual search, auto-filter by user's profile title
   const fetchJobs = useCallback(async () => {
     if (cat.comingSoon) { setJobs([]); setLoading(false); return; }
+    // /scraped-jobs requires auth — without this guard, a logged-out visitor
+    // (this tab has no requiresAuth gate) or anyone whose session just expired
+    // gets a silent 401 that renders identically to "no jobs found," which is
+    // exactly indistinguishable from genuinely empty data.
+    if (!user) { setJobs([]); setLoading(false); setFetchError('auth'); return; }
     setLoading(true);
+    setFetchError(null);
     try {
       const params = { category: cat.dbCat, since, limit, page };
       const profileTitle = !suppressProfileFilter && profile && [profile.job_title_1, profile.job_title_2, profile.job_title_3, profile.current_title].filter(Boolean)[0];
@@ -94,12 +101,13 @@ export default function JobScraperSection() {
       setJobs(data.jobs || []);
       setTotal(data.total || 0);
       setPages(data.pages || 1);
-    } catch {
+    } catch (e) {
       setJobs([]);
+      setFetchError(e?.response?.status === 401 ? 'auth' : 'other');
     } finally {
       setLoading(false);
     }
-  }, [activeCat, since, limit, page, search, profile, suppressProfileFilter]);
+  }, [activeCat, since, limit, page, search, profile, suppressProfileFilter, user]);
 
   useEffect(() => { fetchJobs(); }, [fetchJobs]);
   useEffect(() => { setPage(1); }, [activeCat, since, limit, search, suppressProfileFilter]);
@@ -373,12 +381,24 @@ export default function JobScraperSection() {
         </div>
       ) : jobs.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-gray-400">
-          <span className="text-4xl mb-3">🔍</span>
-          <p className="text-sm font-semibold">No jobs in this time range</p>
+          <span className="text-4xl mb-3">{fetchError === 'auth' ? '🔒' : fetchError === 'other' ? '⚠️' : '🔍'}</span>
+          <p className="text-sm font-semibold">
+            {fetchError === 'auth' ? 'Sign in to view jobs'
+              : fetchError === 'other' ? 'Could not load jobs'
+              : 'No jobs in this time range'}
+          </p>
           <p className="text-xs mt-1">
-            {user?.role === 'admin'
-              ? `Click "Scrape Now" to fetch the latest jobs from ${cat.desc}`
-              : 'Jobs refresh automatically every morning — try a wider time range above.'}
+            {fetchError === 'auth' ? 'Your session may have expired — sign in again to see stored jobs.'
+              : fetchError === 'other' ? 'The backend request failed — try Refresh, or check your connection.'
+              : (() => {
+                  const profileTitles = profile ? [profile.job_title_1, profile.job_title_2, profile.job_title_3, profile.current_title].filter(Boolean) : [];
+                  if (profile && !search && !suppressProfileFilter && profileTitles.length > 0) {
+                    return <>No jobs match your profile title(s) in this range — try <button onClick={() => setSuppressProfileFilter(true)} className="text-brand-600 underline">Show all jobs</button>.</>;
+                  }
+                  return user?.role === 'admin'
+                    ? `Click "Scrape Now" to fetch the latest jobs from ${cat.desc}`
+                    : 'Jobs refresh automatically every morning — try a wider time range above.';
+                })()}
           </p>
         </div>
       ) : (
