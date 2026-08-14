@@ -121,6 +121,11 @@ const EXCLUSIVE_DOMAINS = new Set([
   'devops', 'testing', 'monitoring', 'resilience', 'cloud',
 ]);
 
+// Auto-generated section labels default to charAt(0).toUpperCase() + slice(1)
+// (see modifyResume) — fine for most domain keys, but wrong for ones with a
+// conventional internal capital, e.g. "devops" -> "Devops" instead of "DevOps".
+const DOMAIN_LABEL_OVERRIDES = { devops: 'DevOps' };
+
 function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -236,6 +241,27 @@ function isTopLevelSection(line) {
   return /^(experience|education|projects?|certifications?|work\s+experience|professional\s+experience|employment|summary|objective|references|awards|achievements|publications|volunteer|leadership|activities|honors)/i.test(t);
 }
 
+// A PDF can wrap a two-word skill name exactly between its words with no
+// trailing punctuation on the first line and the second word capitalized
+// (e.g. "...Spring\nSecurity, Redis" instead of "...Spring Security, Redis")
+// — none of the join heuristics below catch that case. Detect it by checking
+// whether the last word of the previous line + the first word of the current
+// line forms a KNOWN compound skill already in SKILL_DOMAIN (which already
+// lists "spring security", "react native", "vue router", etc.) — targeted at
+// real skill names instead of guessing from capitalization/length alone.
+function lastWord(s) {
+  const m = s.trim().match(/([A-Za-z0-9.+#]+)$/);
+  return m ? m[1] : '';
+}
+function firstWord(s) {
+  const m = s.trim().match(/^([A-Za-z0-9.+#]+)/);
+  return m ? m[1] : '';
+}
+function formsKnownCompound(prev, current) {
+  const pair = `${lastWord(prev)} ${firstWord(current)}`.toLowerCase().trim();
+  return pair.split(' ').length === 2 && Object.prototype.hasOwnProperty.call(SKILL_DOMAIN, pair);
+}
+
 // ── Text normalization ─────────────────────────────────────────────────────────
 // Joins continuation lines that were artificially split by PDF layout/word-wrap.
 // Only joins when the join is unambiguous: previous ends with comma/slash/pipe,
@@ -272,7 +298,8 @@ export function normalizeResumeText(raw) {
         prev.endsWith('/') ||
         prev.endsWith('|') ||
         prev.endsWith('&') ||
-        /^[a-z]/.test(t);    // starts with lowercase → unambiguous continuation
+        /^[a-z]/.test(t) ||           // starts with lowercase → unambiguous continuation
+        formsKnownCompound(prev, t);  // e.g. "...Spring" + "Security, Redis" → "Spring Security"
 
       if (shouldJoin) {
         out[out.length - 1] = prev + ' ' + t;
@@ -398,7 +425,7 @@ export function modifyResume(rawText, skillsToAdd) {
         // Section uses labels → match the style with a new labeled line
         const domainLabel = isUnclassified
           ? 'Others'
-          : skillDomain.charAt(0).toUpperCase() + skillDomain.slice(1);
+          : (DOMAIN_LABEL_OVERRIDES[skillDomain] || skillDomain.charAt(0).toUpperCase() + skillDomain.slice(1));
         result.splice(lastNonBlank + 1, 0, `[ADDED-LINE]${domainLabel}: ${markedSkills.join(', ')}`);
       } else {
         // Flat/unlabeled section → insert without domain label to preserve style
