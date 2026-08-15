@@ -683,6 +683,7 @@ router.get('/log', async (req, res) => {
 
 // ── GET /api/email/stats ───────────────────────────────────────────────────
 router.get('/stats', async (req, res) => {
+  try {
   const isAdmin   = req.user.role === 'admin';
   const sentToday = await getSentToday(req.user.userId);
   const cap       = isAdmin ? null : await getDailyCap();
@@ -758,6 +759,10 @@ router.get('/stats', async (req, res) => {
     deliverability,
     byTemplate,
   });
+  } catch (err) {
+    console.error('[email] /stats error:', err.message);
+    res.status(500).json({ error: 'Failed to load stats' });
+  }
 });
 
 module.exports = router;

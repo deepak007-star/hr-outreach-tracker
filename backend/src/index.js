@@ -7,6 +7,22 @@ const database = require('./db/database');
 
 const PORT = process.env.PORT || 3001;
 
+// ── Process-level crash safety net ──────────────────────────────────────────
+// An async route handler that throws/rejects WITHOUT its own try/catch (every
+// route in this app should have one, but a single miss — as just happened
+// with a Postgres type error in email.js's /stats route — becomes an
+// unhandled promise rejection). Node's default behavior since v15 is to
+// terminate the entire process on an unhandled rejection, which took the
+// whole backend down for every user over one bad query in one route. Log
+// loudly instead of crashing — a single broken endpoint should degrade to
+// "that one request fails," not "the whole server is down for everyone."
+process.on('unhandledRejection', (reason) => {
+  console.error('[FATAL-AVOIDED] Unhandled promise rejection (server staying up):', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL-AVOIDED] Uncaught exception (server staying up):', err);
+});
+
 async function main() {
   // Ensure required directories exist
   const uploadsDir = path.join(__dirname, '../uploads');
