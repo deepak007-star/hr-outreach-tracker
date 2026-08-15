@@ -7,7 +7,7 @@
 import { forwardRef } from 'react';
 
 const BASE =
-  'inline-flex items-center justify-center gap-2 font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed select-none';
+  'inline-flex items-center justify-center gap-2 font-medium transition-all duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 select-none';
 
 const VARIANTS = {
   primary:     'bg-brand-600 text-white hover:bg-brand-700 active:bg-brand-800 shadow-sm',

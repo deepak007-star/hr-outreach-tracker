@@ -11,6 +11,8 @@ export default function Badge({ children, variant = 'default', className = '' })
     danger:   'bg-red-50    text-red-700   border-red-200',
     info:     'bg-blue-50   text-blue-700  border-blue-200',
     purple:   'bg-violet-50 text-violet-700 border-violet-200',
+    // Secondary "Signal" accent (teal) — for auto-synced/connected/informational states
+    signal:   'bg-signal-50 text-signal-700 border-signal-200',
   }[variant] ?? 'bg-gray-100 text-gray-600 border-gray-200';
 
   return (

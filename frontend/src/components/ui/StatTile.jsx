@@ -22,6 +22,7 @@ const ACCENT = {
   red:     'bg-red-50     text-red-600     border-red-100',
   green:   'bg-green-50   text-green-600   border-green-100',
   slate:   'bg-slate-100  text-slate-600   border-slate-200',
+  signal:  'bg-signal-50  text-signal-600  border-signal-100',
 };
 
 export default function StatTile({ icon, label, value, sub, accent = 'brand', pulse = false, onClick }) {

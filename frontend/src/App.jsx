@@ -6,6 +6,7 @@ import {
   MailCheck, Briefcase, Mail, BarChart3, Bell, Zap,
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './contexts/AuthContext.jsx';
+import { Spinner } from './components/ui/index.js';
 import Header            from './components/Header.jsx';
 import StatsBar          from './components/StatsBar.jsx';
 import ContactTable      from './components/ContactTable.jsx';
@@ -476,7 +477,7 @@ export default function App() {
     return (
       <div className="min-h-screen bg-stone-50 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3 text-gray-400">
-          <div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+          <Spinner size="md" />
           <p className="text-sm text-gray-500">Milaan dhoond rahe hain…</p>
         </div>
       </div>

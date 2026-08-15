@@ -6,3 +6,5 @@ export { default as EmptyState }  from './EmptyState.jsx';
 export { default as StatTile }    from './StatTile.jsx';
 export { default as Badge }       from './Badge.jsx';
 export { default as SkeletonBlock, SkeletonLine, SkeletonCard, SkeletonRow } from './Skeleton.jsx';
+export { default as Modal }       from './Modal.jsx';
+export { default as Spinner }     from './Spinner.jsx';
