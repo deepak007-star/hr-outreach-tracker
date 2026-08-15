@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'react-hot-toast';
-import { api, API_ROOT } from '../api/client.js';
+import { api, API_ROOT, notifyIfUnauthorized } from '../api/client.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import PostWorkflowModal from './PostWorkflowModal.jsx';
 import { computeJobMatch } from '../utils/jobMatch.js';
@@ -433,6 +433,7 @@ export default function LinkedInPosts() {
       });
 
       if (!resp.ok) {
+        notifyIfUnauthorized(resp.status);
         let msg = `Scraper error (${resp.status})`;
         try { const d = await resp.json(); msg = d.error || msg; } catch {}
         addLog('error', msg);

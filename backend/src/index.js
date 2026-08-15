@@ -376,6 +376,36 @@ async function main() {
   setTimeout(runOAuthHealthCheck, 30_000);
   setInterval(runOAuthHealthCheck, 24 * 3_600_000);
 
+  // ── Gmail auto-sync (startup + every 20 min) ───────────────────────────────
+  // /api/gmail/sync (GmailConnectCard's "Sync Now") was previously the ONLY
+  // way new sent mail / replies ever got picked up — there was no background
+  // job at all, so sync only ever happened when a user remembered to click it.
+  // This runs the same syncGmailForUser() the manual button uses, but with a
+  // short window (a couple pages, last few days) since it only needs to catch
+  // new activity, not re-scan 18 months of history every 20 minutes.
+  async function runGmailAutoSync() {
+    try {
+      const { syncGmailForUser } = require('./routes/gmail');
+      const rows = await database.prepare(
+        "SELECT user_id FROM oauth_accounts WHERE provider = 'google' AND scope LIKE '%gmail.metadata%'"
+      ).all();
+      let totalImported = 0;
+      for (const { user_id } of rows) {
+        try {
+          const r = await syncGmailForUser(user_id, { maxPages: 2, windowDays: 7 });
+          totalImported += r.imported;
+        } catch (e) {
+          console.warn(`[Gmail auto-sync] user ${user_id} failed (non-fatal):`, e.message);
+        }
+      }
+      if (totalImported > 0) console.log(`[Gmail auto-sync] ${totalImported} email(s) imported across ${rows.length} account(s)`);
+    } catch (e) {
+      console.error('[Gmail auto-sync] error:', e.message);
+    }
+  }
+  setTimeout(runGmailAutoSync, 40_000);
+  setInterval(runGmailAutoSync, 20 * 60_000);
+
   // ── Daily scraper-job purge + GitHub backup ─────────────────────────────────
   async function runDailyPurgeAndBackup() {
     try {

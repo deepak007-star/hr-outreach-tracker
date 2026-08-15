@@ -21,13 +21,13 @@ const CLEAR_COOKIE_OPTS = { httpOnly: true, secure: isProd, sameSite: isProd ? '
 
 // ── Dev login bypass ───────────────────────────────────────────────────────
 // Lets you enter the app as an admin (all features, no restriction) without any
-// credentials. Enabled by default OUTSIDE production; set DEV_LOGIN_BYPASS=true
-// or =false to force it either way. WARNING: enabling this on a public server
-// grants anyone full admin access — keep it off (NODE_ENV=production or
-// DEV_LOGIN_BYPASS=false) on anything internet-facing.
-const DEV_BYPASS_ENABLED = process.env.DEV_LOGIN_BYPASS
-  ? process.env.DEV_LOGIN_BYPASS === 'true'
-  : process.env.NODE_ENV !== 'production';
+// credentials. Requires DEV_LOGIN_BYPASS=true to be set EXPLICITLY — it used to
+// default to enabled whenever NODE_ENV wasn't exactly 'production', which meant
+// any deployment that forgot to set NODE_ENV (common on bare VMs/Docker without
+// an explicit env var) silently exposed an unauthenticated endpoint that signs
+// the caller in as the site's real first admin account. Fail-safe now: off
+// unless someone deliberately turned it on.
+const DEV_BYPASS_ENABLED = process.env.DEV_LOGIN_BYPASS === 'true';
 const DEV_ADMIN_EMAIL = 'dev-bypass@local.host';
 
 async function ensureDevAdmin() {

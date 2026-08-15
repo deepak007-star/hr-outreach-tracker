@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { toast } from 'react-hot-toast';
-import { api, API_ROOT } from '../api/client.js';
+import { api, API_ROOT, notifyIfUnauthorized } from '../api/client.js';
 import { confirm } from '../utils/confirm.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import RolesPermissions from './RolesPermissions.jsx';
@@ -1163,6 +1163,7 @@ function ScraperSection() {
       });
 
       if (!resp.ok) {
+        notifyIfUnauthorized(resp.status);
         let msg = `Scraper error (${resp.status})`;
         try { const d = await resp.json(); msg = d.error || msg; } catch {}
         setFeedLogs(prev => [...prev, { type: 'err', text: msg }]);

@@ -253,14 +253,24 @@ export default function App() {
     };
   }, [user, fetchContacts, fetchEmailStats]);
 
-  // Refresh immediately when returning to the Dashboard or Contacts view
+  // Refresh immediately when returning to the Dashboard or Contacts view —
+  // deliberately keyed ONLY on activeTab/user, not fetchContacts/fetchEmailStats.
+  // Those two are recreated on every filter/search edit (see their useCallback
+  // deps above), and including them here meant every filter change while
+  // already on Contacts fired a second, silent fetch on top of the one the
+  // filter-driven effect above already does — this only fires on an actual
+  // tab *arrival*, not on every filter tweak while already there.
+  const prevTabRef = useRef(activeTab);
   useEffect(() => {
-    if (!user) return;
+    const arrived = prevTabRef.current !== activeTab;
+    prevTabRef.current = activeTab;
+    if (!user || !arrived) return;
     if (activeTab === 'home' || activeTab === 'contacts') {
       fetchContacts({ silent: true });
       fetchEmailStats();
     }
-  }, [activeTab, user, fetchContacts, fetchEmailStats]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, user]);
 
   // Session-expired event: show toast so user knows why they got logged out
   useEffect(() => {

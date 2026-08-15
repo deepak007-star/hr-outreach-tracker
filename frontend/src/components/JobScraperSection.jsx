@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'react-hot-toast';
-import { api, API_ROOT } from '../api/client.js';
+import { api, API_ROOT, notifyIfUnauthorized } from '../api/client.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import JobCard from './JobCard.jsx';
 
@@ -160,6 +160,7 @@ export default function JobScraperSection() {
       });
 
       if (!resp.ok) {
+        notifyIfUnauthorized(resp.status);
         let msg = `Scraper error (${resp.status})`;
         try { const d = await resp.json(); msg = d.error || msg; } catch {}
         setScraperLogs(prev => [...prev, { type: 'error', text: msg }]);

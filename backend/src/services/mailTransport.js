@@ -75,11 +75,15 @@ async function sendViaGmailApi(oauthRow, mailOpts) {
 // sent, no Gmail send quota touched) and clears the stored token if it's dead,
 // same as sendViaGmailApi's reactive cleanup but before the user hits it mid-batch.
 async function checkOAuthTokenHealth(oauthRow) {
-  const oauth2 = new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET, process.env.GOOGLE_REDIRECT_URI
-  );
-  oauth2.setCredentials({ refresh_token: decrypt(oauthRow.refresh_token) });
   try {
+    const oauth2 = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET, process.env.GOOGLE_REDIRECT_URI
+    );
+    // decrypt() must be inside this try — a decryption failure (corrupt/
+    // mismatched ciphertext) threw uncaught here originally, aborting the
+    // caller's entire per-account loop after this row instead of just
+    // marking this one row's health as unknown and moving on.
+    oauth2.setCredentials({ refresh_token: decrypt(oauthRow.refresh_token) });
     await oauth2.getAccessToken();
     return true;
   } catch (err) {

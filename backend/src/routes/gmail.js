@@ -76,19 +76,23 @@ async function getGmailClient(userId) {
   return google.gmail({ version: 'v1', auth: oauth2 });
 }
 
-// ─── POST /api/gmail/sync — fetch HR emails from Gmail ────────────────────────
+// ─── Core sync logic — shared by the manual POST /sync route below and the
+// automatic background job in index.js, so "Sync Now" and auto-sync are
+// always the exact same code path, not two implementations to keep in sync. ──
 
-router.post('/sync', requireAuth, async (req, res) => {
-  try {
-    const gmail  = await getGmailClient(req.user.userId);
-    const userId = req.user.userId;
+// maxPages/windowDays default to the manual "Sync Now" button's full deep
+// scan (500 messages / 18 months). The background auto-sync job in index.js
+// calls this with a much smaller window (a couple pages, a few days) — it
+// only needs to catch NEW activity since the last poll, not re-scan history
+// every 20 minutes.
+async function syncGmailForUser(userId, { maxPages = 10, windowDays = 548 } = {}) {
+    const gmail = await getGmailClient(userId);
 
     const oauthRow = await db.prepare(
       "SELECT email FROM oauth_accounts WHERE user_id = ? AND provider = 'google'"
     ).get(userId);
 
-    // Fetch sent emails from last 18 months (1.5 years)
-    const sinceMs = Date.now() - 548 * 86_400_000;
+    const sinceMs = Date.now() - windowDays * 86_400_000;
 
     // gmail.metadata scope does not allow the `q` search parameter at all
     // ("Parameter cannot be used when accessing the api using the
@@ -102,7 +106,7 @@ router.post('/sync', requireAuth, async (req, res) => {
     let pageToken  = null;
     let iterations = 0;
 
-    while (iterations < 10) {
+    while (iterations < maxPages) {
       const listResp = await gmail.users.messages.list({
         userId:    'me',
         labelIds:  ['SENT'],
@@ -115,7 +119,7 @@ router.post('/sync', requireAuth, async (req, res) => {
 
       pageToken = listResp.data.nextPageToken;
       iterations++;
-      if (!pageToken || messages.length >= 500) break;
+      if (!pageToken || messages.length >= maxPages * 50) break;
     }
 
     let imported = 0;
@@ -215,7 +219,15 @@ router.post('/sync', requireAuth, async (req, res) => {
       } catch { /* skip individual message errors */ }
     }
 
-    res.json({ imported, scanned, total: messages.length });
+    return { imported, scanned, total: messages.length };
+}
+
+// ─── POST /api/gmail/sync — fetch HR emails from Gmail (manual, deep scan) ────
+
+router.post('/sync', requireAuth, async (req, res) => {
+  try {
+    const result = await syncGmailForUser(req.user.userId);
+    res.json(result);
   } catch (err) {
     console.error('[Gmail sync]', err.message);
     res.status(500).json({ error: friendlyGmailError(err) });
@@ -415,3 +427,4 @@ router.delete('/disconnect', requireAuth, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.syncGmailForUser = syncGmailForUser;

@@ -31,9 +31,15 @@ export function AuthProvider({ children }) {
         if (u._token) {
           localStorage.setItem('hr_token', u._token);
           const { _token, ...userData } = u;
-          setUser(userData);
+          // Keep the same object reference when nothing actually changed — this
+          // runs on a 30s poll + every focus/visibility event, and setUser()
+          // handing back a brand-new object every time (even with identical
+          // field values) was recreating every fetchContacts/fetchEmailStats
+          // callback that depends on `user`, cascading into repeated refetches
+          // across the app on every tab focus.
+          setUser(prev => JSON.stringify(prev) === JSON.stringify(userData) ? prev : userData);
         } else {
-          setUser(u);
+          setUser(prev => JSON.stringify(prev) === JSON.stringify(u) ? prev : u);
         }
       })
       .catch(err => {
@@ -125,6 +131,7 @@ export function AuthProvider({ children }) {
   // If the user logs in in another tab, this tab picks it up.
   useEffect(() => {
     const onStorage = (e) => {
+      if (e.key === 'hr_dev_bypass') { setDevBypass(e.newValue === 'on'); return; }
       if (e.key !== 'hr_token') return;
       if (!e.newValue) {
         setUser(null); // logged out elsewhere
