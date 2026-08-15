@@ -1,9 +1,11 @@
 // Compact summary strip for the Contacts page — full StatTiles are on the Dashboard.
-export default function StatsBar({ contacts }) {
-  const total      = contacts.length;
-  const contacted  = contacts.filter(c => ['Sent','Opened','Replied','Interview'].includes(c.status)).length;
-  const replied    = contacts.filter(c => c.status === 'Replied').length;
-  const interviews = contacts.filter(c => c.status === 'Interview').length;
+// `summary` comes from GET /contacts/summary — true counts across every contact
+// matching the current filters, independent of how many pages are loaded.
+export default function StatsBar({ summary }) {
+  const total      = summary?.total ?? 0;
+  const contacted  = summary?.emailed ?? 0;
+  const replied    = summary?.replied ?? 0;
+  const interviews = summary?.interviews ?? 0;
   const pct = n => total ? `${Math.round((n / total) * 100)}%` : '—';
 
   return (

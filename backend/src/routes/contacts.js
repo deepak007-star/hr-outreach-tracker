@@ -42,15 +42,28 @@ const upload = multer({
 const VALID_STATUSES = ['New', 'Drafted', 'Sent', 'Opened', 'Replied', 'Interview', 'Rejected', 'Do Not Contact'];
 
 // Shared filter-building logic for GET / and GET /export, so exporting
-// respects the same status/source/search/tag(s) filters as the visible table
-// instead of always dumping the whole pool. `tags` accepts a comma-separated
-// list and AND-matches (a contact must carry every listed tag).
-function buildContactFilters({ status, search, source, tag, tags }, userId, pool) {
+// respects the same status/source/search/tag(s)/segment/title filters as the
+// visible table instead of always dumping the whole pool. `tags` accepts a
+// comma-separated list and AND-matches (a contact must carry every listed tag).
+// `segment` mirrors the frontend's "Not contacted / Already mailed" toggle —
+// pushed server-side so pagination operates on the truly-filtered set rather
+// than a client-side .filter() over whatever page happens to be loaded.
+// Two different "contacted" definitions coexist by design: the segment toggle
+// treats a closed-out contact (Rejected / Do Not Contact) as "already mailed"
+// (you took a final action on them, they're not "not contacted"), while the
+// StatsBar's outreach-progress stat only counts an actual email having gone
+// out (narrower — excludes terminal statuses since those aren't send activity).
+const ALREADY_MAILED_STATUSES_SQL = `('Sent','Opened','Replied','Interview','Rejected','Do Not Contact')`;
+const EMAILED_STATUSES_SQL        = `('Sent','Opened','Replied','Interview')`;
+function buildContactFilters({ status, search, source, tag, tags, segment, title }, userId, pool) {
   const where = [];
   const p = [];
   if (!pool)  { where.push('c.user_id = ?'); p.push(userId); }
   if (status) { where.push(`COALESCE(s.status, 'New') = ?`); p.push(status); }
   if (source) { where.push('c.email_source = ?'); p.push(source); }
+  if (title)  { where.push('c.title ILIKE ?'); p.push(`%${title}%`); }
+  if (segment === 'contacted')     where.push(`COALESCE(s.status, 'New') IN ${ALREADY_MAILED_STATUSES_SQL}`);
+  if (segment === 'not_contacted') where.push(`COALESCE(s.status, 'New') NOT IN ${ALREADY_MAILED_STATUSES_SQL}`);
   if (search) {
     where.push('(c.name ILIKE ? OR c.company ILIKE ? OR c.email ILIKE ? OR c.title ILIKE ?)');
     const s = `%${search}%`;
@@ -62,26 +75,169 @@ function buildContactFilters({ status, search, source, tag, tags }, userId, pool
 }
 
 // ── GET /api/contacts  ─────────────────────────────────────────────────────
+// Paginated by default (page/limit, 20/page unless the caller asks for more) —
+// the contacts pool can run into the thousands once Job Intel has been
+// syncing for a while, and loading it all in one request made the page feel
+// slow on first paint. `all=true` bypasses paging (capped at 5000) for
+// explicit "select every matching contact" bulk actions, where the frontend
+// deliberately wants the full matching set in one shot rather than a page.
 router.get('/', async (req, res) => {
-  const { status, search, source, tag, tags } = req.query;
+  const { status, search, source, tag, tags, segment, title, page, limit, all } = req.query;
   const userId = req.user.userId;
   const pool   = canSeePool(req.user);   // subscribers/admins see everyone's contacts
+
+  const { where, params: wp } = buildContactFilters({ status, search, source, tag, tags, segment, title }, userId, pool);
+  const p = [userId, ...wp];
+  const whereSql = where.length ? ' WHERE ' + where.join(' AND ') : '';
+
+  const limitNum = all === 'true' ? 5000 : Math.min(Math.max(parseInt(limit) || 20, 1), 200);
+  const pageNum  = Math.max(parseInt(page) || 1, 1);
+  const offset   = all === 'true' ? 0 : (pageNum - 1) * limitNum;
 
   // Join this user's own state so status/notes reflect the viewer, not the owner
   let q = `
     SELECT c.*, s.status AS my_status, s.notes AS my_notes, s.follow_up_at AS my_follow_up_at
     FROM contacts c
     LEFT JOIN contact_user_state s ON s.contact_id = c.id AND s.user_id = ?
+    ${whereSql}
+    ORDER BY c.date_added DESC
+    LIMIT ? OFFSET ?
   `;
-  const { where, params: wp } = buildContactFilters({ status, search, source, tag, tags }, userId, pool);
-  const p = [userId, ...wp];
-
-  if (where.length) q += ' WHERE ' + where.join(' AND ');
-  q += ' ORDER BY c.date_added DESC';
 
   try {
-    const rows = await db.prepare(q).all(...p);
-    res.json(rows.map(r => shapeContact(r, userId)));
+    const countRow = await db.prepare(`
+      SELECT COUNT(*) AS count FROM contacts c
+      LEFT JOIN contact_user_state s ON s.contact_id = c.id AND s.user_id = ?
+      ${whereSql}
+    `).get(...p);
+    const total = parseInt(countRow.count, 10) || 0;
+    const rows  = await db.prepare(q).all(...p, limitNum, offset);
+    res.json({
+      contacts: rows.map(r => shapeContact(r, userId)),
+      total,
+      page: pageNum,
+      limit: limitNum,
+      pages: Math.max(1, Math.ceil(total / limitNum)),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/contacts/summary ── aggregate counts for the current filter set ──
+// Independent of pagination — the StatsBar and segment-tab counts need the
+// TRUE total/contacted/replied/interview counts across every matching
+// contact, not just whatever page happens to be loaded client-side.
+router.get('/summary', async (req, res) => {
+  const { status, search, source, tag, tags, title } = req.query;
+  const userId = req.user.userId;
+  const pool   = canSeePool(req.user);
+  const { where, params: wp } = buildContactFilters({ status, search, source, tag, tags, title }, userId, pool);
+  const p = [userId, ...wp];
+  const whereSql = where.length ? ' WHERE ' + where.join(' AND ') : '';
+
+  try {
+    const row = await db.prepare(`
+      SELECT
+        COUNT(*) AS total,
+        SUM(CASE WHEN COALESCE(s.status, 'New') IN ${ALREADY_MAILED_STATUSES_SQL} THEN 1 ELSE 0 END) AS already_mailed,
+        SUM(CASE WHEN COALESCE(s.status, 'New') IN ${EMAILED_STATUSES_SQL}        THEN 1 ELSE 0 END) AS emailed,
+        SUM(CASE WHEN COALESCE(s.status, 'New') = 'Replied'   THEN 1 ELSE 0 END) AS replied,
+        SUM(CASE WHEN COALESCE(s.status, 'New') = 'Interview' THEN 1 ELSE 0 END) AS interviews
+      FROM contacts c
+      LEFT JOIN contact_user_state s ON s.contact_id = c.id AND s.user_id = ?
+      ${whereSql}
+    `).get(...p);
+    const total         = parseInt(row.total, 10) || 0;
+    const alreadyMailed = parseInt(row.already_mailed, 10) || 0;
+    res.json({
+      total,
+      contacted:     alreadyMailed,           // segment-tab semantics ("Already mailed")
+      not_contacted: total - alreadyMailed,
+      emailed:    parseInt(row.emailed, 10) || 0, // StatsBar semantics — narrower, excludes Rejected/DNC
+      replied:    parseInt(row.replied, 10) || 0,
+      interviews: parseInt(row.interviews, 10) || 0,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/contacts/dashboard-stats ── aggregates for the Dashboard tab ──
+// The Dashboard needs the full-pool picture (status pipeline, per-source
+// conversion, stalled follow-ups, company count) — computed in SQL rather
+// than handed the entire `contacts` array, which is now paginated on the
+// main list and would otherwise only reflect whatever page(s) are loaded.
+router.get('/dashboard-stats', async (req, res) => {
+  const userId = req.user.userId;
+  const pool   = canSeePool(req.user);
+  const scopeSql = pool ? '' : ' WHERE c.user_id = ?';
+  const scopeParams = pool ? [] : [userId];
+
+  try {
+    const pipelineRows = await db.prepare(`
+      SELECT COALESCE(s.status, 'New') AS status, COUNT(*) AS count
+      FROM contacts c
+      LEFT JOIN contact_user_state s ON s.contact_id = c.id AND s.user_id = ?
+      ${scopeSql}
+      GROUP BY COALESCE(s.status, 'New')
+    `).all(userId, ...scopeParams);
+    const pipeline = {};
+    for (const r of pipelineRows) pipeline[r.status] = parseInt(r.count, 10) || 0;
+
+    const sourceRows = await db.prepare(`
+      SELECT
+        COALESCE(c.email_source, 'manual') AS source,
+        COUNT(*) AS total,
+        SUM(CASE WHEN COALESCE(s.status, 'New') IN ${ALREADY_MAILED_STATUSES_SQL} THEN 1 ELSE 0 END) AS contacted,
+        SUM(CASE WHEN COALESCE(s.status, 'New') IN ('Replied','Interview')        THEN 1 ELSE 0 END) AS replied
+      FROM contacts c
+      LEFT JOIN contact_user_state s ON s.contact_id = c.id AND s.user_id = ?
+      ${scopeSql}
+      GROUP BY COALESCE(c.email_source, 'manual')
+    `).all(userId, ...scopeParams);
+    const sourceBreakdown = sourceRows
+      .map(r => {
+        const total = parseInt(r.total, 10) || 0;
+        const contacted = parseInt(r.contacted, 10) || 0;
+        const replied = parseInt(r.replied, 10) || 0;
+        return { key: r.source, total, contacted, replied, rate: contacted ? Math.round((replied / contacted) * 100) : 0 };
+      })
+      .sort((a, b) => b.total - a.total);
+
+    const companyWhere  = [`c.company IS NOT NULL`, `c.company != ''`];
+    const companyParams = [];
+    if (!pool) { companyWhere.unshift('c.user_id = ?'); companyParams.push(userId); }
+    const companyWhereSql = ' WHERE ' + companyWhere.join(' AND ');
+
+    const companyRow = await db.prepare(`
+      SELECT COUNT(DISTINCT c.company) AS count FROM contacts c${companyWhereSql}
+    `).get(...companyParams);
+    const myCompaniesRows = await db.prepare(`
+      SELECT DISTINCT c.company FROM contacts c${companyWhereSql} ORDER BY c.company ASC LIMIT 12
+    `).all(...companyParams);
+
+    // Sent/Opened for >7 days with no reply — a concrete follow-up shortlist.
+    const cutoff = new Date(Date.now() - 7 * 86_400_000).toISOString().replace('T', ' ').slice(0, 19);
+    const stalledWhere  = [`COALESCE(s.status, 'New') IN ('Sent','Opened')`, `c.date_last_contacted IS NOT NULL`, `c.date_last_contacted < ?`];
+    const stalledParams = [userId]; // for the join
+    if (!pool) { stalledWhere.unshift('c.user_id = ?'); stalledParams.push(userId); }
+    stalledParams.push(cutoff);
+    const stalledRows = await db.prepare(`
+      SELECT c.*, s.status AS my_status, s.notes AS my_notes, s.follow_up_at AS my_follow_up_at
+      FROM contacts c
+      LEFT JOIN contact_user_state s ON s.contact_id = c.id AND s.user_id = ?
+      WHERE ${stalledWhere.join(' AND ')}
+      ORDER BY c.date_last_contacted ASC LIMIT 8
+    `).all(...stalledParams);
+
+    res.json({
+      pipeline,
+      sourceBreakdown,
+      companyCount: parseInt(companyRow?.count, 10) || 0,
+      myCompanies: myCompaniesRows.map(r => r.company),
+      stalledContacts: stalledRows.map(r => shapeContact(r, userId)),
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

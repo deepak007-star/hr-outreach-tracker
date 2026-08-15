@@ -4,6 +4,7 @@ import { api, API_ROOT, notifyIfUnauthorized } from '../api/client.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import PostWorkflowModal from './PostWorkflowModal.jsx';
 import { computeJobMatch } from '../utils/jobMatch.js';
+import { LoadMoreSentinel } from './ui/index.js';
 
 const DEFAULT_CITIES = ['Delhi', 'Bangalore', 'Pune', 'Noida', 'Gurugram'];
 function parsePreferredCities(val) {
@@ -362,6 +363,12 @@ export default function LinkedInPosts() {
   const [matchedTerms,  setMatchedTerms]  = useState([]);
   const [customKeywords, setCustomKeywords] = useState('');
   const [sinceFallback, setSinceFallback] = useState(false);
+  // Paginated instead of always pulling up to 500 posts in one request — first
+  // page loads fast, more comes in as the user scrolls.
+  const [page,        setPage]        = useState(1);
+  const [hasMore,     setHasMore]     = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const PAGE_SIZE = 100;
   const logsEndRef = useRef(null);
   const isAdmin = user?.role === 'admin';
 
@@ -377,22 +384,30 @@ export default function LinkedInPosts() {
   // Defaults to matching the caller's own target roles (job_title_1/2/3 on
   // their profile) server-side — every user gets a feed relevant to them
   // instead of the identical global list. "Show all roles" opts out.
-  const fetchPosts = useCallback(async () => {
-    setLoading(true);
+  const fetchPosts = useCallback(async ({ append = false, pageNum = 1 } = {}) => {
+    if (append) setLoadingMore(true); else setLoading(true);
     try {
-      const params = { since, limit: 500, source: 'all' };
+      const params = { since, limit: PAGE_SIZE, page: pageNum, source: 'all' };
       if (search)       params.search       = search;
       if (hiringOnly)   params.hiring_only  = 'true';
       if (showAllRoles) params.matchProfile = 'false';
       const data = await api.get('/linkedin-feed', { params });
-      setPosts(data.posts || []);
+      const rows = data.posts || [];
+      setPosts(prev => (append ? [...prev, ...rows] : rows));
       setMatchedTerms(data.matched_profile_terms || []);
       setSinceFallback(!!data.since_fallback);
+      setPage(pageNum);
+      setHasMore(pageNum < (data.pages || 1));
     } catch { toast.error('Failed to load posts'); }
-    finally  { setLoading(false); }
+    finally  { append ? setLoadingMore(false) : setLoading(false); }
   }, [search, since, hiringOnly, showAllRoles]);
 
-  useEffect(() => { fetchPosts(); }, [fetchPosts]);
+  useEffect(() => { fetchPosts({ pageNum: 1 }); }, [fetchPosts]);
+
+  const loadMorePosts = useCallback(() => {
+    if (loadingMore || !hasMore) return;
+    fetchPosts({ append: true, pageNum: page + 1 });
+  }, [fetchPosts, loadingMore, hasMore, page]);
 
   // Auto-refresh when the user returns to this tab after being away
   useEffect(() => {
@@ -724,6 +739,7 @@ export default function LinkedInPosts() {
           ))}
         </div>
       )}
+      <LoadMoreSentinel hasMore={hasMore} loading={loadingMore} onLoadMore={loadMorePosts} />
 
       {/* ── Modals ────────────────────────────────────────────────────────── */}
       {composeTo === 'bulk' && (

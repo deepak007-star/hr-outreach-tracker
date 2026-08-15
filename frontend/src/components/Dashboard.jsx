@@ -162,6 +162,16 @@ export default function Dashboard({
   const [resourceTab,   setResourceTab]   = useState('portals');
   const [weekDigest,    setWeekDigest]    = useState(null); // { thisWeek, lastWeek }
 
+  // Full-pool aggregates (status pipeline, per-source conversion, stalled
+  // follow-ups, company count) computed server-side — `contacts` below is
+  // now a paginated slice of the main list, not the whole pool, so these
+  // can't be derived client-side from it anymore without under-counting.
+  const [stats, setStats] = useState(null);
+  useEffect(() => {
+    if (!user) return;
+    api.get('/contacts/dashboard-stats').then(setStats).catch(() => {});
+  }, [user, activityKey]);
+
   // Week-over-week momentum — the stat tiles below are single-point snapshots
   // with no sense of trend; this answers "am I doing more or less than last week."
   useEffect(() => {
@@ -186,13 +196,12 @@ export default function Dashboard({
   const dateStr  = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   const todayTip = DAILY_TIP[new Date().getDay() % DAILY_TIP.length];
 
-  const pipeline = useMemo(() => {
-    const m = {};
-    contacts.forEach(c => { m[c.status] = (m[c.status] || 0) + 1; });
-    return m;
-  }, [contacts]);
+  // `pipeline` etc. now come from the server-side aggregate (`stats`, fetched
+  // above) — the full pool, not whatever page of `contacts` happens to be
+  // loaded on the (now-paginated) Contacts tab.
+  const pipeline = stats?.pipeline ?? {};
 
-  const total          = contacts.length;
+  const total          = Object.values(pipeline).reduce((a, b) => a + b, 0);
   const sentToday      = emailStats?.sentToday ?? 0;
   const dailyCap       = emailStats?.dailyCap  ?? 20;
   const interviews     = pipeline.Interview || 0;
@@ -209,6 +218,9 @@ export default function Dashboard({
   // harmless for straight comparison since both sides shift equally, but
   // normalize anyway so this doesn't silently break if the format ever varies.
   const toDate = (s) => new Date(s?.includes('T') ? s : s?.replace(' ', 'T') + 'Z');
+  // `contacts` is page 1 of the main list (already ORDER BY date_added DESC
+  // server-side), so the most recent few are always among the first loaded —
+  // no need for a dedicated aggregate just for this.
   const recent = useMemo(() =>
     [...contacts].sort((a, b) => toDate(b.date_added) - toDate(a.date_added)).slice(0, 6),
     [contacts],
@@ -216,38 +228,23 @@ export default function Dashboard({
 
   // Contacts sitting in Sent/Opened for >7 days with no reply — a concrete
   // follow-up list, not just the aggregate "keep the momentum" nudge below.
-  const stalledContacts = useMemo(() => {
-    const cutoffMs = Date.now() - 7 * 86_400_000;
-    return contacts
-      .filter(c => ['Sent', 'Opened'].includes(c.status) && c.date_last_contacted)
-      .map(c => ({ ...c, _staleDays: Math.floor((Date.now() - toDate(c.date_last_contacted).getTime()) / 86_400_000) }))
-      .filter(c => toDate(c.date_last_contacted).getTime() < cutoffMs)
-      .sort((a, b) => b._staleDays - a._staleDays)
-      .slice(0, 8);
-  }, [contacts]);
+  // Filtered server-side (dashboard-stats) since it needs to scan the whole
+  // pool, not just the loaded page.
+  const stalledContacts = useMemo(() =>
+    (stats?.stalledContacts ?? []).map(c => ({
+      ...c,
+      _staleDays: Math.floor((Date.now() - toDate(c.date_last_contacted).getTime()) / 86_400_000),
+    })),
+    [stats],
+  );
 
   // Per-source response-rate breakdown — which channel (job-intel vs manual
   // vs CSV import vs Apify) actually converts, not just where volume comes from.
   const [showBreakdown, setShowBreakdown] = useState(false);
-  const sourceBreakdown = useMemo(() => {
-    const CONTACTED = new Set(['Sent', 'Opened', 'Replied', 'Interview', 'Rejected', 'Do Not Contact']);
-    const m = {};
-    contacts.forEach(c => {
-      const key = c.email_source || 'manual';
-      const g = m[key] || (m[key] = { key, contacted: 0, replied: 0, total: 0 });
-      g.total++;
-      if (CONTACTED.has(c.status)) g.contacted++;
-      if (['Replied', 'Interview'].includes(c.status)) g.replied++;
-    });
-    return Object.values(m)
-      .map(g => ({ ...g, rate: g.contacted ? Math.round((g.replied / g.contacted) * 100) : 0 }))
-      .sort((a, b) => b.total - a.total);
-  }, [contacts]);
+  const sourceBreakdown = stats?.sourceBreakdown ?? [];
 
-  const { companyCount, myCompanies } = useMemo(() => {
-    const all = [...new Set(contacts.map(c => c.company).filter(Boolean))];
-    return { companyCount: all.length, myCompanies: all.slice(0, 12) };
-  }, [contacts]);
+  const companyCount = stats?.companyCount ?? 0;
+  const myCompanies  = stats?.myCompanies  ?? [];
 
   const researchedCompany = companySearch.trim();
 

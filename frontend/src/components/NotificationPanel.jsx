@@ -1,20 +1,38 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api/client.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
+import { LoadMoreSentinel } from './ui/index.js';
+
+const PAGE_SIZE = 50;
 
 export default function NotificationPanel() {
   const { user } = useAuth();
   const [open,          setOpen]          = useState(false);
   const [notifications, setNotifications] = useState([]);
+  const [hasMore,        setHasMore]       = useState(false);
+  const [loadingMore,    setLoadingMore]   = useState(false);
   const panelRef = useRef(null);
 
   const load = useCallback(async () => {
     if (!user) return;
     try {
-      const data = await api.get('/notifications');
-      setNotifications(data);
+      const data = await api.get('/notifications', { params: { limit: PAGE_SIZE, offset: 0 } });
+      setNotifications(data.notifications || []);
+      setHasMore(!!data.hasMore);
     } catch {}
   }, [user]);
+
+  const loadMore = useCallback(async () => {
+    if (!user || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const data = await api.get('/notifications', { params: { limit: PAGE_SIZE, offset: notifications.length } });
+      setNotifications(prev => [...prev, ...(data.notifications || [])]);
+      setHasMore(!!data.hasMore);
+    } catch {} finally {
+      setLoadingMore(false);
+    }
+  }, [user, loadingMore, notifications.length]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -56,6 +74,7 @@ export default function NotificationPanel() {
     try {
       await api.delete('/notifications');
       setNotifications([]);
+      setHasMore(false);
       setOpen(false);
     } catch {}
   };
@@ -150,6 +169,7 @@ export default function NotificationPanel() {
                 )}
               </div>
             ))}
+            <LoadMoreSentinel hasMore={hasMore} loading={loadingMore} onLoadMore={loadMore} className="py-2" />
           </div>
         </div>
       )}

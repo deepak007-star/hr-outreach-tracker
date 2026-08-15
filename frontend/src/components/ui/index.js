@@ -8,3 +8,5 @@ export { default as Badge }       from './Badge.jsx';
 export { default as SkeletonBlock, SkeletonLine, SkeletonCard, SkeletonRow } from './Skeleton.jsx';
 export { default as Modal }       from './Modal.jsx';
 export { default as Spinner }     from './Spinner.jsx';
+export { default as MultiSelectDropdown } from './MultiSelectDropdown.jsx';
+export { default as LoadMoreSentinel }    from './LoadMoreSentinel.jsx';

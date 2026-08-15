@@ -6,7 +6,7 @@ import {
   MailCheck, Briefcase, Mail, BarChart3, Bell, Zap,
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './contexts/AuthContext.jsx';
-import { Spinner } from './components/ui/index.js';
+import { Spinner, MultiSelectDropdown, LoadMoreSentinel } from './components/ui/index.js';
 import Header            from './components/Header.jsx';
 import StatsBar          from './components/StatsBar.jsx';
 import ContactTable      from './components/ContactTable.jsx';
@@ -107,11 +107,9 @@ function getTabFromPath(pathname) {
 }
 
 const STATUSES = ['New','Drafted','Sent','Opened','Replied','Interview','Rejected','Do Not Contact'];
-// "Contacted" = an email has gone out (or the contact is closed). Everything else
-// (New / Drafted) counts as "not contacted yet".
-const CONTACTED_STATUSES = new Set(['Sent','Opened','Replied','Interview','Rejected','Do Not Contact']);
-const isContacted    = c => CONTACTED_STATUSES.has(c.status);
-const isNotContacted = c => !CONTACTED_STATUSES.has(c.status);
+// "Contacted"/"not contacted" segment matching now happens server-side (see
+// buildContactFilters + /contacts/summary in backend/src/routes/contacts.js) —
+// kept in sync with the same status set there.
 
 export default function App() {
   const [contacts,       setContacts]       = useState([]);
@@ -126,6 +124,18 @@ export default function App() {
   const [titleFilter,    setTitleFilter]    = useState('');
   const [segment,        setSegment]        = useState('all'); // all | not_contacted | contacted
   const [selected,       setSelected]       = useState([]);
+  // Pagination: contacts pool can run into the thousands once Job Intel has
+  // been syncing a while — load a page at a time instead of the whole pool,
+  // append more as the user scrolls. Page size is a per-browser preference.
+  const [contactsPage,    setContactsPage]    = useState(1);
+  const [contactsHasMore, setContactsHasMore] = useState(false);
+  const [loadingMore,     setLoadingMore]     = useState(false);
+  const [pageSize,        setPageSize]        = useState(() => parseInt(localStorage.getItem('hr_contacts_page_size'), 10) || 20);
+  // True counts across ALL matching contacts (not just the loaded page) — feeds
+  // StatsBar + the segment-tab counts, which must stay correct regardless of
+  // how many pages have been loaded into `contacts` so far.
+  const [contactsSummary, setContactsSummary] = useState({ total: 0, contacted: 0, not_contacted: 0, emailed: 0, replied: 0, interviews: 0 });
+  const [selectingAll,    setSelectingAll]    = useState(false);
   const [editingContact,   setEditingContact]   = useState(null);
   const [showForm,         setShowForm]         = useState(false);
   const [showImport,       setShowImport]       = useState(false);
@@ -202,30 +212,113 @@ export default function App() {
   // itself on the next background poll a few seconds later. Only applies to
   // the non-silent path (the user actually waiting on this); silent
   // background refreshes already tolerate a failed attempt with no toast.
-  const fetchContacts = useCallback(async ({ silent = false, _attempt = 0 } = {}) => {
+  // page/append let this same function drive three cases:
+  //  - fresh filtered fetch (page 1, replaces `contacts`, limit = pageSize —
+  //    a filter change should snap back to the top of a short first page)
+  //  - "load the next page" (append=true, limit = pageSize)
+  //  - a silent background refresh — re-fetches the SAME amount currently on
+  //    screen (contactsLenRef, tracked below) rather than always re-requesting
+  //    just page 1's worth, which would otherwise truncate the list back down
+  //    every 30s poll/focus after the user had scrolled and loaded more pages.
+  const contactsLenRef = useRef(0);
+  useEffect(() => { contactsLenRef.current = contacts.length; }, [contacts]);
+
+  const fetchContacts = useCallback(async ({ silent = false, _attempt = 0, page = 1, append = false } = {}) => {
     if (!user) { setLoading(false); return; } // guests land on LandingPage, not the contacts table
-    if (!silent) setLoading(true);
+    if (append) setLoadingMore(true);
+    else if (!silent) setLoading(true);
     try {
-      const params = {};
-      if (search)       params.search = search;
-      if (statusFilter) params.status = statusFilter;
-      if (sourceFilter) params.source = sourceFilter;
-      if (tagFilters.length) params.tags  = tagFilters.join(',');
-      const data = await api.get('/contacts', { params });
-      setContacts(data);
-      if (!silent) setLoading(false);
+      const effectiveLimit = (silent && !append) ? Math.max(pageSize, contactsLenRef.current) : pageSize;
+      const params = { page, limit: effectiveLimit };
+      if (search)        params.search  = search;
+      if (statusFilter)  params.status  = statusFilter;
+      if (sourceFilter)  params.source  = sourceFilter;
+      if (tagFilters.length) params.tags = tagFilters.join(',');
+      if (segment !== 'all') params.segment = segment;
+      if (titleFilter)   params.title   = titleFilter;
+      const data  = await api.get('/contacts', { params });
+      const rows  = data.contacts || [];
+      const total = data.total ?? 0;
+      // Express "how much is now loaded" in pageSize-sized chunks so a
+      // subsequent loadMoreContacts() (which always requests in pageSize
+      // increments) asks for the right offset, even after a silent refresh
+      // fetched a larger effectiveLimit in one shot.
+      const newLen = append ? contactsLenRef.current + rows.length : rows.length;
+      setContacts(prev => (append ? [...prev, ...rows] : rows));
+      setContactsPage(Math.max(1, Math.ceil(newLen / pageSize)));
+      setContactsHasMore(newLen < total);
+      if (append) setLoadingMore(false);
+      else if (!silent) setLoading(false);
     } catch (err) {
       const isNetworkError = err?.response?.status == null;
-      if (!silent && isNetworkError && _attempt < 2) {
-        setTimeout(() => fetchContacts({ silent: false, _attempt: _attempt + 1 }), 3000 * (_attempt + 1));
+      if (!append && !silent && isNetworkError && _attempt < 2) {
+        setTimeout(() => fetchContacts({ silent: false, _attempt: _attempt + 1, page }), 3000 * (_attempt + 1));
         return;
       }
-      if (!silent) {
+      if (append) { setLoadingMore(false); toast.error('Could not load more contacts'); }
+      else if (!silent) {
         toast.error('Could not reach backend — is it running on port 3001?');
         setLoading(false);
       }
     }
-  }, [search, statusFilter, sourceFilter, tagFilters, user]);
+  }, [search, statusFilter, sourceFilter, tagFilters, segment, titleFilter, pageSize, user]);
+
+  const loadMoreContacts = useCallback(() => {
+    if (loadingMore || !contactsHasMore) return;
+    fetchContacts({ page: contactsPage + 1, append: true });
+  }, [fetchContacts, loadingMore, contactsHasMore, contactsPage]);
+
+  // Independent of pagination — always reflects the true total/contacted/
+  // replied/interview counts across every contact matching the current
+  // filters, not just whatever page(s) happen to be loaded client-side.
+  const fetchContactsSummary = useCallback(() => {
+    if (!user) return;
+    const params = {};
+    if (search)       params.search = search;
+    if (statusFilter) params.status = statusFilter;
+    if (sourceFilter) params.source = sourceFilter;
+    if (tagFilters.length) params.tags = tagFilters.join(',');
+    if (titleFilter)  params.title  = titleFilter;
+    api.get('/contacts/summary', { params }).then(setContactsSummary).catch(() => {});
+  }, [search, statusFilter, sourceFilter, tagFilters, titleFilter, user]);
+
+  const changePageSize = useCallback((n) => {
+    localStorage.setItem('hr_contacts_page_size', String(n));
+    setPageSize(n);
+  }, []);
+
+  // Explicit "select every contact matching the current filters" — deliberately
+  // bypasses pagination (backend `all=true`, capped at 5000) since this is a
+  // one-off user-initiated action, not the default page load. Also merges the
+  // fetched rows into `contacts` so Compose has full details for every
+  // selected id, even ones from pages never scrolled into.
+  const selectAllMatching = useCallback(async (segmentOverride, { merge = false } = {}) => {
+    if (!user) return;
+    setSelectingAll(true);
+    try {
+      const params = { all: 'true' };
+      if (search)        params.search  = search;
+      if (statusFilter)  params.status  = statusFilter;
+      if (sourceFilter)  params.source  = sourceFilter;
+      if (tagFilters.length) params.tags = tagFilters.join(',');
+      if (titleFilter)   params.title   = titleFilter;
+      const seg = segmentOverride ?? segment;
+      if (seg !== 'all') params.segment = seg;
+      const data = await api.get('/contacts', { params });
+      const rows = data.contacts || [];
+      setContacts(prev => {
+        const byId = new Map(prev.map(c => [c.id, c]));
+        for (const r of rows) byId.set(r.id, r);
+        return [...byId.values()];
+      });
+      const ids = rows.map(c => c.id);
+      setSelected(prev => merge ? [...new Set([...prev, ...ids])] : ids);
+    } catch {
+      toast.error('Could not select all matching contacts');
+    } finally {
+      setSelectingAll(false);
+    }
+  }, [search, statusFilter, sourceFilter, tagFilters, titleFilter, segment, user]);
 
   // Job Intel health badge in the nav — antibot_status is otherwise only
   // visible inside the Job Intel tab itself, so a degraded scrape run is
@@ -255,6 +348,7 @@ export default function App() {
 
   useEffect(() => { fetchContacts(); }, [fetchContacts]);
   useEffect(() => { fetchAvailableTags(); }, [fetchAvailableTags]);
+  useEffect(() => { fetchContactsSummary(); }, [fetchContactsSummary]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -284,6 +378,7 @@ export default function App() {
     const refresh = () => {
       if (document.visibilityState !== 'visible') return;
       fetchContacts({ silent: true });
+      fetchContactsSummary();
       fetchEmailStats();
     };
     const interval = setInterval(refresh, 30_000);
@@ -296,7 +391,7 @@ export default function App() {
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [user, fetchContacts, fetchEmailStats]);
+  }, [user, fetchContacts, fetchContactsSummary, fetchEmailStats]);
 
   // Refresh immediately when returning to the Dashboard or Contacts view —
   // deliberately keyed ONLY on activeTab/user, not fetchContacts/fetchEmailStats.
@@ -312,6 +407,7 @@ export default function App() {
     if (!user || !arrived) return;
     if (activeTab === 'home' || activeTab === 'contacts') {
       fetchContacts({ silent: true });
+      fetchContactsSummary();
       fetchEmailStats();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -903,7 +999,7 @@ export default function App() {
           <div className="p-5 space-y-5">
 
           {/* Stats + Activity */}
-          <StatsBar contacts={contacts} />
+          <StatsBar summary={contactsSummary} />
           <ActivityCalendar refreshKey={activityKey} />
 
           {/* ── Toolbar ───────────────────────────────────────────────── */}
@@ -944,16 +1040,13 @@ export default function App() {
                 <option value="apify">Apify</option>
               </select>
               {availableTags.length > 0 && (
-                <select
-                  multiple
-                  value={tagFilters}
-                  onChange={e => setTagFilters(Array.from(e.target.selectedOptions, o => o.value))}
-                  title="Filter by tag (ctrl/cmd-click for multiple — a contact must carry ALL selected tags). Job Intel contacts are auto-tagged by matched category/skills."
-                  size={Math.min(4, availableTags.length)}
-                  className="border border-gray-200 rounded-sm px-3 py-1 text-sm focus:ring-2 focus:ring-brand-300 outline-none bg-white"
-                >
-                  {availableTags.map(t => <option key={t.tag} value={t.tag}>{t.tag} ({t.count})</option>)}
-                </select>
+                <MultiSelectDropdown
+                  options={availableTags.map(t => ({ value: t.tag, label: `${t.tag} (${t.count})` }))}
+                  selected={tagFilters}
+                  onChange={setTagFilters}
+                  placeholder="All Tags"
+                  title="Filter by tag — a contact must carry ALL selected tags. Job Intel contacts are auto-tagged by matched category/skills."
+                />
               )}
               {(searchInput || statusFilter || sourceFilter || tagFilters.length || titleFilter || segment !== 'all') && (
                 <button onClick={() => { setSearchInput(''); setSearch(''); setStatusFilter(''); setSourceFilter(''); setTagFilters([]); setTitleFilter(''); setSegment('all'); }}
@@ -1007,11 +1100,14 @@ export default function App() {
           </div>
 
           {/* ── Segment: Not contacted / Contacted / All ─────────────── */}
+          {/* Counts come from /contacts/summary (true totals across every
+              matching contact), not contacts.length — that only reflects
+              whatever page(s) have been loaded into the table so far. */}
           <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-gray-100 bg-white">
             {[
-              { id: 'not_contacted', label: 'Not contacted', count: contacts.filter(isNotContacted).length, active: 'bg-slate-800 text-white border-slate-800', dot: 'bg-slate-400' },
-              { id: 'contacted',     label: 'Already mailed', count: contacts.filter(isContacted).length,   active: 'bg-amber-500 text-white border-amber-500', dot: 'bg-amber-500' },
-              { id: 'all',           label: 'All',            count: contacts.length,                        active: 'bg-brand-600 text-white border-brand-600', dot: 'bg-brand-500' },
+              { id: 'not_contacted', label: 'Not contacted', count: contactsSummary.not_contacted, active: 'bg-slate-800 text-white border-slate-800', dot: 'bg-slate-400' },
+              { id: 'contacted',     label: 'Already mailed', count: contactsSummary.contacted,     active: 'bg-amber-500 text-white border-amber-500', dot: 'bg-amber-500' },
+              { id: 'all',           label: 'All',            count: contactsSummary.total,          active: 'bg-brand-600 text-white border-brand-600', dot: 'bg-brand-500' },
             ].map(seg => (
               <button
                 key={seg.id}
@@ -1034,18 +1130,19 @@ export default function App() {
           <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-gray-100">
             {/* Quick-select buttons — always visible */}
             <span className="text-xs text-gray-400 font-medium">Select:</span>
-            {(() => {
-              const pickable = contacts.filter(isNotContacted).filter(c => !selected.includes(c.id)).map(c => c.id);
-              return pickable.length > 0 && (
-                <button
-                  onClick={() => setSelected(prev => [...new Set([...prev, ...pickable])])}
-                  className="text-xs px-2.5 py-1 border border-slate-300 bg-slate-50 rounded-sm text-slate-700 hover:bg-slate-100 hover:border-slate-400 font-semibold transition"
-                  title={`Select all ${pickable.length} not-contacted HRs`}
-                >
-                  All not contacted ({pickable.length})
-                </button>
-              );
-            })()}
+            {/* These two fetch every matching contact from the server (not just
+                the loaded page) so bulk actions cover the whole filtered set,
+                not whatever happens to be scrolled into view. */}
+            {contactsSummary.not_contacted > 0 && (
+              <button
+                onClick={() => selectAllMatching('not_contacted', { merge: true })}
+                disabled={selectingAll}
+                className="text-xs px-2.5 py-1 border border-slate-300 bg-slate-50 rounded-sm text-slate-700 hover:bg-slate-100 hover:border-slate-400 font-semibold transition disabled:opacity-50"
+                title={`Select all ${contactsSummary.not_contacted} not-contacted HRs across every page`}
+              >
+                {selectingAll ? 'Selecting…' : `All not contacted (${contactsSummary.not_contacted})`}
+              </button>
+            )}
             {[5, 10].map(n => {
               const SENT_STATUSES = new Set(['Sent','Opened','Replied','Interview','Rejected','Do Not Contact']);
               const unsentIds = contacts
@@ -1056,18 +1153,19 @@ export default function App() {
                   key={n}
                   onClick={() => setSelected(prev => [...prev, ...unsentIds.slice(0, n)])}
                   className="text-xs px-2.5 py-1 border border-gray-300 rounded-sm text-gray-600 hover:bg-gray-100 hover:border-gray-400 font-semibold transition"
-                  title={`Add ${Math.min(n, unsentIds.length)} unsent contact${Math.min(n, unsentIds.length) !== 1 ? 's' : ''} to selection`}
+                  title={`Add ${Math.min(n, unsentIds.length)} unsent contact${Math.min(n, unsentIds.length) !== 1 ? 's' : ''} to selection — picked from what's currently loaded`}
                 >
                   +{n}
                 </button>
               );
             })}
-            {contacts.length > 0 && (
+            {(segment === 'contacted' ? contactsSummary.contacted : segment === 'not_contacted' ? contactsSummary.not_contacted : contactsSummary.total) > 0 && (
               <button
-                onClick={() => setSelected(contacts.map(c => c.id))}
-                className="text-xs px-2.5 py-1 border border-gray-300 rounded-sm text-gray-600 hover:bg-gray-100 hover:border-gray-400 font-semibold transition"
+                onClick={() => selectAllMatching(segment)}
+                disabled={selectingAll}
+                className="text-xs px-2.5 py-1 border border-gray-300 rounded-sm text-gray-600 hover:bg-gray-100 hover:border-gray-400 font-semibold transition disabled:opacity-50"
               >
-                All ({contacts.length})
+                {selectingAll ? 'Selecting…' : `All (${segment === 'contacted' ? contactsSummary.contacted : segment === 'not_contacted' ? contactsSummary.not_contacted : contactsSummary.total})`}
               </button>
             )}
             {selected.length > 0 && (
@@ -1123,10 +1221,11 @@ export default function App() {
             )}
           </div>
 
+          {/* segment/title filtering now happens server-side (see fetchContacts),
+              so `contacts` already IS the current segment+filter's result set —
+              no client-side re-filtering needed before handing it to the table. */}
           <ContactTable
-            contacts={contacts
-              .filter(c => segment === 'all' ? true : segment === 'contacted' ? isContacted(c) : isNotContacted(c))
-              .filter(c => titleFilter ? (c.title || '').toLowerCase().includes(titleFilter.toLowerCase()) : true)}
+            contacts={contacts}
             loading={loading}
             selected={selected}
             onSelect={setSelected}
@@ -1141,6 +1240,25 @@ export default function App() {
             planName={planName}
             onUpgradeClick={() => setShowPlans(true)}
           />
+
+          {!loading && (
+            <div className="flex items-center justify-between px-1">
+              <span className="text-xs text-gray-400">
+                Showing {contacts.length} of {segment === 'contacted' ? contactsSummary.contacted : segment === 'not_contacted' ? contactsSummary.not_contacted : contactsSummary.total}
+              </span>
+              <label className="text-xs text-gray-400 flex items-center gap-1.5">
+                Rows per page
+                <select
+                  value={pageSize}
+                  onChange={e => changePageSize(parseInt(e.target.value, 10))}
+                  className="border border-gray-200 rounded-sm px-2 py-1 text-xs bg-white focus:ring-2 focus:ring-brand-300 outline-none"
+                >
+                  {[15, 20, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </label>
+            </div>
+          )}
+          <LoadMoreSentinel hasMore={contactsHasMore} loading={loadingMore} onLoadMore={loadMoreContacts} />
           </div>
         )}
 

@@ -5,15 +5,23 @@ const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
-// GET /api/notifications — own + broadcast
+// GET /api/notifications — own + broadcast, paginated (default 50/page) so
+// the bell dropdown can page back through history instead of being capped at
+// a hardcoded 50 with no way to see anything older.
 router.get('/', requireAuth, async (req, res) => {
+  const limitNum = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 100);
+  const offset   = Math.max(parseInt(req.query.offset) || 0, 0);
+  const countRow = await db.prepare(
+    `SELECT COUNT(*) AS count FROM notifications WHERE user_id = ? OR user_id IS NULL`
+  ).get(req.user.userId);
   const rows = await db.prepare(`
     SELECT * FROM notifications
     WHERE user_id = ? OR user_id IS NULL
     ORDER BY created_at DESC
-    LIMIT 50
-  `).all(req.user.userId);
-  res.json(rows);
+    LIMIT ? OFFSET ?
+  `).all(req.user.userId, limitNum, offset);
+  const total = parseInt(countRow.count, 10) || 0;
+  res.json({ notifications: rows, total, hasMore: offset + rows.length < total });
 });
 
 // PATCH /api/notifications/read-all
