@@ -79,21 +79,22 @@ const PLAN_NAMES  = { guest: 'Guest', demo: 'Demo', basic: 'Basic', advanced: 'A
 const TAB_PATHS = {
   home:           '/',
   contacts:       '/contacts',
-  'job-discovery':'/discover',
+  jobs:           '/jobs',
+  'job-intel':    '/job-intel',
+  templates:      '/templates',
   'resume-tools': '/resume-tools',
   profile:        '/profile',
   referrals:      '/referrals',
   admin:          '/admin',
 };
 
-// Pre-restructuring URLs (job-scraper/job-intel/templates/jobs/bulk/resume-vault
-// used to be separate top-level tabs — see the Phase 3 nav consolidation) still
-// resolve to the right place, just inside the umbrella tab that now owns them,
-// with the matching sub-tab pre-selected, so a bookmarked/shared link never breaks.
+// Pre-restructuring URLs (bulk-apply/resume-vault used to be separate
+// top-level tabs — see the Phase 3 nav consolidation) still resolve to the
+// right place, just inside the umbrella tab that now owns them, with the
+// matching sub-tab pre-selected, so a bookmarked/shared link never breaks.
+// (/jobs, /job-intel, /templates were also aliases at one point, but are now
+// real top-level paths in TAB_PATHS above, so they no longer need an entry here.)
 const LEGACY_TAB_ALIASES = {
-  '/jobs':       { tab: 'job-discovery', subTab: 'postings' },        // old job-scraper tab
-  '/job-intel':  { tab: 'job-discovery', subTab: 'intel-contacts' },
-  '/templates':  { tab: 'resume-tools',  subTab: 'templates' },
   '/analyzer':   { tab: 'resume-tools',  subTab: 'analyzer' },        // old 'jobs' tab (Resume Analyzer)
   '/bulk-apply': { tab: 'resume-tools',  subTab: 'bulk-apply' },
   '/vault':      { tab: 'resume-tools',  subTab: 'vault' },
@@ -153,15 +154,18 @@ export default function App() {
     const nav = getTabFromPath(window.location.pathname);
     return nav.tab === 'contacts' && nav.subTab ? nav.subTab : 'my';
   });
-  // Job Discovery sub-tabs: 'postings' | 'intel-contacts' | 'linkedin-hiring-posts'
-  const [jobDiscoverySubTab, setJobDiscoverySubTab] = useState(() => {
+  // Job Intel sub-tabs: 'intel-contacts' | 'linkedin-hiring-posts'
+  // (Job Postings used to be a third sub-tab here too, alongside Templates
+  // living under Resume Tools — both pulled out to their own top-level tabs
+  // per user feedback: too much nesting to find a single-component page.)
+  const [jobIntelSubTab, setJobIntelSubTab] = useState(() => {
     const nav = getTabFromPath(window.location.pathname);
-    return nav.tab === 'job-discovery' && nav.subTab ? nav.subTab : 'postings';
+    return nav.tab === 'job-intel' && nav.subTab ? nav.subTab : 'intel-contacts';
   });
-  // Resume Tools sub-tabs: 'templates' | 'analyzer' | 'bulk-apply' | 'vault'
+  // Resume Tools sub-tabs: 'analyzer' | 'bulk-apply' | 'vault'
   const [resumeToolsSubTab, setResumeToolsSubTab] = useState(() => {
     const nav = getTabFromPath(window.location.pathname);
-    return nav.tab === 'resume-tools' && nav.subTab ? nav.subTab : 'templates';
+    return nav.tab === 'resume-tools' && nav.subTab ? nav.subTab : 'analyzer';
   });
   // Gmail Sync sub-tab state (lifted out of the retired ColdEmailSection.jsx)
   const [gmailStatus,  setGmailStatus]  = useState(null);
@@ -430,7 +434,7 @@ export default function App() {
       setActiveTab(nav.tab || 'home');
       if (nav.subTab) {
         if (nav.tab === 'contacts')       setContactSubTab(nav.subTab);
-        else if (nav.tab === 'job-discovery') setJobDiscoverySubTab(nav.subTab);
+        else if (nav.tab === 'job-intel')     setJobIntelSubTab(nav.subTab);
         else if (nav.tab === 'resume-tools')  setResumeToolsSubTab(nav.subTab);
       }
     };
@@ -660,8 +664,10 @@ export default function App() {
   const NAV_ITEMS = [
     { id: 'home',          icon: <Home         size={16} />, label: 'Dashboard',           sub: 'Your outreach at a glance' },
     { id: 'contacts',      icon: <Users        size={16} />, label: 'Contacts & Outreach', sub: 'HR list, Gmail sync & LinkedIn contacts' },
-    { id: 'job-discovery', icon: <Briefcase    size={16} />, label: 'Job Discovery',       sub: 'Board postings, ATS pipeline & LinkedIn hiring posts' },
-    { id: 'resume-tools',  icon: <FileText     size={16} />, label: 'Resume Tools',        sub: 'Templates, analyzer, bulk apply & vault' },
+    { id: 'jobs',          icon: <Briefcase    size={16} />, label: 'Jobs',                sub: 'Scraped board postings — LinkedIn, Naukri, Internshala & more' },
+    { id: 'job-intel',     icon: <Zap          size={16} />, label: 'Job Intel',           sub: 'ATS & job-board contacts + LinkedIn hiring posts' },
+    { id: 'templates',     icon: <FileText     size={16} />, label: 'Templates',           sub: 'Email & resume templates' },
+    { id: 'resume-tools',  icon: <Target       size={16} />, label: 'Resume Tools',        sub: 'ATS analyzer, bulk apply & resume vault' },
     { id: 'referrals',     icon: <UserPlus     size={16} />, label: 'Sifarish',            sub: 'Get referred at top companies', requiresAuth: true },
     { id: 'profile',       icon: <User         size={16} />, label: 'Profile',             sub: 'Your skills & resume data',  requiresAuth: true },
     ...(user?.role === 'admin' ? [{ id: 'admin', icon: <ShieldCheck size={16} />, label: 'Admin', sub: 'User & system management', requiresAuth: true }] : []),
@@ -700,7 +706,7 @@ export default function App() {
                 >
                   <span className={`relative ${isActive ? 'text-brand-600' : 'text-gray-400 group-hover:text-gray-500'}`}>
                     {locked ? <Lock size={14} /> : tab.icon}
-                    {tab.id === 'job-discovery' && jobIntelStatus !== 'ok' && (
+                    {tab.id === 'job-intel' && jobIntelStatus !== 'ok' && (
                       <span
                         title={jobIntelStatus === 'proxy_pool_dead' ? 'Job Intel: proxy pool dead' : 'Job Intel: low yield'}
                         className={`absolute -top-1 -right-1.5 w-2 h-2 rounded-full ${
@@ -767,68 +773,94 @@ export default function App() {
           </div>
         )}
 
-        {/* ── Job Discovery tab (umbrella: postings + ATS pipeline + LinkedIn) ── */}
+        {/* ── Jobs tab (single component — no sub-tabs) ── */}
+        {activeTab === 'jobs' && (
+          <div className="max-w-screen-xl mx-auto animate-tab-fade-in">
+            <div className="mb-5">
+              <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                <Briefcase size={20} className="text-brand-600" /> Jobs
+              </h1>
+              <p className="text-sm text-gray-500 mt-0.5">
+                Scraped board postings from LinkedIn, Naukri, Internshala & more.
+              </p>
+            </div>
+            <TabErrorBoundary><JobScraperSection /></TabErrorBoundary>
+          </div>
+        )}
+
+        {/* ── Job Intel tab (umbrella: ATS/job-board contacts + LinkedIn hiring posts) ── */}
         {/* Each sub-tab gets its OWN TabErrorBoundary below (not one shared
             boundary around the whole umbrella) — a class component's error
             state never auto-clears on its own, so a single boundary wrapping
-            all 3 sub-tabs meant one throwing ONCE would permanently show the
-            fallback for the other two as well, until a manual Retry click.
-            Nesting the boundary inside each {subTab === 'x' && ...} branch
-            means switching sub-tabs fully unmounts/remounts a fresh one. */}
-        {activeTab === 'job-discovery' && (
-          <>
-            <div key={jobDiscoverySubTab} className="max-w-screen-xl mx-auto animate-tab-fade-in">
-              <div className="mb-5">
-                <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                  <Briefcase size={20} className="text-brand-600" /> Job Discovery
-                </h1>
-                <p className="text-sm text-gray-500 mt-0.5">
-                  Scraped board postings, the auto-tagged ATS/job-board pipeline, and raw LinkedIn hiring posts — three distinct sources, kept separate on purpose.
-                </p>
-              </div>
-
-              {/* Sub-tabs */}
-              <div className="bg-white border border-gray-200 rounded-md shadow-card overflow-hidden mb-5">
-                <div className="flex border-b border-gray-200 overflow-x-auto">
-                  {[
-                    { id: 'postings',              icon: <Briefcase size={14} />, label: 'Job Postings',              desc: 'Scraped from LinkedIn, Naukri, Internshala & more' },
-                    { id: 'intel-contacts',        icon: <Zap size={14} />,       label: 'ATS & Job-Board Contacts',  desc: 'HR emails auto-extracted from job board APIs & ATS posts', badge: jobIntelStatus !== 'ok' },
-                    { id: 'linkedin-hiring-posts', icon: <MailCheck size={14} />, label: 'LinkedIn Hiring Posts',     desc: 'Raw hiring posts from the LinkedIn feed scraper' },
-                  ].map(sub => (
-                    <button
-                      key={sub.id}
-                      onClick={() => setJobDiscoverySubTab(sub.id)}
-                      title={sub.desc}
-                      className={`relative flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-all duration-150 whitespace-nowrap -mb-px ${
-                        jobDiscoverySubTab === sub.id
-                          ? 'border-brand-600 text-brand-700'
-                          : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'
-                      }`}
-                    >
-                      <span className={`relative ${jobDiscoverySubTab === sub.id ? 'text-brand-600' : 'text-gray-400'}`}>
-                        {sub.icon}
-                        {sub.badge && (
-                          <span
-                            title={jobIntelStatus === 'proxy_pool_dead' ? 'Proxy pool dead' : 'Low yield'}
-                            className={`absolute -top-1 -right-1.5 w-2 h-2 rounded-full ${jobIntelStatus === 'proxy_pool_dead' ? 'bg-red-500' : 'bg-amber-500'}`}
-                          />
-                        )}
-                      </span>
-                      {sub.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {jobDiscoverySubTab === 'postings' && <TabErrorBoundary><JobScraperSection /></TabErrorBoundary>}
-              {jobDiscoverySubTab === 'intel-contacts' && <TabErrorBoundary><JobIntelPanel /></TabErrorBoundary>}
-              {jobDiscoverySubTab === 'linkedin-hiring-posts' && <TabErrorBoundary><LinkedInPosts /></TabErrorBoundary>}
+            both sub-tabs meant one throwing ONCE would permanently show the
+            fallback for the other too, until a manual Retry click. Nesting
+            the boundary inside each {subTab === 'x' && ...} branch means
+            switching sub-tabs fully unmounts/remounts a fresh one. */}
+        {activeTab === 'job-intel' && (
+          <div key={jobIntelSubTab} className="max-w-screen-xl mx-auto animate-tab-fade-in">
+            <div className="mb-5">
+              <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                <Zap size={20} className="text-brand-600" /> Job Intel
+              </h1>
+              <p className="text-sm text-gray-500 mt-0.5">
+                HR emails auto-extracted from job board APIs/ATS posts, and raw LinkedIn hiring posts — the two scraper-driven contact sources, side by side.
+              </p>
             </div>
-          </>
+
+            {/* Sub-tabs */}
+            <div className="bg-white border border-gray-200 rounded-md shadow-card overflow-hidden mb-5">
+              <div className="flex border-b border-gray-200 overflow-x-auto">
+                {[
+                  { id: 'intel-contacts',        icon: <Zap size={14} />,       label: 'ATS & Job-Board Contacts',  desc: 'HR emails auto-extracted from job board APIs & ATS posts', badge: jobIntelStatus !== 'ok' },
+                  { id: 'linkedin-hiring-posts', icon: <MailCheck size={14} />, label: 'LinkedIn Hiring Posts',     desc: 'Raw hiring posts from the LinkedIn feed scraper' },
+                ].map(sub => (
+                  <button
+                    key={sub.id}
+                    onClick={() => setJobIntelSubTab(sub.id)}
+                    title={sub.desc}
+                    className={`relative flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-all duration-150 whitespace-nowrap -mb-px ${
+                      jobIntelSubTab === sub.id
+                        ? 'border-brand-600 text-brand-700'
+                        : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'
+                    }`}
+                  >
+                    <span className={`relative ${jobIntelSubTab === sub.id ? 'text-brand-600' : 'text-gray-400'}`}>
+                      {sub.icon}
+                      {sub.badge && (
+                        <span
+                          title={jobIntelStatus === 'proxy_pool_dead' ? 'Proxy pool dead' : 'Low yield'}
+                          className={`absolute -top-1 -right-1.5 w-2 h-2 rounded-full ${jobIntelStatus === 'proxy_pool_dead' ? 'bg-red-500' : 'bg-amber-500'}`}
+                        />
+                      )}
+                    </span>
+                    {sub.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {jobIntelSubTab === 'intel-contacts' && <TabErrorBoundary><JobIntelPanel /></TabErrorBoundary>}
+            {jobIntelSubTab === 'linkedin-hiring-posts' && <TabErrorBoundary><LinkedInPosts /></TabErrorBoundary>}
+          </div>
         )}
 
-        {/* ── Resume Tools tab (umbrella: templates + analyzer + bulk apply + vault) ── */}
-        {/* No key-based remount here (unlike Job Discovery above) — JobAnalyzer/
+        {/* ── Templates tab (single component — no sub-tabs) ── */}
+        {activeTab === 'templates' && (
+          <div className="max-w-screen-xl mx-auto animate-tab-fade-in">
+            <div className="mb-5">
+              <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                <FileText size={20} className="text-brand-600" /> Templates
+              </h1>
+              <p className="text-sm text-gray-500 mt-0.5">
+                Email &amp; resume templates.
+              </p>
+            </div>
+            <TabErrorBoundary><TemplatesPage /></TabErrorBoundary>
+          </div>
+        )}
+
+        {/* ── Resume Tools tab (umbrella: analyzer + bulk apply + vault) ── */}
+        {/* No key-based remount here (unlike Job Intel above) — JobAnalyzer/
             BulkJobAnalyzer are KeepAlive'd specifically so switching sub-tabs
             never loses in-progress unsaved work; retriggering a fade via `key`
             would force-remount them and defeat that entirely. */}
@@ -837,10 +869,10 @@ export default function App() {
             <div className="max-w-screen-xl mx-auto">
               <div className="mb-5">
                 <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                  <FileText size={20} className="text-brand-600" /> Resume Tools
+                  <Target size={20} className="text-brand-600" /> Resume Tools
                 </h1>
                 <p className="text-sm text-gray-500 mt-0.5">
-                  Email &amp; resume templates, ATS fit-scoring, bulk tailoring, and your saved resume versions.
+                  ATS fit-scoring, bulk tailoring, and your saved resume versions.
                 </p>
               </div>
 
@@ -848,7 +880,6 @@ export default function App() {
               <div className="bg-white border border-gray-200 rounded-md shadow-card overflow-hidden mb-5">
                 <div className="flex border-b border-gray-200 overflow-x-auto">
                   {[
-                    { id: 'templates',   icon: <FileText size={14} />,   label: 'Templates',       desc: 'Email & resume templates' },
                     { id: 'analyzer',    icon: <Target size={14} />,     label: 'Resume Analyzer',  desc: 'ATS score & resume fit check for one job' },
                     { id: 'bulk-apply',  icon: <ListChecks size={14} />, label: 'Bulk Apply',       desc: 'Tailor your resume to many jobs at once' },
                     { id: 'vault',       icon: <FolderOpen size={14} />, label: 'Resume Vault',     desc: 'Your saved resume versions', requiresAuth: true },
@@ -874,8 +905,6 @@ export default function App() {
                   })}
                 </div>
               </div>
-
-              {resumeToolsSubTab === 'templates' && <TabErrorBoundary><TemplatesPage /></TabErrorBoundary>}
 
               {resumeToolsSubTab === 'vault' && user && (
                 <TabErrorBoundary><ResumeVault /></TabErrorBoundary>
