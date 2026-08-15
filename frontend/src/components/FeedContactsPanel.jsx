@@ -526,6 +526,10 @@ export default function FeedContactsPanel() {
   const [composeTo,  setComposeTo]  = useState(null);
   const [lastSync,   setLastSync]   = useState(null);
   const [addingToContacts, setAddingToContacts] = useState(false);
+  const [showAllRoles, setShowAllRoles] = useState(false);
+  const [relevantToday, setRelevantToday] = useState(null);
+  const [dailyTarget,   setDailyTarget]   = useState(25);
+  const [matchedProfile, setMatchedProfile] = useState(false);
   const intervalRef  = useRef(null);
 
   const fetchContacts = useCallback(async (silent = false) => {
@@ -533,16 +537,20 @@ export default function FeedContactsPanel() {
     try {
       const params = { since, limit: 200, source: sourceTab };
       if (search) params.search = search;
+      if (showAllRoles) params.matchProfile = 'false';
       const data = await api.get('/scraped-jobs/feed-contacts', { params });
       setContacts(data.contacts || []);
       if (data.counts) setCounts(data.counts);
+      setRelevantToday(data.relevant_today);
+      setDailyTarget(data.daily_target || 25);
+      setMatchedProfile(!!data.matched_profile);
       setLastSync(new Date());
     } catch {
       if (!silent) toast.error('Failed to load feed contacts');
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [since, search, sourceTab]);
+  }, [since, search, sourceTab, showAllRoles]);
 
   useEffect(() => {
     fetchContacts();
@@ -680,6 +688,7 @@ export default function FeedContactsPanel() {
         <p className="text-xs">
           Contacts appear here from <span className="font-semibold">LinkedIn Feed</span> posts and <span className="font-semibold">Naukri</span> job posts where HRs shared their email or phone number.
           {sourceTab !== 'all' && <span> Try switching to <strong>All Sources</strong>.</span>}
+          {matchedProfile && !showAllRoles && <span> None matched your profile in this window — try <button onClick={() => setShowAllRoles(true)} className="text-brand-600 underline">showing all roles</button>.</span>}
         </p>
       </div>
     );
@@ -687,6 +696,18 @@ export default function FeedContactsPanel() {
 
   return (
     <div className="space-y-3">
+      {/* Relevance counter + profile filter toggle */}
+      {matchedProfile && (
+        <div className="flex items-center justify-between gap-2 text-xs bg-brand-50 border border-brand-100 rounded-sm px-3 py-2">
+          <span className="text-gray-600">
+            🎯 Relevant today: <strong>{relevantToday ?? 0}</strong>/{dailyTarget} — sorted by best match to your profile
+          </span>
+          <button onClick={() => setShowAllRoles(s => !s)} className="text-brand-600 hover:text-brand-800 underline whitespace-nowrap">
+            {showAllRoles ? '← Filter by profile' : 'Show all roles →'}
+          </button>
+        </div>
+      )}
+
       {/* Source tabs */}
       <div className="flex items-center gap-1 flex-wrap">
         {SOURCE_TABS.map(t => {
@@ -848,6 +869,17 @@ export default function FeedContactsPanel() {
             }`}>
               {c.source === 'naukri' ? 'Naukri' : 'LinkedIn'}
             </span>
+
+            {typeof c.match_percent === 'number' && (
+              <span
+                title={c.matched_skills?.length ? `Matched: ${c.matched_skills.join(', ')}` : undefined}
+                className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${
+                  c.match_percent >= 70 ? 'bg-emerald-50 text-emerald-700' : c.match_percent >= 40 ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-500'
+                }`}
+              >
+                🎯 {c.match_percent}%
+              </span>
+            )}
 
             {/* Avatar */}
             <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-sm font-bold text-brand-700 shrink-0">

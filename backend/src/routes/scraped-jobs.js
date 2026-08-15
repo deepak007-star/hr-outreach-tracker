@@ -339,7 +339,7 @@ router.post('/purge', requireAuth, requireAdmin, async (req, res) => {
 // of re-implementing the three-source extraction logic separately and
 // risking the two drifting apart. Returns the FULL merged/deduped list
 // (unpaginated) plus per-source counts — callers slice/paginate as needed.
-async function getFeedContacts({ cutoff, search, source = 'all' } = {}) {
+async function getFeedContacts({ cutoff, search, source = 'all', profileSkills, profileTitles } = {}) {
   let linkedinContacts = [];
   let apifyContacts    = [];
   let naukriContacts   = [];
@@ -463,17 +463,48 @@ async function getFeedContacts({ cutoff, search, source = 'all' } = {}) {
     }
   }
 
-  // ── Merge: deduplicate on email, sort newest first ────────────────────────
+  // ── Merge: deduplicate on email OR phone (whichever the row has), sort ────
+  // newest first. A post carrying BOTH an email and a phone is exactly one
+  // row/one entry already (contact_email/contact_phone are two columns on
+  // the SAME scraped_jobs row) — it was never double-counted. What WAS
+  // missing: phone-only rows (no email) had no dedup at all against each
+  // other, so the same contact re-surfacing across sources/re-scrapes with
+  // only a phone number (no email) could appear as two separate entries.
   const seenEmails = new Set();
+  const seenPhones = new Set();
   const allSources = [...linkedinContacts, ...apifyContacts, ...naukriContacts];
   const merged = [];
   for (const c of allSources) {
-    const key = c.contact_email?.toLowerCase();
-    if (key && seenEmails.has(key)) continue;
-    if (key) seenEmails.add(key);
+    const emailKey = c.contact_email?.toLowerCase();
+    const phoneKey = !emailKey ? c.contact_phone?.replace(/\D/g, '') : null;
+    if (emailKey && seenEmails.has(emailKey)) continue;
+    if (phoneKey && seenPhones.has(phoneKey)) continue;
+    if (emailKey) seenEmails.add(emailKey);
+    if (phoneKey) seenPhones.add(phoneKey);
     merged.push(c);
   }
-  merged.sort((a, b) => (b.created_at || b.scraped_at || '').localeCompare(a.created_at || a.scraped_at || ''));
+
+  // Skill/title relevance scoring — mirrors the same lightweightSkillMatch
+  // pattern already used for the Jobs tab / Apply Queue. Previously this
+  // panel had NO personalization at all: every user saw the identical
+  // recency-sorted merge regardless of their own profile, so a page of 200
+  // posts could easily contain zero relevant-to-them contacts even when
+  // plenty existed further down. When profile signal is present, sort by
+  // match strength first (recency as the tiebreak) instead of pure recency.
+  const combinedSkills = [...(profileSkills || []), ...(profileTitles || [])].filter(Boolean);
+  if (combinedSkills.length) {
+    for (const c of merged) {
+      const { percent, matched } = lightweightSkillMatch(combinedSkills, `${c.title || ''} ${c.description || ''}`);
+      c.match_percent   = percent;
+      c.matched_skills  = matched;
+    }
+    merged.sort((a, b) =>
+      (b.matched_skills?.length || 0) - (a.matched_skills?.length || 0)
+      || (b.created_at || b.scraped_at || '').localeCompare(a.created_at || a.scraped_at || '')
+    );
+  } else {
+    merged.sort((a, b) => (b.created_at || b.scraped_at || '').localeCompare(a.created_at || a.scraped_at || ''));
+  }
 
   return {
     merged,
@@ -484,9 +515,14 @@ async function getFeedContacts({ cutoff, search, source = 'all' } = {}) {
   };
 }
 
+// The daily "how many relevant contacts came in today" target the Feed
+// Contacts panel reports against — purely a UI signal (like Apply Queue's
+// "Applied today: X/60"), not an enforced cap of any kind.
+const RELEVANT_CONTACTS_DAILY_TARGET = 25;
+
 router.get('/feed-contacts', requireAuth, async (req, res) => {
   try {
-    const { since = '30d', limit = '200', page = '1', search, source = 'all' } = req.query;
+    const { since = '30d', limit = '200', page = '1', search, source = 'all', matchProfile } = req.query;
     const limitNum = Math.min(parseInt(limit) || 100, 500);
     const pageNum  = Math.max(parseInt(page)  || 1,   1);
     const offset   = (pageNum - 1) * limitNum;
@@ -495,8 +531,32 @@ router.get('/feed-contacts', requireAuth, async (req, res) => {
     const cutoff  = new Date(Date.now() - (daysMap[since] || 30) * 86_400_000)
       .toISOString().replace('T', ' ').slice(0, 19);
 
-    const { merged, counts } = await getFeedContacts({ cutoff, search, source });
+    // Default to the caller's own profile (skills + preferred titles) for
+    // relevance scoring, same opt-out pattern JobScraperSection/LinkedInPosts
+    // already use — an explicit search or matchProfile=false skips it.
+    let profileSkills = [], profileTitles = [];
+    if (!search && matchProfile !== 'false') {
+      const profile = await db.prepare(
+        'SELECT skills, job_title_1, job_title_2, job_title_3, current_title FROM profiles WHERE user_id = ?'
+      ).get(req.user.userId);
+      if (profile) {
+        try { profileSkills = JSON.parse(profile.skills || '[]'); } catch {}
+        profileTitles = [profile.job_title_1, profile.job_title_2, profile.job_title_3, profile.current_title].filter(Boolean);
+      }
+    }
+
+    const { merged, counts } = await getFeedContacts({ cutoff, search, source, profileSkills, profileTitles });
     const contacts = merged.slice(offset, offset + limitNum);
+
+    // "Relevant today" = matched at least one profile skill/title AND first
+    // seen today — each post counts once here regardless of whether it
+    // carries an email, a phone, or both (merged is already deduped to one
+    // entry per post; this just filters+counts that same list, it doesn't
+    // introduce a second count per contact channel).
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const relevantToday = (profileSkills.length || profileTitles.length)
+      ? merged.filter(c => (c.matched_skills?.length || 0) > 0 && (c.created_at || c.scraped_at || '').slice(0, 10) === todayStr).length
+      : null;
 
     // Mark which ones the current user has already emailed
     if (contacts.length) {
@@ -515,6 +575,9 @@ router.get('/feed-contacts', requireAuth, async (req, res) => {
       limit:    limitNum,
       total:    merged.length,
       counts,
+      relevant_today: relevantToday,
+      daily_target:   RELEVANT_CONTACTS_DAILY_TARGET,
+      matched_profile: profileSkills.length > 0 || profileTitles.length > 0,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
