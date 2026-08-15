@@ -427,19 +427,29 @@ async function schedulePipeline() {
  */
 async function syncJobIntelContacts(sinceMs = null) {
   try {
-    // Sync to EVERY admin, not just the single oldest one. This used to hardcode
-    // `ORDER BY created_at ASC LIMIT 1` — with more than one admin account (a real
-    // situation here: 4 admins existed), every job-intel contact silently landed
-    // in ONLY the first-ever-created admin's list, while every other admin saw
-    // postings being fetched but almost nothing showing up in their own Contacts
-    // page — "fetched so many records but most not added to my list."
-    const admins = await db.prepare(
-      "SELECT id FROM users WHERE role = 'admin' ORDER BY created_at ASC"
-    ).all();
-    if (!admins.length) {
+    // `contacts` is a SHARED pool — every admin/subscriber sees every row
+    // regardless of who owns it (see lib/contactVisibility.js's canSeePool:
+    // the pool query has NO user_id filter at all), with per-viewer status/
+    // notes layered separately via contact_user_state. So exactly ONE row
+    // per email is correct and sufficient; every admin already sees it.
+    //
+    // This briefly looped over every admin instead (one row inserted per
+    // admin per email) on the theory that "most contacts aren't showing up
+    // for other admins" meant they needed their own copies — but that
+    // symptom was actually an artifact of checking raw per-user-id counts
+    // directly against the DB rather than through the pool-aware endpoint;
+    // admins already had full pool visibility the whole time. The loop just
+    // produced N duplicate rows per email (N = admin count) that showed up
+    // as repeated entries in the pool view — exactly the "so many duplicacy
+    // for one single record" bug — so it's reverted back to a single owner.
+    const owner = await db.prepare(
+      "SELECT id FROM users WHERE role = 'admin' ORDER BY created_at ASC LIMIT 1"
+    ).get();
+    if (!owner) {
       console.log('[Pipeline] syncJobIntelContacts: no admin user found, skipping');
       return 0;
     }
+    const adminId = owner.id;
     const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
     // Periodic (5-min) sync: only look at postings from the last 30 minutes to keep it lightweight.

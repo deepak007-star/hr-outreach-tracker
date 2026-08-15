@@ -274,7 +274,7 @@ router.get('/emails', requireAuth, async (req, res) => {
     const countRow = await db.prepare(q.replace('SELECT *', 'SELECT COUNT(*) as total')).get(...params);
     const total    = parseInt(countRow?.total || 0);
 
-    q += ' ORDER BY sent_at DESC LIMIT ? OFFSET ?';
+    q += ' ORDER BY sent_at DESC, id ASC LIMIT ? OFFSET ?';
     params.push(limitNum, offset);
 
     const rows = await db.prepare(q).all(...params);
@@ -294,7 +294,12 @@ router.post('/emails/:id/add-contact', requireAuth, async (req, res) => {
     ).get(req.params.id, req.user.userId);
     if (!row) return res.status(404).json({ error: 'Tracked email not found' });
 
-    const existing = await db.prepare('SELECT id FROM contacts WHERE email = ? AND user_id = ?').get(row.contact_email, req.user.userId);
+    // Lowercase before matching/inserting — the unique (email, user_id) index
+    // is case-sensitive, so "Name@x.com" from one message header and
+    // "name@x.com" from another otherwise bypass it and create two rows for
+    // the same real address.
+    const email = row.contact_email.trim().toLowerCase();
+    const existing = await db.prepare('SELECT id FROM contacts WHERE email = ? AND user_id = ?').get(email, req.user.userId);
     if (existing) return res.json({ ok: true, added: false, reason: 'already in Contacts' });
 
     const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
@@ -303,7 +308,7 @@ router.post('/emails/:id/add-contact', requireAuth, async (req, res) => {
       VALUES (?, ?, ?, ?, 'gmail', ?, ?, ?, ?)
       ON CONFLICT (email, user_id) DO NOTHING
     `).run(
-      crypto.randomUUID(), req.user.userId, cleanContactName(row.contact_name, row.contact_email), row.contact_email,
+      crypto.randomUUID(), req.user.userId, cleanContactName(row.contact_name, email), email,
       row.email_status === 'replied' ? 'Replied' : 'Sent',
       now, row.replied_at || row.sent_at, `Imported from Gmail Sync — last subject: "${row.subject}"`
     );
@@ -319,24 +324,28 @@ router.post('/emails/:id/add-contact', requireAuth, async (req, res) => {
 
 router.post('/add-all-contacts', requireAuth, async (req, res) => {
   try {
+    // DISTINCT ON lower(contact_email) — grouping on the raw column let the
+    // same address with different header casing ("Name@x.com" vs "name@x.com")
+    // survive as two separate groups, each independently inserted.
     const rows = await db.prepare(`
-      SELECT DISTINCT ON (contact_email) contact_email, contact_name, subject, email_status, sent_at, replied_at
+      SELECT DISTINCT ON (lower(contact_email)) contact_email, contact_name, subject, email_status, sent_at, replied_at
       FROM gmail_tracked_emails
       WHERE user_id = ?
-      ORDER BY contact_email, sent_at DESC
+      ORDER BY lower(contact_email), sent_at DESC
     `).all(req.user.userId);
 
     const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
     let added = 0, skipped = 0;
     for (const row of rows) {
-      const existing = await db.prepare('SELECT id FROM contacts WHERE email = ? AND user_id = ?').get(row.contact_email, req.user.userId);
+      const email = row.contact_email.trim().toLowerCase();
+      const existing = await db.prepare('SELECT id FROM contacts WHERE email = ? AND user_id = ?').get(email, req.user.userId);
       if (existing) { skipped++; continue; }
       await db.prepare(`
         INSERT INTO contacts (id, user_id, name, email, email_source, status, date_added, date_last_contacted, notes)
         VALUES (?, ?, ?, ?, 'gmail', ?, ?, ?, ?)
         ON CONFLICT (email, user_id) DO NOTHING
       `).run(
-        crypto.randomUUID(), req.user.userId, cleanContactName(row.contact_name, row.contact_email), row.contact_email,
+        crypto.randomUUID(), req.user.userId, cleanContactName(row.contact_name, email), email,
         row.email_status === 'replied' ? 'Replied' : 'Sent',
         now, row.replied_at || row.sent_at, `Imported from Gmail Sync — last subject: "${row.subject}"`
       );

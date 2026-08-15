@@ -744,9 +744,11 @@ async function initialize() {
   // ── One-time cleanup: remove job-intel contacts with malformed email addresses
   // Covers: no dot in domain (hr@contact), TLD > 6 chars (.aupostal),
   // WhatsApp/Telegram phone links (91XX@wa.me), all-digit local parts.
-  await db.exec(`
-    DELETE FROM contacts
-    WHERE email_source = 'job-intel'
+  // email_log.contact_id has no ON DELETE clause (plain REFERENCES), so this
+  // silently failed on every startup once any malformed contact had a send
+  // logged against it — null those references first so the delete can proceed.
+  const MALFORMED_JOB_INTEL_WHERE = `
+    email_source = 'job-intel'
     AND (
       email NOT LIKE '%@%.%'
       OR lower(email) LIKE '%@wa.me'
@@ -755,7 +757,72 @@ async function initialize() {
       OR split_part(email, '@', 1) ~ '^[0-9]+$'
       OR lower(email) ~ '\\.[a-z]{7,}$'
     )
-  `).catch(e => console.warn('[DB migration] job-intel email cleanup skipped:', e.message));
+  `;
+  await db.exec(`
+    UPDATE email_log SET contact_id = NULL
+    WHERE contact_id IN (SELECT id FROM contacts WHERE ${MALFORMED_JOB_INTEL_WHERE})
+  `).catch(e => console.warn('[DB migration] job-intel email_log unlink skipped:', e.message));
+  await db.exec(`DELETE FROM contacts WHERE ${MALFORMED_JOB_INTEL_WHERE}`)
+    .catch(e => console.warn('[DB migration] job-intel email cleanup skipped:', e.message));
+
+  // ── One-time cleanup: collapse duplicate contact rows for the same email ──
+  // Contacts are meant to be a shared pool (one row per real address, with
+  // each viewer's own status/notes layered via contact_user_state) — but a
+  // since-reverted bug in the Job Intel sync briefly inserted one row PER
+  // ADMIN per email instead of one row total, and a separate gmail-import
+  // path didn't lowercase the address before matching, letting header-case
+  // variants ("Name@x.com" vs "name@x.com") slip past the (email, user_id)
+  // unique index too. For every group of rows sharing the same lower(email),
+  // keep the oldest (by date_added, then id) and fold the rest into it:
+  // migrate any per-viewer state the losing rows had (skipping a viewer who
+  // already has state on the survivor), reassign email_log history, then
+  // delete the losers — contact_user_state cascades on delete, so it must be
+  // migrated first or that history is silently lost.
+  // Each statement recomputes the loser→keeper mapping fresh via its own CTE
+  // rather than materializing it once into a temp table — `db.exec`/`.prepare`
+  // run through a pg.Pool, so consecutive calls aren't guaranteed the same
+  // underlying connection, and a session-scoped temp table can vanish between
+  // them. Safe to recompute: nothing about contacts.email/date_added/id
+  // changes until the final DELETE, so every statement sees the same mapping.
+  const DUP_MAP_CTE = `
+    WITH dup_map AS (
+      SELECT c.id AS loser_id, keeper.id AS keeper_id
+      FROM contacts c
+      JOIN (
+        SELECT DISTINCT ON (lower(trim(email))) id, lower(trim(email)) AS email_key
+        FROM contacts
+        ORDER BY lower(trim(email)), date_added ASC, id ASC
+      ) keeper ON keeper.email_key = lower(trim(c.email))
+      WHERE c.id != keeper.id
+    )
+  `;
+  try {
+    await db.exec(`
+      ${DUP_MAP_CTE}
+      INSERT INTO contact_user_state (contact_id, user_id, status, notes, follow_up_at, status_changed_at, updated_at)
+      SELECT m.keeper_id, s.user_id, s.status, s.notes, s.follow_up_at, s.status_changed_at, s.updated_at
+      FROM contact_user_state s
+      JOIN dup_map m ON m.loser_id = s.contact_id
+      ON CONFLICT (contact_id, user_id) DO NOTHING
+    `);
+    await db.exec(`
+      ${DUP_MAP_CTE}
+      UPDATE email_log SET contact_id = m.keeper_id
+      FROM dup_map m WHERE email_log.contact_id = m.loser_id
+    `);
+    await db.exec(`
+      ${DUP_MAP_CTE}
+      UPDATE email_delivery_events SET contact_id = m.keeper_id
+      FROM dup_map m WHERE email_delivery_events.contact_id = m.loser_id
+    `);
+    const { changes } = await db.prepare(`
+      ${DUP_MAP_CTE}
+      DELETE FROM contacts WHERE id IN (SELECT loser_id FROM dup_map)
+    `).run();
+    if (changes) console.log(`[DB migration] Collapsed ${changes} duplicate contact row(s) into their oldest counterpart`);
+  } catch (e) {
+    console.warn('[DB migration] duplicate contact cleanup skipped:', e.message);
+  }
 
   // ── Promote first registered user to admin if no admin exists
   const adminExists = await db.prepare('SELECT id FROM users WHERE role = ?').get('admin');

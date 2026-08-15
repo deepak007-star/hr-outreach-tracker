@@ -218,7 +218,7 @@ router.get('/', requireAuth, async (req, res) => {
     const countRow = await db.prepare(countQ).get(...params);
     const total    = parseInt(countRow?.total || 0);
 
-    q += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+    q += ' ORDER BY created_at DESC, id ASC LIMIT ? OFFSET ?';
     params.push(limitNum, offset);
 
     const rows = await db.prepare(q).all(...params);

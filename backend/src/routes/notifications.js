@@ -17,7 +17,7 @@ router.get('/', requireAuth, async (req, res) => {
   const rows = await db.prepare(`
     SELECT * FROM notifications
     WHERE user_id = ? OR user_id IS NULL
-    ORDER BY created_at DESC
+    ORDER BY created_at DESC, id ASC
     LIMIT ? OFFSET ?
   `).all(req.user.userId, limitNum, offset);
   const total = parseInt(countRow.count, 10) || 0;

@@ -94,13 +94,18 @@ router.get('/', async (req, res) => {
   const pageNum  = Math.max(parseInt(page) || 1, 1);
   const offset   = all === 'true' ? 0 : (pageNum - 1) * limitNum;
 
-  // Join this user's own state so status/notes reflect the viewer, not the owner
+  // Join this user's own state so status/notes reflect the viewer, not the owner.
+  // ORDER BY date_added alone is NOT a stable sort key for LIMIT/OFFSET paging —
+  // thousands of Job Intel contacts can share the exact same bulk-sync
+  // timestamp (down to the second), so successive page requests can return
+  // overlapping/duplicate rows among tied timestamps without a tiebreaker.
+  // `id` is unique per row, so appending it makes page boundaries deterministic.
   let q = `
     SELECT c.*, s.status AS my_status, s.notes AS my_notes, s.follow_up_at AS my_follow_up_at
     FROM contacts c
     LEFT JOIN contact_user_state s ON s.contact_id = c.id AND s.user_id = ?
     ${whereSql}
-    ORDER BY c.date_added DESC
+    ORDER BY c.date_added DESC, c.id ASC
     LIMIT ? OFFSET ?
   `;
 
@@ -606,7 +611,7 @@ router.put('/:id', async (req, res) => {
     for (const f of IDENTITY) {
       if (req.body[f] !== undefined) {
         sets.push(`${f} = ?`);
-        params.push(f === 'tags' ? JSON.stringify(req.body[f]) : req.body[f]);
+        params.push(f === 'tags' ? JSON.stringify(req.body[f]) : f === 'email' ? req.body[f].trim().toLowerCase() : req.body[f]);
       }
     }
     const stateUpdate = {};
