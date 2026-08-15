@@ -236,6 +236,18 @@ async function syncGmailForUser(userId, { maxPages = 10, windowDays = 548 } = {}
           .update(`${userId}|${msg.id}`)
           .digest('hex').slice(0, 32);
 
+        // This same message gets re-synced on every periodic run (every 20
+        // min, indefinitely — Gmail's Sent folder never stops returning it).
+        // Without checking whether the classification actually CHANGED since
+        // last sync, the bounce/reply propagation below would re-fire and
+        // re-increment bounce_count on every single re-sync of an old,
+        // already-classified message — confirmed live: several contacts
+        // already show bounce_count=2 in production from exactly this.
+        const previousRow = await db.prepare(
+          'SELECT email_status FROM gmail_tracked_emails WHERE id = ?'
+        ).get(id);
+        const isNewlyDetected = (previousRow?.email_status || 'sent') !== emailStatus;
+
         await db.prepare(`
           INSERT INTO gmail_tracked_emails (
             id, user_id, gmail_message_id, gmail_thread_id,
@@ -261,7 +273,8 @@ async function syncGmailForUser(userId, { maxPages = 10, windowDays = 548 } = {}
         // "+ Add to Contacts" seed, which used ON CONFLICT DO NOTHING and so
         // never updated a contact that already existed (the common case:
         // most contacts arrive via Job Intel/CSV/manual, THEN get emailed).
-        if (emailStatus === 'replied' || emailStatus === 'bounced') {
+        // Gated on isNewlyDetected — see comment above.
+        if (isNewlyDetected && (emailStatus === 'replied' || emailStatus === 'bounced')) {
           const existing = await db.prepare(
             'SELECT id FROM contacts WHERE LOWER(email) = LOWER(?) AND user_id = ? LIMIT 1'
           ).get(contactEmail, userId);
