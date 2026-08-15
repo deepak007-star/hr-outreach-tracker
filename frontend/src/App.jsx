@@ -1062,10 +1062,16 @@ export default function App() {
                 onChange={e => setSourceFilter(e.target.value)}
                 className="border border-gray-200 rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-300 outline-none bg-white"
               >
+                {/* Values must match the raw email_source stored on the row —
+                    "csv" here used to silently return zero rows since the
+                    column actually holds "csv_import". */}
                 <option value="">All Sources</option>
                 <option value="job-intel">Job Intel</option>
                 <option value="manual">Manual</option>
-                <option value="csv">CSV Import</option>
+                <option value="csv_import">CSV Import</option>
+                <option value="gmail">Gmail Sync</option>
+                <option value="linkedin-feed">LinkedIn Feed</option>
+                <option value="naukri">Naukri</option>
                 <option value="apify">Apify</option>
               </select>
               {availableTags.length > 0 && (

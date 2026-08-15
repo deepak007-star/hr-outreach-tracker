@@ -653,4 +653,52 @@ router.post('/send-feed-emails', requireAuth, async (req, res) => {
   }
 });
 
+// ─── POST /api/scraped-jobs/feed-contacts/add-to-contacts ─────────────────────
+// Promotes feed contacts (a live view over scraped_jobs/linkedin_posts, never
+// itself written to the contacts table) into the caller's My HR List — same
+// explicit-promotion pattern as gmail.js's add-contact/add-all-contacts.
+// Without this, a feed contact only ever reaches Contacts if it happens to
+// already have a row there from some other source; sending an email to one
+// (send-feed-emails above) logs the send but was never enough on its own to
+// make it show up in My HR List.
+// Body: { contacts: [{ email, name, company, title, source }] }
+router.post('/feed-contacts/add-to-contacts', requireAuth, async (req, res) => {
+  try {
+    const { contacts } = req.body;
+    if (!Array.isArray(contacts) || !contacts.length)
+      return res.status(400).json({ error: 'contacts[] required' });
+
+    const userId = req.user.userId;
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    let added = 0, skipped = 0;
+
+    for (const c of contacts) {
+      const email = (c.email || '').trim().toLowerCase();
+      if (!email) { skipped++; continue; }
+      const source = c.source === 'naukri' ? 'naukri' : 'linkedin-feed';
+      const name = cleanContactName(c.name, email);
+
+      const result = await db.prepare(`
+        INSERT INTO contacts (id, user_id, name, title, company, email, email_source, status, date_added)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'New', ?)
+        ON CONFLICT (email, user_id) DO NOTHING
+      `).run(crypto.randomUUID(), userId, name, c.title || null, c.company || null, email, source, now);
+
+      if (result.changes > 0) added++; else skipped++;
+    }
+
+    if (added > 0) {
+      try {
+        const { syncExcel } = require('../services/excelSync');
+        const userContacts = await db.prepare('SELECT * FROM contacts WHERE user_id = ? ORDER BY date_added DESC').all(userId);
+        await syncExcel(userContacts);
+      } catch {}
+    }
+
+    res.json({ added, skipped, total: contacts.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

@@ -525,6 +525,7 @@ export default function FeedContactsPanel() {
   const [selected,   setSelected]   = useState(new Set());
   const [composeTo,  setComposeTo]  = useState(null);
   const [lastSync,   setLastSync]   = useState(null);
+  const [addingToContacts, setAddingToContacts] = useState(false);
   const intervalRef  = useRef(null);
 
   const fetchContacts = useCallback(async (silent = false) => {
@@ -588,6 +589,36 @@ export default function FeedContactsPanel() {
     : filterTab === 'sent' ? sentContacts
     : contacts;
   const selectedContacts = contacts.filter(c => selected.has(c.contact_email));
+
+  // Promotes feed contacts into My HR List — they otherwise only live in this
+  // scraped-data view and never appear on the Contacts page. `list` defaults
+  // to whatever's currently selected; the "Add all shown" button passes the
+  // full filtered list instead.
+  const addToContacts = async (list) => {
+    if (!list.length) return;
+    setAddingToContacts(true);
+    try {
+      const payload = {
+        contacts: list.map(c => ({
+          email:   c.contact_email,
+          name:    resolveName(c.contact_name, c.contact_email),
+          company: c.company || '',
+          title:   c.title   || '',
+          source:  c.source,
+        })),
+      };
+      const result = await api.post('/scraped-jobs/feed-contacts/add-to-contacts', payload);
+      if (result.added > 0) {
+        toast.success(`${result.added} contact${result.added !== 1 ? 's' : ''} added to My HR List${result.skipped ? ` (${result.skipped} already there)` : ''}`);
+      } else {
+        toast(`Already in My HR List — nothing new to add`);
+      }
+    } catch {
+      toast.error('Could not add to My HR List');
+    } finally {
+      setAddingToContacts(false);
+    }
+  };
 
   const toggleAll = () => {
     const pending = filteredContacts.filter(c => !c.already_emailed);
@@ -724,6 +755,14 @@ export default function FeedContactsPanel() {
           >
             ⬇ Export CSV
           </button>
+          <button
+            onClick={() => addToContacts(filteredContacts)}
+            disabled={addingToContacts || !filteredContacts.length}
+            title="Add every contact currently shown into My HR List"
+            className="text-xs bg-brand-600 text-white border border-brand-600 rounded-sm px-2.5 py-1.5 hover:bg-brand-700 font-semibold transition disabled:opacity-50"
+          >
+            {addingToContacts ? 'Adding…' : `+ Add All to My HR List`}
+          </button>
         </div>
       </div>
 
@@ -771,6 +810,13 @@ export default function FeedContactsPanel() {
                 className="px-4 py-1.5 bg-brand-600 text-white text-sm font-semibold rounded-sm hover:bg-brand-700 transition"
               >
                 ✉ Email {selected.size} selected
+              </button>
+              <button
+                onClick={() => addToContacts(selectedContacts)}
+                disabled={addingToContacts}
+                className="px-4 py-1.5 border border-brand-300 text-brand-700 text-sm font-semibold rounded-sm hover:bg-brand-50 transition disabled:opacity-50"
+              >
+                + Add {selected.size} to My HR List
               </button>
             </>
           )}
@@ -838,6 +884,14 @@ export default function FeedContactsPanel() {
                   ✉ Email
                 </button>
               )}
+              <button
+                onClick={() => addToContacts([c])}
+                disabled={addingToContacts}
+                title="Add to My HR List"
+                className="px-2.5 py-1.5 border border-gray-300 text-gray-600 text-xs font-semibold rounded-sm hover:bg-gray-50 hover:border-brand-300 hover:text-brand-700 transition disabled:opacity-50"
+              >
+                + Add
+              </button>
               {c.link && (
                 <a href={c.link} target="_blank" rel="noopener noreferrer"
                    className="text-xs text-brand-500 hover:text-brand-700">
