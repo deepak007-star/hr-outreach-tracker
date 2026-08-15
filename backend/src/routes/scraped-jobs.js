@@ -334,6 +334,156 @@ router.post('/purge', requireAuth, requireAdmin, async (req, res) => {
 //
 // Query params: since (7d|14d|30d|90d), limit, page, search, source (all|linkedin|naukri)
 
+// Extracted so the background auto-sync job (agents/feedContactsSync.js) can
+// pull the exact same merged/deduped contact list the panel shows, instead
+// of re-implementing the three-source extraction logic separately and
+// risking the two drifting apart. Returns the FULL merged/deduped list
+// (unpaginated) plus per-source counts — callers slice/paginate as needed.
+async function getFeedContacts({ cutoff, search, source = 'all' } = {}) {
+  let linkedinContacts = [];
+  let apifyContacts    = [];
+  let naukriContacts   = [];
+
+  // ── 1. LinkedIn-feed Playwright scraper (explicit contact_email) ──────────
+  if (source === 'all' || source === 'linkedin') {
+    const scParams = [cutoff];
+    let scQ = `SELECT id, title, company, location, description, link,
+                      contact_email, contact_phone, google_form_link, whatsapp_link,
+                      created_at, scraped_at, 'linkedin' as source
+               FROM scraped_jobs
+               WHERE scraper_type = 'linkedin-feed'
+                 AND contact_email IS NOT NULL AND contact_email != ''
+                 AND scraped_at >= ?`;
+    if (search) {
+      scQ += ` AND (title ILIKE ? OR company ILIKE ? OR contact_email ILIKE ? OR description ILIKE ?)`;
+      const s = `%${search}%`; scParams.push(s, s, s, s);
+    }
+    scQ += ' ORDER BY created_at DESC LIMIT 2000';
+    linkedinContacts = await db.prepare(scQ).all(...scParams);
+
+    // ── 2. Apify linkedin_posts — extract emails from description live ──────
+    try {
+      const apParams = [cutoff];
+      let apQ = `SELECT id::text as id, title, company_name as company, location,
+                        description, post_url as link, author_name,
+                        scraped_at as created_at, scraped_at
+                 FROM linkedin_posts
+                 WHERE description ~* '[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}'
+                   AND scraped_at >= ?`;
+      if (search) {
+        apQ += ` AND (title ILIKE ? OR company_name ILIKE ? OR description ILIKE ?)`;
+        const s = `%${search}%`; apParams.push(s, s, s);
+      }
+      apQ += ' ORDER BY scraped_at DESC LIMIT 2000';
+      const apifyRaw = await db.prepare(apQ).all(...apParams);
+      for (const post of apifyRaw) {
+        const { contactEmail, contactPhone } = extractContacts(post.description || '');
+        if (contactEmail) {
+          apifyContacts.push({
+            id:               `apify_${post.id}`,
+            title:            post.title   || '',
+            company:          post.company || post.author_name || '',
+            location:         post.location || '',
+            description:      post.description,
+            link:             post.link    || '',
+            contact_email:    contactEmail,
+            contact_name:     post.author_name || '',
+            contact_phone:    contactPhone,
+            google_form_link: null,
+            whatsapp_link:    null,
+            created_at:       post.created_at,
+            scraped_at:       post.scraped_at,
+            source:           'linkedin',
+          });
+        }
+      }
+    } catch (e) {
+      console.error('[feed-contacts] apify extraction failed:', e.message);
+    }
+  }
+
+  // ── 3. Naukri scraped_jobs ────────────────────────────────────────────────
+  // Rows where contact was extracted at scrape-time come back directly.
+  // Older rows without contacts are re-processed live from description text.
+  if (source === 'all' || source === 'naukri') {
+    try {
+      const nkParams = [cutoff];
+      // First: rows that already have contact_email stored
+      let nkQ = `SELECT id, title, company, location, description, link, apply_link,
+                        contact_email, contact_phone, all_contacts,
+                        google_form_link, whatsapp_link,
+                        created_at, scraped_at, 'naukri' as source
+                 FROM scraped_jobs
+                 WHERE scraper_type = 'naukri'
+                   AND scraped_at >= ?
+                   AND (
+                     (contact_email IS NOT NULL AND contact_email != '')
+                     OR (contact_phone IS NOT NULL AND contact_phone != '')
+                     OR description ~* '[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}'
+                     OR description ~* '(?:\\+91|91|0)?[6-9][0-9]{9}'
+                   )`;
+      if (search) {
+        nkQ += ` AND (title ILIKE ? OR company ILIKE ? OR description ILIKE ?)`;
+        const s = `%${search}%`; nkParams.push(s, s, s);
+      }
+      nkQ += ' ORDER BY scraped_at DESC LIMIT 2000';
+      const naukriRaw = await db.prepare(nkQ).all(...nkParams);
+
+      for (const row of naukriRaw) {
+        let email = row.contact_email || null;
+        let phone = row.contact_phone || null;
+
+        // Re-extract from description if the stored fields are empty
+        if (!email && !phone) {
+          const extracted = extractContacts(row.description || '');
+          email = extracted.contactEmail;
+          phone = extracted.contactPhone;
+        }
+        if (!email && !phone) continue;
+
+        naukriContacts.push({
+          id:               `naukri_${row.id}`,
+          title:            row.title    || '',
+          company:          row.company  || '',
+          location:         row.location || '',
+          description:      row.description,
+          link:             row.apply_link || row.link || '',
+          contact_email:    email,
+          contact_name:     '',
+          contact_phone:    phone,
+          google_form_link: row.google_form_link || null,
+          whatsapp_link:    row.whatsapp_link    || null,
+          created_at:       row.created_at,
+          scraped_at:       row.scraped_at,
+          source:           'naukri',
+        });
+      }
+    } catch (e) {
+      console.error('[feed-contacts] naukri extraction failed:', e.message);
+    }
+  }
+
+  // ── Merge: deduplicate on email, sort newest first ────────────────────────
+  const seenEmails = new Set();
+  const allSources = [...linkedinContacts, ...apifyContacts, ...naukriContacts];
+  const merged = [];
+  for (const c of allSources) {
+    const key = c.contact_email?.toLowerCase();
+    if (key && seenEmails.has(key)) continue;
+    if (key) seenEmails.add(key);
+    merged.push(c);
+  }
+  merged.sort((a, b) => (b.created_at || b.scraped_at || '').localeCompare(a.created_at || a.scraped_at || ''));
+
+  return {
+    merged,
+    counts: {
+      linkedin: linkedinContacts.length + apifyContacts.length,
+      naukri:   naukriContacts.length,
+    },
+  };
+}
+
 router.get('/feed-contacts', requireAuth, async (req, res) => {
   try {
     const { since = '30d', limit = '200', page = '1', search, source = 'all' } = req.query;
@@ -345,141 +495,7 @@ router.get('/feed-contacts', requireAuth, async (req, res) => {
     const cutoff  = new Date(Date.now() - (daysMap[since] || 30) * 86_400_000)
       .toISOString().replace('T', ' ').slice(0, 19);
 
-    let linkedinContacts = [];
-    let apifyContacts    = [];
-    let naukriContacts   = [];
-
-    // ── 1. LinkedIn-feed Playwright scraper (explicit contact_email) ──────────
-    if (source === 'all' || source === 'linkedin') {
-      const scParams = [cutoff];
-      let scQ = `SELECT id, title, company, location, description, link,
-                        contact_email, contact_phone, google_form_link, whatsapp_link,
-                        created_at, scraped_at, 'linkedin' as source
-                 FROM scraped_jobs
-                 WHERE scraper_type = 'linkedin-feed'
-                   AND contact_email IS NOT NULL AND contact_email != ''
-                   AND scraped_at >= ?`;
-      if (search) {
-        scQ += ` AND (title ILIKE ? OR company ILIKE ? OR contact_email ILIKE ? OR description ILIKE ?)`;
-        const s = `%${search}%`; scParams.push(s, s, s, s);
-      }
-      scQ += ' ORDER BY created_at DESC LIMIT 2000';
-      linkedinContacts = await db.prepare(scQ).all(...scParams);
-
-      // ── 2. Apify linkedin_posts — extract emails from description live ──────
-      try {
-        const apParams = [cutoff];
-        let apQ = `SELECT id::text as id, title, company_name as company, location,
-                          description, post_url as link, author_name,
-                          scraped_at as created_at, scraped_at
-                   FROM linkedin_posts
-                   WHERE description ~* '[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}'
-                     AND scraped_at >= ?`;
-        if (search) {
-          apQ += ` AND (title ILIKE ? OR company_name ILIKE ? OR description ILIKE ?)`;
-          const s = `%${search}%`; apParams.push(s, s, s);
-        }
-        apQ += ' ORDER BY scraped_at DESC LIMIT 2000';
-        const apifyRaw = await db.prepare(apQ).all(...apParams);
-        for (const post of apifyRaw) {
-          const { contactEmail, contactPhone } = extractContacts(post.description || '');
-          if (contactEmail) {
-            apifyContacts.push({
-              id:               `apify_${post.id}`,
-              title:            post.title   || '',
-              company:          post.company || post.author_name || '',
-              location:         post.location || '',
-              description:      post.description,
-              link:             post.link    || '',
-              contact_email:    contactEmail,
-              contact_name:     post.author_name || '',
-              contact_phone:    contactPhone,
-              google_form_link: null,
-              whatsapp_link:    null,
-              created_at:       post.created_at,
-              scraped_at:       post.scraped_at,
-              source:           'linkedin',
-            });
-          }
-        }
-      } catch (e) {
-        console.error('[feed-contacts] apify extraction failed:', e.message);
-      }
-    }
-
-    // ── 3. Naukri scraped_jobs ────────────────────────────────────────────────
-    // Rows where contact was extracted at scrape-time come back directly.
-    // Older rows without contacts are re-processed live from description text.
-    if (source === 'all' || source === 'naukri') {
-      try {
-        const nkParams = [cutoff];
-        // First: rows that already have contact_email stored
-        let nkQ = `SELECT id, title, company, location, description, link, apply_link,
-                          contact_email, contact_phone, all_contacts,
-                          google_form_link, whatsapp_link,
-                          created_at, scraped_at, 'naukri' as source
-                   FROM scraped_jobs
-                   WHERE scraper_type = 'naukri'
-                     AND scraped_at >= ?
-                     AND (
-                       (contact_email IS NOT NULL AND contact_email != '')
-                       OR (contact_phone IS NOT NULL AND contact_phone != '')
-                       OR description ~* '[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}'
-                       OR description ~* '(?:\\+91|91|0)?[6-9][0-9]{9}'
-                     )`;
-        if (search) {
-          nkQ += ` AND (title ILIKE ? OR company ILIKE ? OR description ILIKE ?)`;
-          const s = `%${search}%`; nkParams.push(s, s, s);
-        }
-        nkQ += ' ORDER BY scraped_at DESC LIMIT 2000';
-        const naukriRaw = await db.prepare(nkQ).all(...nkParams);
-
-        for (const row of naukriRaw) {
-          let email = row.contact_email || null;
-          let phone = row.contact_phone || null;
-
-          // Re-extract from description if the stored fields are empty
-          if (!email && !phone) {
-            const extracted = extractContacts(row.description || '');
-            email = extracted.contactEmail;
-            phone = extracted.contactPhone;
-          }
-          if (!email && !phone) continue;
-
-          naukriContacts.push({
-            id:               `naukri_${row.id}`,
-            title:            row.title    || '',
-            company:          row.company  || '',
-            location:         row.location || '',
-            description:      row.description,
-            link:             row.apply_link || row.link || '',
-            contact_email:    email,
-            contact_name:     '',
-            contact_phone:    phone,
-            google_form_link: row.google_form_link || null,
-            whatsapp_link:    row.whatsapp_link    || null,
-            created_at:       row.created_at,
-            scraped_at:       row.scraped_at,
-            source:           'naukri',
-          });
-        }
-      } catch (e) {
-        console.error('[feed-contacts] naukri extraction failed:', e.message);
-      }
-    }
-
-    // ── Merge: deduplicate on email, sort newest first ────────────────────────
-    const seenEmails = new Set();
-    const allSources = [...linkedinContacts, ...apifyContacts, ...naukriContacts];
-    const merged = [];
-    for (const c of allSources) {
-      const key = c.contact_email?.toLowerCase();
-      if (key && seenEmails.has(key)) continue;
-      if (key) seenEmails.add(key);
-      merged.push(c);
-    }
-    merged.sort((a, b) => (b.created_at || b.scraped_at || '').localeCompare(a.created_at || a.scraped_at || ''));
-
+    const { merged, counts } = await getFeedContacts({ cutoff, search, source });
     const contacts = merged.slice(offset, offset + limitNum);
 
     // Mark which ones the current user has already emailed
@@ -498,10 +514,7 @@ router.get('/feed-contacts', requireAuth, async (req, res) => {
       page:     pageNum,
       limit:    limitNum,
       total:    merged.length,
-      counts: {
-        linkedin: linkedinContacts.length + apifyContacts.length,
-        naukri:   naukriContacts.length,
-      },
+      counts,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -702,3 +715,4 @@ router.post('/feed-contacts/add-to-contacts', requireAuth, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.getFeedContacts = getFeedContacts;

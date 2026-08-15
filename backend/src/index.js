@@ -91,7 +91,7 @@ async function main() {
   const jobIntelRouter       = require('./routes/job-intelligence');
   const logsRouter           = require('./routes/logs');
   const requestLogger        = require('./middleware/requestLogger');
-  const { schedulePipeline, syncJobIntelContacts, runPipeline } = require('./agents/orchestrator');
+  const { schedulePipeline, syncJobIntelContacts, syncFeedContacts, runPipeline } = require('./agents/orchestrator');
   const { getSettings } = require('./routes/apify'); // getSettings supplies the search-query list used by all scrapers
   const { sendReminderEmail } = require('./routes/reminder');
 
@@ -494,6 +494,12 @@ async function main() {
   setTimeout(() => syncJobIntelContacts().catch(e => console.error('[Job Intel sync] Startup sync failed:', e.message)), 45_000);
   // Every 5 min: lightweight sync of the last 30 minutes of new postings
   setInterval(() => syncJobIntelContacts(Date.now() - 30 * 60_000).catch(e => console.error('[Job Intel sync] Periodic sync failed:', e.message)), 5 * 60_000);
+
+  // Feed contacts (LinkedIn Feed / Naukri / Apify — the Feed Contacts panel)
+  // auto-sync into the shared contacts pool, same cadence as Job Intel above.
+  // Previously these only reached My HR List via a manual "+ Add" click.
+  setTimeout(() => syncFeedContacts().catch(e => console.error('[Feed contacts sync] Startup sync failed:', e.message)), 60_000);
+  setInterval(() => syncFeedContacts(Date.now() - 30 * 60_000).catch(e => console.error('[Feed contacts sync] Periodic sync failed:', e.message)), 5 * 60_000);
 
   // Run purge once at startup (after 30s) then every 24h
   setTimeout(runDailyPurgeAndBackup, 30_000);

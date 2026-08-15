@@ -366,20 +366,25 @@ async function runPipeline(triggeredBy = 'scheduler') {
     }).catch(e => console.warn('[Pipeline] health checks failed (non-fatal):', e.message));
 
     // ── 6. Sync extracted emails → admin's contacts page ──────────────────────
+    // Stage 0b above just scraped fresh LinkedIn Feed posts, so this is also
+    // the right moment to sync THOSE contacts (Feed Contacts panel) into the
+    // shared pool, not just the job-intel-extracted ones.
     const contactsSynced = await syncJobIntelContacts();
+    const feedContactsSynced = await syncFeedContacts();
 
     // Notification
     const scrapeNote = cfg.freshly_scraped_count > 0
       ? `Scraped ${cfg.freshly_scraped_count} fresh LinkedIn posts. `
       : '';
+    const totalContactsSynced = contactsSynced + feedContactsSynced;
     const notifBody = totalNew > 0
-      ? `${scrapeNote}Scanned ${totalFetched} job posts — found ${totalNew} NEW HR contacts with email. ${contactsSynced} added to Contacts.`
-      : `${scrapeNote}Scanned ${totalFetched} job posts — no new HR email contacts found in this batch.`;
+      ? `${scrapeNote}Scanned ${totalFetched} job posts — found ${totalNew} NEW HR contacts with email. ${totalContactsSynced} added to Contacts.`
+      : `${scrapeNote}Scanned ${totalFetched} job posts — no new HR email contacts found in this batch.${feedContactsSynced ? ` ${feedContactsSynced} feed contacts added to Contacts.` : ''}`;
     await db.prepare(`INSERT INTO notifications (id, user_id, type, title, body) VALUES (?, ?, ?, ?, ?)`)
       .run(randomUUID(), null, 'info', 'Job Intel: HR contacts extracted', notifBody);
 
     const durationMs = Date.now() - new Date(startedAt.replace(' ', 'T') + 'Z').getTime();
-    return { runId, fetched: totalFetched, new: totalNew, duplicates: totalDupes, contactsSynced, errors, durationMs };
+    return { runId, fetched: totalFetched, new: totalNew, duplicates: totalDupes, contactsSynced, feedContactsSynced, errors, durationMs };
 
   } catch (e) {
     console.error('[Pipeline] Fatal error:', e.message);
@@ -425,31 +430,31 @@ async function schedulePipeline() {
  *   null = sync all (used after a full pipeline run).
  *   Pass Date.now() - N to do a lightweight incremental sync.
  */
+// `contacts` is a SHARED pool — every admin/subscriber sees every row
+// regardless of who owns it (see lib/contactVisibility.js's canSeePool: the
+// pool query has NO user_id filter at all), with per-viewer status/notes
+// layered separately via contact_user_state. So every automated sync (job
+// intel, feed contacts) only ever needs to write ONE shared owner row per
+// email — every admin already sees it. (syncJobIntelContacts briefly looped
+// over every admin instead, one row per admin per email, on the theory that
+// "contacts aren't showing up for other admins" meant they needed their own
+// copies — that symptom was actually an artifact of checking raw per-user-id
+// counts directly against the DB rather than through the pool-aware
+// endpoint; the loop just produced N duplicate rows per email. Reverted.)
+async function getPoolOwnerAdminId() {
+  const owner = await db.prepare(
+    "SELECT id FROM users WHERE role = 'admin' ORDER BY created_at ASC LIMIT 1"
+  ).get();
+  return owner?.id || null;
+}
+
 async function syncJobIntelContacts(sinceMs = null) {
   try {
-    // `contacts` is a SHARED pool — every admin/subscriber sees every row
-    // regardless of who owns it (see lib/contactVisibility.js's canSeePool:
-    // the pool query has NO user_id filter at all), with per-viewer status/
-    // notes layered separately via contact_user_state. So exactly ONE row
-    // per email is correct and sufficient; every admin already sees it.
-    //
-    // This briefly looped over every admin instead (one row inserted per
-    // admin per email) on the theory that "most contacts aren't showing up
-    // for other admins" meant they needed their own copies — but that
-    // symptom was actually an artifact of checking raw per-user-id counts
-    // directly against the DB rather than through the pool-aware endpoint;
-    // admins already had full pool visibility the whole time. The loop just
-    // produced N duplicate rows per email (N = admin count) that showed up
-    // as repeated entries in the pool view — exactly the "so many duplicacy
-    // for one single record" bug — so it's reverted back to a single owner.
-    const owner = await db.prepare(
-      "SELECT id FROM users WHERE role = 'admin' ORDER BY created_at ASC LIMIT 1"
-    ).get();
-    if (!owner) {
+    const adminId = await getPoolOwnerAdminId();
+    if (!adminId) {
       console.log('[Pipeline] syncJobIntelContacts: no admin user found, skipping');
       return 0;
     }
-    const adminId = owner.id;
     const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
     // Periodic (5-min) sync: only look at postings from the last 30 minutes to keep it lightweight.
@@ -552,4 +557,57 @@ async function syncJobIntelContacts(sinceMs = null) {
   }
 }
 
-module.exports = { runPipeline, schedulePipeline, syncJobIntelContacts, getConfig, saveConfig, DEFAULT_CONFIG };
+/**
+ * Sync LinkedIn Feed / Naukri / Apify contacts (the "Feed Contacts" panel —
+ * a live view over scraped_jobs/linkedin_posts, see getFeedContacts in
+ * routes/scraped-jobs.js) into the shared contacts pool, the same way
+ * syncJobIntelContacts does for the Job Intel pipeline. Before this, a feed
+ * contact only ever reached My HR List if a user manually clicked "+ Add" —
+ * every other source auto-syncs, so this one silently never did.
+ *
+ * @param {number|null} sinceMs  Only consider posts scraped after this
+ *   epoch-ms (lightweight periodic sync). null = look back 90 days (the
+ *   panel's widest window) — used for the daily/startup full sync.
+ */
+async function syncFeedContacts(sinceMs = null) {
+  try {
+    const adminId = await getPoolOwnerAdminId();
+    if (!adminId) {
+      console.log('[Pipeline] syncFeedContacts: no admin user found, skipping');
+      return 0;
+    }
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const cutoff = new Date(sinceMs ?? Date.now() - 90 * 86_400_000).toISOString().replace('T', ' ').slice(0, 19);
+
+    // Lazy-required — scraped-jobs.js doesn't require orchestrator.js today,
+    // but avoiding a top-level require here keeps this file consistent with
+    // the getScraperRouter()/getSettings() lazy-require pattern already used
+    // above for the same reason (dodge any future circular-require).
+    const { getFeedContacts } = require('../routes/scraped-jobs');
+    const { merged } = await getFeedContacts({ cutoff, source: 'all' });
+
+    let synced = 0;
+    for (const c of merged) {
+      const email = (c.contact_email || '').trim().toLowerCase();
+      if (!email) continue;
+      const source = c.source === 'naukri' ? 'naukri' : 'linkedin-feed';
+      const name = cleanContactName(c.contact_name, email);
+
+      const row = await db.prepare(`
+        INSERT INTO contacts (id, user_id, name, title, company, email, email_source, status, source_url, date_added)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'New', ?, ?)
+        ON CONFLICT (email, user_id) DO NOTHING
+        RETURNING (xmax = 0) AS is_new
+      `).get(randomUUID(), adminId, name, c.title || null, c.company || null, email, source, c.link || null, now);
+
+      if (row?.is_new) synced++;
+    }
+    console.log(`[Pipeline] syncFeedContacts: synced ${synced} contacts to admin ${adminId}'s list`);
+    return synced;
+  } catch (e) {
+    console.error('[Pipeline] syncFeedContacts failed:', e.message);
+    return 0;
+  }
+}
+
+module.exports = { runPipeline, schedulePipeline, syncJobIntelContacts, syncFeedContacts, getConfig, saveConfig, DEFAULT_CONFIG };
