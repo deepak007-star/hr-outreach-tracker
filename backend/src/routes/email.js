@@ -718,7 +718,7 @@ router.get('/stats', async (req, res) => {
   const templateRows = await db.prepare(`
     SELECT el.template_id,
            COUNT(*) AS sent,
-           SUM(CASE WHEN el.opened THEN 1 ELSE 0 END) AS opened,
+           SUM(CASE WHEN el.opened = 1 THEN 1 ELSE 0 END) AS opened,
            SUM(CASE WHEN el.delivery_status IN ('hard_bounce','soft_bounce') THEN 1 ELSE 0 END) AS bounced,
            COUNT(DISTINCT CASE WHEN s.status IN ('Replied','Interview') THEN el.contact_id END) AS replied
     FROM email_log el
