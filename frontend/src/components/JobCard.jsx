@@ -47,6 +47,18 @@ export default function JobCard({ job }) {
 
       {/* Meta chips */}
       <div className="flex flex-wrap gap-1.5">
+        {typeof job.match_percent === 'number' && (
+          <span
+            title={job.matched_skills?.length ? `Matched: ${job.matched_skills.join(', ')}` : undefined}
+            className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border ${
+              job.match_percent >= 70 ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                : job.match_percent >= 50 ? 'bg-brand-50 text-brand-700 border-brand-200'
+                : 'bg-gray-100 text-gray-600 border-gray-200'
+            }`}
+          >
+            🎯 {job.match_percent}% match
+          </span>
+        )}
         {job.location && (
           <span className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full border">
             {isRemote ? '🌐' : '📍'} {job.location}

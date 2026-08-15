@@ -52,6 +52,11 @@ const SINCE_OPTIONS = [
 ];
 
 const LIMIT_OPTIONS = [25, 50, 100, 200, 400];
+const MATCH_OPTIONS = [
+  { value: 0,  label: 'Any match' },
+  { value: 50, label: '50%+ skill match' },
+  { value: 70, label: '70%+ skill match' },
+];
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -66,6 +71,7 @@ export default function JobScraperSection() {
   const [since,       setSince]       = useState('7d');
   const [limit,       setLimit]       = useState(50);
   const [search,      setSearch]      = useState('');
+  const [minMatch,    setMinMatch]    = useState(0);
   const [page,        setPage]        = useState(1);
   const [total,       setTotal]       = useState(0);
   const [pages,       setPages]       = useState(1);
@@ -105,7 +111,10 @@ export default function JobScraperSection() {
         const titles = [profile.job_title_1, profile.job_title_2, profile.job_title_3, profile.current_title].filter(Boolean);
         const skills = Array.isArray(profile.skills) ? profile.skills.filter(Boolean) : [];
         if (titles.length) params.profile_titles = JSON.stringify(titles);
-        if (skills.length) params.profile_skills = JSON.stringify(skills.slice(0, 15));
+        if (skills.length) {
+          params.profile_skills = JSON.stringify(skills.slice(0, 15));
+          if (minMatch) params.min_match = minMatch;
+        }
       }
       const data = await api.get('/scraped-jobs', { params });
       setJobs(data.jobs || []);
@@ -117,10 +126,10 @@ export default function JobScraperSection() {
     } finally {
       setLoading(false);
     }
-  }, [activeCat, since, limit, page, search, profile, suppressProfileFilter, user]);
+  }, [activeCat, since, limit, page, search, profile, suppressProfileFilter, minMatch, user]);
 
   useEffect(() => { fetchJobs(); }, [fetchJobs]);
-  useEffect(() => { setPage(1); }, [activeCat, since, limit, search, suppressProfileFilter]);
+  useEffect(() => { setPage(1); }, [activeCat, since, limit, search, suppressProfileFilter, minMatch]);
 
   // Auto-scroll logs
   useEffect(() => {
@@ -264,6 +273,23 @@ export default function JobScraperSection() {
           </select>
         </div>
 
+        {/* Skill-match threshold — only meaningful against the profile-driven
+            feed (not a manual search), and only if the profile has skills to
+            score against. Filters out low-relevance jobs instead of just
+            sorting the entire time-range window by recency. */}
+        {!search && !suppressProfileFilter && Array.isArray(profile?.skills) && profile.skills.filter(Boolean).length > 0 && (
+          <div>
+            <label className="text-xs font-semibold text-gray-500 block mb-1">Relevance</label>
+            <select
+              value={minMatch}
+              onChange={e => setMinMatch(parseInt(e.target.value))}
+              className="border border-gray-300 rounded-sm px-3 py-2.5 text-sm bg-white focus:ring-2 focus:ring-brand-300 outline-none"
+            >
+              {MATCH_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
+        )}
+
         <div className="flex-1 min-w-48">
           <label className="text-xs font-semibold text-gray-500 block mb-1">Search / Keywords</label>
           <input
@@ -406,6 +432,9 @@ export default function JobScraperSection() {
               : (() => {
                   const profileTitles = profile ? [profile.job_title_1, profile.job_title_2, profile.job_title_3, profile.current_title].filter(Boolean) : [];
                   const profileSkills = profile && Array.isArray(profile.skills) ? profile.skills.filter(Boolean) : [];
+                  if (profile && !search && !suppressProfileFilter && minMatch > 0 && profileSkills.length > 0) {
+                    return <>No jobs clear the {minMatch}% match bar in this range — try <button onClick={() => setMinMatch(0)} className="text-brand-600 underline">lowering the relevance filter</button>.</>;
+                  }
                   if (profile && !search && !suppressProfileFilter && (profileTitles.length > 0 || profileSkills.length > 0)) {
                     return <>No jobs match your profile titles/skills in this range — try <button onClick={() => setSuppressProfileFilter(true)} className="text-brand-600 underline">Show all jobs</button>.</>;
                   }

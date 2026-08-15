@@ -13,6 +13,7 @@ const sanitizeHtml = require('sanitize-html');
 const { extractContacts } = require('../lib/contactExtract');
 const { cleanContactName, guessFirstNameFromEmail } = require('../lib/nameUtils');
 const { keywordTokens } = require('../agents/relevanceFilter');
+const { lightweightSkillMatch } = require('../lib/skillMatch');
 
 // Shared HTML-safe subset (same as email.js)
 const EMAIL_HTML_OPTS = {
@@ -163,11 +164,13 @@ router.get('/', requireAuth, async (req, res) => {
       scraper,
       profile_titles,
       profile_skills,
+      min_match,
     } = req.query;
 
     const limitNum = Math.min(Math.max(parseInt(limit) || 50, 1), 200);
     const pageNum  = Math.max(parseInt(page) || 1, 1);
     const offset   = (pageNum - 1) * limitNum;
+    const minMatchNum = Math.min(Math.max(parseInt(min_match) || 0, 0), 100);
 
     // Compute cutoff timestamp based on 'since' param
     function sinceToCutoff(s) {
@@ -187,6 +190,7 @@ router.get('/', requireAuth, async (req, res) => {
     if (category) { q += ' AND job_category = ?'; params.push(category); }
     if (scraper)  { q += ' AND scraper_type = ?';  params.push(scraper); }
 
+    let skills = [];
     if (search) {
       // Manual search box: token-AND across title/company/location/tags —
       // same relaxation as the profile filter below, just for free-typed text.
@@ -197,7 +201,7 @@ router.get('/', requireAuth, async (req, res) => {
       // distinguishing tokens of ANY one preferred title (job_title_1/2/3,
       // current_title — same "keyword set" matching agents/relevanceFilter.js
       // uses for Job Intel), OR mention any one of the profile's skills.
-      let titles = [], skills = [];
+      let titles = [];
       try { titles = JSON.parse(profile_titles || '[]'); } catch {}
       try { skills = JSON.parse(profile_skills || '[]'); } catch {}
 
@@ -212,6 +216,40 @@ router.get('/', requireAuth, async (req, res) => {
         groups.push('(title ILIKE ? OR description ILIKE ? OR tags ILIKE ?)');
       }
       if (groups.length) q += ` AND (${groups.join(' OR ')})`;
+    }
+
+    // Skill-match scoring: only meaningful against the profile-driven feed
+    // (not a manual keyword search) and only when the caller actually has
+    // skills to score against. Pulls a bounded candidate window (same
+    // "personal-scale, re-rank in JS" pattern as job-intelligence.js's
+    // /contacts route) instead of scoring the whole table, computes a
+    // percent match per job (lib/skillMatch.js — same scorer Job Intel
+    // uses), optionally drops anything below min_match, then re-sorts by
+    // match% so the most relevant jobs surface first instead of just the
+    // most recent ones.
+    if (!search && skills.length) {
+      const CANDIDATE_CAP = 1000;
+      const candidateQ = q + ' ORDER BY created_at DESC, id ASC LIMIT ?';
+      const candidateRows = await db.prepare(candidateQ).all(...params, CANDIDATE_CAP);
+
+      const scored = candidateRows.map(job => {
+        const { percent, matched } = lightweightSkillMatch(skills, `${job.title || ''} ${job.description || ''}`);
+        return { ...job, match_percent: percent, matched_skills: matched };
+      });
+      const filtered = minMatchNum > 0 ? scored.filter(j => j.match_percent >= minMatchNum) : scored;
+      filtered.sort((a, b) => b.match_percent - a.match_percent || new Date(b.created_at) - new Date(a.created_at));
+
+      const total = filtered.length;
+      const jobs  = filtered.slice(offset, offset + limitNum);
+      return res.json({
+        jobs,
+        total,
+        page:  pageNum,
+        limit: limitNum,
+        since,
+        pages: Math.max(1, Math.ceil(total / limitNum)),
+        candidate_capped: candidateRows.length >= CANDIDATE_CAP,
+      });
     }
 
     const countQ  = q.replace('SELECT *', 'SELECT COUNT(*) as total');
