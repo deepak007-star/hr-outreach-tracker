@@ -1025,7 +1025,7 @@ export default function App() {
 
           {/* My Contacts subtab */}
           {contactSubTab === 'my' && (
-          <div className="p-5 space-y-5">
+          <div key="my" className="p-5 space-y-5 animate-tab-fade-in">
 
           {/* Stats + Activity */}
           <StatsBar summary={contactsSummary} />
