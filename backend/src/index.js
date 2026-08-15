@@ -80,6 +80,7 @@ async function main() {
   const rbacRouter           = require('./routes/rbac');
   const scraperRouter        = require('./routes/scraper');
   const scrapedJobsRouter    = require('./routes/scraped-jobs');
+  const applyQueueRouter     = require('./routes/apply-queue');
   const gmailRouter          = require('./routes/gmail');
   const githubBackupRouter   = require('./routes/github-backup');
   const referralsRouter      = require('./routes/referrals');
@@ -171,6 +172,7 @@ async function main() {
   app.use('/api/rbac',            rbacRouter);
   app.use('/api/scraper',         scraperRouter);
   app.use('/api/scraped-jobs',    scrapedJobsRouter);
+  app.use('/api/apply-queue',     applyQueueRouter);
   app.use('/api/gmail',           gmailRouter);
   app.use('/api/github-backup',   githubBackupRouter);
   app.use('/api/referrals',        referralsRouter);

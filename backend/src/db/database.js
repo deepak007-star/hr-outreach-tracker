@@ -236,6 +236,28 @@ async function initialize() {
       created_at       TEXT NOT NULL DEFAULT (${NOW_EXPR})
     );
 
+    -- Apply Queue: semi-automated job-application review. The pipeline
+    -- ranks/matches already-scraped jobs to a user's profile and queues
+    -- them; a human clicks Apply for each one (opens the real apply page)
+    -- and confirms — nothing here ever submits a form or logs into a job
+    -- platform. See agents/applyQueue.js.
+    CREATE TABLE IF NOT EXISTS job_applications (
+      id             TEXT PRIMARY KEY,
+      user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      job_id         TEXT NOT NULL REFERENCES scraped_jobs(id) ON DELETE CASCADE,
+      status         TEXT NOT NULL DEFAULT 'queued',
+      match_percent  INTEGER NOT NULL DEFAULT 0,
+      matched_skills TEXT NOT NULL DEFAULT '[]',
+      apply_method   TEXT NOT NULL DEFAULT 'direct',
+      skip_reason    TEXT,
+      queued_at      TEXT NOT NULL DEFAULT (${NOW_EXPR}),
+      applied_at     TEXT,
+      skipped_at     TEXT,
+      UNIQUE (user_id, job_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_job_applications_user_status ON job_applications (user_id, status);
+    CREATE INDEX IF NOT EXISTS idx_job_applications_applied_at  ON job_applications (user_id, applied_at);
+
     CREATE TABLE IF NOT EXISTS gmail_tokens (
       user_id       TEXT PRIMARY KEY REFERENCES users(id),
       gmail_email   TEXT NOT NULL,
