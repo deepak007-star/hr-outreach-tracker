@@ -31,6 +31,7 @@ import GmailEmailList    from './components/GmailEmailList.jsx';
 import FeedContactsPanel from './components/FeedContactsPanel.jsx';
 import LinkedInPosts     from './components/LinkedInPosts.jsx';
 import JobScraperSection from './components/JobScraperSection.jsx';
+import ApplyQueue        from './components/ApplyQueue.jsx';
 import UnsavedChangesModal from './components/UnsavedChangesModal.jsx';
 import AskReferral        from './components/AskReferral.jsx';
 import ResumeVault        from './components/ResumeVault.jsx';
@@ -164,6 +165,8 @@ export default function App() {
     const nav = getTabFromPath(window.location.pathname);
     return nav.tab === 'contacts' && nav.subTab ? nav.subTab : 'my';
   });
+  // Jobs sub-tabs: 'browse' | 'apply-queue'
+  const [jobsSubTab, setJobsSubTab] = useState('browse');
   // Job Intel sub-tabs: 'intel-contacts' | 'linkedin-hiring-posts'
   // (Job Postings used to be a third sub-tab here too, alongside Templates
   // living under Resume Tools — both pulled out to their own top-level tabs
@@ -783,18 +786,44 @@ export default function App() {
           </div>
         )}
 
-        {/* ── Jobs tab (single component — no sub-tabs) ── */}
+        {/* ── Jobs tab (umbrella: browse + apply queue) ── */}
         {activeTab === 'jobs' && (
-          <div className="max-w-screen-xl mx-auto animate-tab-fade-in">
+          <div key={jobsSubTab} className="max-w-screen-xl mx-auto animate-tab-fade-in">
             <div className="mb-5">
               <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
                 <Briefcase size={20} className="text-brand-600" /> Jobs
               </h1>
               <p className="text-sm text-gray-500 mt-0.5">
-                Scraped board postings from LinkedIn, Naukri, Internshala & more.
+                Scraped board postings from LinkedIn, Naukri, Internshala & more — and a queue of skill-matched jobs to review and apply to yourself.
               </p>
             </div>
-            <TabErrorBoundary><JobScraperSection /></TabErrorBoundary>
+
+            {/* Sub-tabs */}
+            <div className="bg-white border border-gray-200 rounded-md shadow-card overflow-hidden mb-5">
+              <div className="flex border-b border-gray-200 overflow-x-auto">
+                {[
+                  { id: 'browse',      icon: <Briefcase size={14} />, label: 'Browse Jobs', desc: 'All scraped postings, filterable by category & keyword' },
+                  { id: 'apply-queue', icon: <ListChecks size={14} />, label: 'Apply Queue',  desc: 'Skill-matched jobs queued for you to review and apply' },
+                ].map(sub => (
+                  <button
+                    key={sub.id}
+                    onClick={() => setJobsSubTab(sub.id)}
+                    title={sub.desc}
+                    className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-all duration-150 whitespace-nowrap -mb-px ${
+                      jobsSubTab === sub.id
+                        ? 'border-brand-600 text-brand-700'
+                        : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'
+                    }`}
+                  >
+                    <span className={jobsSubTab === sub.id ? 'text-brand-600' : 'text-gray-400'}>{sub.icon}</span>
+                    {sub.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {jobsSubTab === 'browse' && <TabErrorBoundary><JobScraperSection /></TabErrorBoundary>}
+            {jobsSubTab === 'apply-queue' && <TabErrorBoundary><ApplyQueue /></TabErrorBoundary>}
           </div>
         )}
 
