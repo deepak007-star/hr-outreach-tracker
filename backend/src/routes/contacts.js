@@ -55,6 +55,10 @@ const VALID_STATUSES = ['New', 'Drafted', 'Sent', 'Opened', 'Replied', 'Intervie
 // out (narrower — excludes terminal statuses since those aren't send activity).
 const ALREADY_MAILED_STATUSES_SQL = `('Sent','Opened','Replied','Interview','Rejected','Do Not Contact')`;
 const EMAILED_STATUSES_SQL        = `('Sent','Opened','Replied','Interview')`;
+// A contact is "flagged" once a bounce/delivery-failure has been recorded
+// against it — orthogonal to the status pipeline above (a contact can be
+// Sent/Replied AND flagged, e.g. it bounced on a later re-send).
+const FLAGGED_DELIVERABLE_SQL = `('hard_bounce','soft_bounce','flagged')`;
 function buildContactFilters({ status, search, source, tag, tags, segment, title }, userId, pool) {
   const where = [];
   const p = [];
@@ -64,6 +68,7 @@ function buildContactFilters({ status, search, source, tag, tags, segment, title
   if (title)  { where.push('c.title ILIKE ?'); p.push(`%${title}%`); }
   if (segment === 'contacted')     where.push(`COALESCE(s.status, 'New') IN ${ALREADY_MAILED_STATUSES_SQL}`);
   if (segment === 'not_contacted') where.push(`COALESCE(s.status, 'New') NOT IN ${ALREADY_MAILED_STATUSES_SQL}`);
+  if (segment === 'flagged')       where.push(`c.email_deliverable IN ${FLAGGED_DELIVERABLE_SQL}`);
   if (search) {
     where.push('(c.name ILIKE ? OR c.company ILIKE ? OR c.email ILIKE ? OR c.title ILIKE ?)');
     const s = `%${search}%`;
@@ -148,7 +153,8 @@ router.get('/summary', async (req, res) => {
         SUM(CASE WHEN COALESCE(s.status, 'New') IN ${ALREADY_MAILED_STATUSES_SQL} THEN 1 ELSE 0 END) AS already_mailed,
         SUM(CASE WHEN COALESCE(s.status, 'New') IN ${EMAILED_STATUSES_SQL}        THEN 1 ELSE 0 END) AS emailed,
         SUM(CASE WHEN COALESCE(s.status, 'New') = 'Replied'   THEN 1 ELSE 0 END) AS replied,
-        SUM(CASE WHEN COALESCE(s.status, 'New') = 'Interview' THEN 1 ELSE 0 END) AS interviews
+        SUM(CASE WHEN COALESCE(s.status, 'New') = 'Interview' THEN 1 ELSE 0 END) AS interviews,
+        SUM(CASE WHEN c.email_deliverable IN ${FLAGGED_DELIVERABLE_SQL} THEN 1 ELSE 0 END) AS flagged
       FROM contacts c
       LEFT JOIN contact_user_state s ON s.contact_id = c.id AND s.user_id = ?
       ${whereSql}
@@ -162,6 +168,7 @@ router.get('/summary', async (req, res) => {
       emailed:    parseInt(row.emailed, 10) || 0, // StatsBar semantics — narrower, excludes Rejected/DNC
       replied:    parseInt(row.replied, 10) || 0,
       interviews: parseInt(row.interviews, 10) || 0,
+      flagged:    parseInt(row.flagged, 10) || 0,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -236,12 +243,31 @@ router.get('/dashboard-stats', async (req, res) => {
       ORDER BY c.date_last_contacted ASC LIMIT 8
     `).all(...stalledParams);
 
+    // Bounced/undeliverable contacts — surfaced on the Dashboard the same way
+    // stalled follow-ups are, so a delivery problem doesn't stay buried until
+    // someone happens to filter My HR List by the Flagged tab.
+    const flaggedWhere  = [`c.email_deliverable IN ${FLAGGED_DELIVERABLE_SQL}`];
+    const flaggedScopeParams = [];
+    if (!pool) { flaggedWhere.unshift('c.user_id = ?'); flaggedScopeParams.push(userId); }
+    const flaggedRows = await db.prepare(`
+      SELECT c.*, s.status AS my_status, s.notes AS my_notes, s.follow_up_at AS my_follow_up_at
+      FROM contacts c
+      LEFT JOIN contact_user_state s ON s.contact_id = c.id AND s.user_id = ?
+      WHERE ${flaggedWhere.join(' AND ')}
+      ORDER BY c.last_bounce_at DESC NULLS LAST LIMIT 8
+    `).all(userId, ...flaggedScopeParams);
+    const flaggedCountRow = await db.prepare(`
+      SELECT COUNT(*) AS count FROM contacts c WHERE ${flaggedWhere.join(' AND ')}
+    `).get(...flaggedScopeParams);
+
     res.json({
       pipeline,
       sourceBreakdown,
       companyCount: parseInt(companyRow?.count, 10) || 0,
       myCompanies: myCompaniesRows.map(r => r.company),
       stalledContacts: stalledRows.map(r => shapeContact(r, userId)),
+      flaggedContacts: flaggedRows.map(r => shapeContact(r, userId)),
+      flaggedCount: parseInt(flaggedCountRow?.count, 10) || 0,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

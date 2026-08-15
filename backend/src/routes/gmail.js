@@ -6,6 +6,35 @@ const db      = require('../db/database');
 const { requireAuth } = require('../middleware/auth');
 const { decrypt } = require('../services/tokenCrypto');
 const { cleanContactName } = require('../lib/nameUtils');
+const { classifyBounceText, looksLikeBounceNotification } = require('../lib/bounceClassify');
+const { upsertContactState } = require('../lib/contactVisibility');
+
+// Heuristic interview-invite detector — a reply that mentions scheduling/an
+// interview gets status='Interview' instead of the generic 'Replied', same
+// distinction the user manually makes today via the status dropdown, now
+// applied automatically from the reply's own subject/snippet text.
+const INTERVIEW_RE = /\b(interview|shortlisted|schedule a call|hiring manager|next round|technical round|available for a (call|chat)|book a slot|calendly|would like to (invite|schedule)|move forward with your (application|profile))\b/i;
+
+// Seeds status/deliverability for a contact being promoted for the FIRST
+// time from gmail_tracked_emails (add-contact / add-all-contacts below) —
+// same reply/interview/bounce classification syncGmailForUser already
+// applies live to EXISTING contacts, applied once here at insert time since
+// there's no existing contact row yet to update in place.
+function seedFromEmailStatus(row) {
+  if (row.email_status === 'bounced') {
+    const type = classifyBounceText(`${row.subject || ''} ${row.reply_snippet || ''}`) || 'soft_bounce';
+    return {
+      status: type === 'hard_bounce' ? 'Do Not Contact' : 'Sent',
+      emailDeliverable: type,
+      bounceReason: row.reply_snippet || 'Bounce notification received',
+    };
+  }
+  if (row.email_status === 'replied') {
+    const isInterview = INTERVIEW_RE.test(`${row.subject || ''} ${row.reply_snippet || ''}`);
+    return { status: isInterview ? 'Interview' : 'Replied', emailDeliverable: 'unknown', bounceReason: null };
+  }
+  return { status: 'Sent', emailDeliverable: 'unknown', bounceReason: null };
+}
 
 const router = express.Router();
 
@@ -160,15 +189,17 @@ async function syncGmailForUser(userId, { maxPages = 10, windowDays = 548 } = {}
           : now;
 
         // Check if thread has replies (reply = another message in thread not from 'me')
-        let emailStatus = 'sent';
-        let repliedAt   = null;
+        let emailStatus  = 'sent';
+        let repliedAt    = null;
         let replySnippet = null;
+        let isBounce     = false;
+        let bounceType   = null; // 'hard_bounce' | 'soft_bounce'
 
         const threadDetail = await gmail.users.threads.get({
           userId: 'me',
           id:     threadId,
           format: 'metadata',
-          metadataHeaders: ['From', 'Date'],
+          metadataHeaders: ['From', 'Date', 'Subject'],
         });
 
         const threadMessages = threadDetail.data.messages || [];
@@ -181,10 +212,23 @@ async function syncGmailForUser(userId, { maxPages = 10, windowDays = 548 } = {}
             return !from.toLowerCase().includes(userEmail.toLowerCase());
           });
           if (replyMsg) {
-            emailStatus  = 'replied';
-            const replyDate = replyMsg.payload?.headers?.find(h => h.name === 'Date')?.value;
+            const replyFrom    = replyMsg.payload?.headers?.find(h => h.name === 'From')?.value || '';
+            const replySubject = replyMsg.payload?.headers?.find(h => h.name === 'Subject')?.value || '';
+            const replyDate    = replyMsg.payload?.headers?.find(h => h.name === 'Date')?.value;
             repliedAt    = replyDate ? new Date(replyDate).toISOString().replace('T', ' ').slice(0, 19) : now;
             replySnippet = replyMsg.snippet?.slice(0, 300) || '';
+
+            // A mailer-daemon bounce notification landing in the same thread
+            // otherwise looks identical to a genuine reply (it's "not from
+            // me" too) — without this check it was being recorded as
+            // email_status='replied', which is exactly backwards.
+            if (looksLikeBounceNotification({ from: replyFrom, subject: replySubject })) {
+              isBounce   = true;
+              bounceType = classifyBounceText(`${replySubject} ${replySnippet}`) || 'soft_bounce';
+              emailStatus = 'bounced';
+            } else {
+              emailStatus = 'replied';
+            }
           }
         }
 
@@ -209,11 +253,53 @@ async function syncGmailForUser(userId, { maxPages = 10, windowDays = 548 } = {}
           sentAt, emailStatus, repliedAt, replySnippet, now, now
         );
         imported++;
-        // Deliberately NOT auto-creating a row in the shared `contacts`
-        // table here — that table has no per-user scoping (see routes/
-        // contacts.js), so every signed-in user sees every row in it.
-        // Silently writing someone's personal Gmail history there would
-        // leak their contacts to every other user of the app. Promoting a
+
+        // Propagate a detected bounce/reply/interview-invite onto the
+        // contact's row in the SHARED pool, if one already exists for this
+        // email under this user — previously the only way a reply/bounce
+        // ever reached `contacts`/`contact_user_state` was the one-time
+        // "+ Add to Contacts" seed, which used ON CONFLICT DO NOTHING and so
+        // never updated a contact that already existed (the common case:
+        // most contacts arrive via Job Intel/CSV/manual, THEN get emailed).
+        if (emailStatus === 'replied' || emailStatus === 'bounced') {
+          const existing = await db.prepare(
+            'SELECT id FROM contacts WHERE LOWER(email) = LOWER(?) AND user_id = ? LIMIT 1'
+          ).get(contactEmail, userId);
+          if (existing) {
+            if (emailStatus === 'bounced') {
+              const nowTs = new Date().toISOString().replace('T', ' ').slice(0, 19);
+              if (bounceType === 'hard_bounce') {
+                await db.prepare(`
+                  UPDATE contacts SET
+                    email_deliverable = 'hard_bounce',
+                    bounce_count = bounce_count + 1,
+                    last_bounce_at = ?,
+                    bounce_reason = ?
+                  WHERE id = ?
+                `).run(nowTs, replySnippet || 'Bounce notification received', existing.id);
+                await upsertContactState(existing.id, userId, { status: 'Do Not Contact' });
+              } else {
+                await db.prepare(`
+                  UPDATE contacts SET
+                    email_deliverable = CASE WHEN email_deliverable NOT IN ('hard_bounce') THEN 'soft_bounce' ELSE email_deliverable END,
+                    bounce_count = bounce_count + 1,
+                    last_bounce_at = ?,
+                    bounce_reason = ?
+                  WHERE id = ?
+                `).run(nowTs, replySnippet || 'Bounce notification received', existing.id);
+              }
+            } else {
+              const isInterview = INTERVIEW_RE.test(`${subject} ${replySnippet || ''}`);
+              await upsertContactState(existing.id, userId, { status: isInterview ? 'Interview' : 'Replied' });
+            }
+          }
+        }
+        // Otherwise (no existing contact yet), deliberately NOT auto-creating
+        // a row in the shared `contacts` table here — that table has no
+        // per-user scoping (see routes/contacts.js), so every signed-in user
+        // sees every row in it. Silently writing someone's personal Gmail
+        // history there would leak their contacts to every other user of the
+        // app. Promoting a
         // synced contact into the shared table is an explicit, per-contact
         // action instead — see POST /emails/:id/add-contact below.
       } catch { /* skip individual message errors */ }
@@ -303,14 +389,15 @@ router.post('/emails/:id/add-contact', requireAuth, async (req, res) => {
     if (existing) return res.json({ ok: true, added: false, reason: 'already in Contacts' });
 
     const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const seed = seedFromEmailStatus(row);
     await db.prepare(`
-      INSERT INTO contacts (id, user_id, name, email, email_source, status, date_added, date_last_contacted, notes)
-      VALUES (?, ?, ?, ?, 'gmail', ?, ?, ?, ?)
+      INSERT INTO contacts (id, user_id, name, email, email_source, status, date_added, date_last_contacted, notes, email_deliverable, bounce_reason, last_bounce_at)
+      VALUES (?, ?, ?, ?, 'gmail', ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (email, user_id) DO NOTHING
     `).run(
       crypto.randomUUID(), req.user.userId, cleanContactName(row.contact_name, email), email,
-      row.email_status === 'replied' ? 'Replied' : 'Sent',
-      now, row.replied_at || row.sent_at, `Imported from Gmail Sync — last subject: "${row.subject}"`
+      seed.status, now, row.replied_at || row.sent_at, `Imported from Gmail Sync — last subject: "${row.subject}"`,
+      seed.emailDeliverable, seed.bounceReason, seed.emailDeliverable !== 'unknown' ? now : null
     );
     res.json({ ok: true, added: true });
   } catch (err) {
@@ -328,7 +415,7 @@ router.post('/add-all-contacts', requireAuth, async (req, res) => {
     // same address with different header casing ("Name@x.com" vs "name@x.com")
     // survive as two separate groups, each independently inserted.
     const rows = await db.prepare(`
-      SELECT DISTINCT ON (lower(contact_email)) contact_email, contact_name, subject, email_status, sent_at, replied_at
+      SELECT DISTINCT ON (lower(contact_email)) contact_email, contact_name, subject, reply_snippet, email_status, sent_at, replied_at
       FROM gmail_tracked_emails
       WHERE user_id = ?
       ORDER BY lower(contact_email), sent_at DESC
@@ -340,14 +427,15 @@ router.post('/add-all-contacts', requireAuth, async (req, res) => {
       const email = row.contact_email.trim().toLowerCase();
       const existing = await db.prepare('SELECT id FROM contacts WHERE email = ? AND user_id = ?').get(email, req.user.userId);
       if (existing) { skipped++; continue; }
+      const seed = seedFromEmailStatus(row);
       await db.prepare(`
-        INSERT INTO contacts (id, user_id, name, email, email_source, status, date_added, date_last_contacted, notes)
-        VALUES (?, ?, ?, ?, 'gmail', ?, ?, ?, ?)
+        INSERT INTO contacts (id, user_id, name, email, email_source, status, date_added, date_last_contacted, notes, email_deliverable, bounce_reason, last_bounce_at)
+        VALUES (?, ?, ?, ?, 'gmail', ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (email, user_id) DO NOTHING
       `).run(
         crypto.randomUUID(), req.user.userId, cleanContactName(row.contact_name, email), email,
-        row.email_status === 'replied' ? 'Replied' : 'Sent',
-        now, row.replied_at || row.sent_at, `Imported from Gmail Sync — last subject: "${row.subject}"`
+        seed.status, now, row.replied_at || row.sent_at, `Imported from Gmail Sync — last subject: "${row.subject}"`,
+        seed.emailDeliverable, seed.bounceReason, seed.emailDeliverable !== 'unknown' ? now : null
       );
       added++;
     }

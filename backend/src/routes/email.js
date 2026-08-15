@@ -11,6 +11,7 @@ const { getTransportForUser, createLegacyTransport } = require('../services/mail
 const { getResumeFile } = require('../services/resumeFiles');
 const { canSeePool, upsertContactState } = require('../lib/contactVisibility');
 const { parseSkills } = require('../lib/skillMatch');
+const { classifyBounce } = require('../lib/bounceClassify');
 
 // Load a contact the user is allowed to email (own, or any pooled contact for
 // subscribers) plus the viewer's own status for this contact.
@@ -314,24 +315,6 @@ async function wasRecentlySent(contactId, userId) {
     LIMIT 1
   `).get(contactId, userId, cutoff);
   return !!row;
-}
-
-// Classify SMTP errors into bounce types for deliverability tracking
-function classifyBounce(err) {
-  const code = err.responseCode || 0;
-  const text = ((err.message || '') + ' ' + (err.response || '')).toLowerCase();
-  const hardPatterns = [
-    'does not exist', 'no such user', 'user unknown', 'user not found',
-    'invalid address', 'invalid recipient', 'bad destination', 'address rejected',
-    'recipient rejected', 'mailbox not found', 'mailbox unavailable',
-    'no mailbox', 'account does not exist', 'undeliverable', 'non-existent',
-    'address invalid', 'no route to host', '5.1.1', '5.1.2',
-  ];
-  if (hardPatterns.some(p => text.includes(p)) || (code >= 550 && code <= 554)) return 'hard_bounce';
-  const softPatterns = ['mailbox full', 'quota', 'over quota', 'temporarily', 'try again', 'service unavailable'];
-  if (softPatterns.some(p => text.includes(p)) || (code >= 400 && code < 500)) return 'soft_bounce';
-  if (code >= 500) return 'hard_bounce';
-  return 'failed';
 }
 
 // Upsert per-user monthly billing stats

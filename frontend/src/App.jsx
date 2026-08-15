@@ -123,7 +123,7 @@ export default function App() {
   const [availableTags,  setAvailableTags]  = useState([]);
   const [bulkTagInput,   setBulkTagInput]   = useState('');
   const [titleFilter,    setTitleFilter]    = useState('');
-  const [segment,        setSegment]        = useState('all'); // all | not_contacted | contacted
+  const [segment,        setSegment]        = useState('all'); // all | not_contacted | contacted | flagged
   const [selected,       setSelected]       = useState([]);
   // Pagination: contacts pool can run into the thousands once Job Intel has
   // been syncing a while — load a page at a time instead of the whole pool,
@@ -135,8 +135,18 @@ export default function App() {
   // True counts across ALL matching contacts (not just the loaded page) — feeds
   // StatsBar + the segment-tab counts, which must stay correct regardless of
   // how many pages have been loaded into `contacts` so far.
-  const [contactsSummary, setContactsSummary] = useState({ total: 0, contacted: 0, not_contacted: 0, emailed: 0, replied: 0, interviews: 0 });
+  const [contactsSummary, setContactsSummary] = useState({ total: 0, contacted: 0, not_contacted: 0, emailed: 0, replied: 0, interviews: 0, flagged: 0 });
   const [selectingAll,    setSelectingAll]    = useState(false);
+
+  // Count for whichever segment tab is active — avoids repeating the same
+  // 4-way ternary at every call site that needs "how many contacts are in
+  // the CURRENT view."
+  const segmentCount = useCallback((seg) => {
+    if (seg === 'contacted')     return contactsSummary.contacted;
+    if (seg === 'not_contacted') return contactsSummary.not_contacted;
+    if (seg === 'flagged')       return contactsSummary.flagged;
+    return contactsSummary.total;
+  }, [contactsSummary]);
   const [editingContact,   setEditingContact]   = useState(null);
   const [showForm,         setShowForm]         = useState(false);
   const [showImport,       setShowImport]       = useState(false);
@@ -1134,7 +1144,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* ── Segment: Not contacted / Contacted / All ─────────────── */}
+          {/* ── Segment: Not contacted / Contacted / Flagged / All ───── */}
           {/* Counts come from /contacts/summary (true totals across every
               matching contact), not contacts.length — that only reflects
               whatever page(s) have been loaded into the table so far. */}
@@ -1142,6 +1152,7 @@ export default function App() {
             {[
               { id: 'not_contacted', label: 'Not contacted', count: contactsSummary.not_contacted, active: 'bg-slate-800 text-white border-slate-800', dot: 'bg-slate-400' },
               { id: 'contacted',     label: 'Already mailed', count: contactsSummary.contacted,     active: 'bg-amber-500 text-white border-amber-500', dot: 'bg-amber-500' },
+              { id: 'flagged',       label: '⚠ Flagged',      count: contactsSummary.flagged,        active: 'bg-red-600 text-white border-red-600',     dot: 'bg-red-500' },
               { id: 'all',           label: 'All',            count: contactsSummary.total,          active: 'bg-brand-600 text-white border-brand-600', dot: 'bg-brand-500' },
             ].map(seg => (
               <button
@@ -1194,13 +1205,13 @@ export default function App() {
                 </button>
               );
             })}
-            {(segment === 'contacted' ? contactsSummary.contacted : segment === 'not_contacted' ? contactsSummary.not_contacted : contactsSummary.total) > 0 && (
+            {segmentCount(segment) > 0 && (
               <button
                 onClick={() => selectAllMatching(segment)}
                 disabled={selectingAll}
                 className="text-xs px-2.5 py-1 border border-gray-300 rounded-sm text-gray-600 hover:bg-gray-100 hover:border-gray-400 font-semibold transition disabled:opacity-50"
               >
-                {selectingAll ? 'Selecting…' : `All (${segment === 'contacted' ? contactsSummary.contacted : segment === 'not_contacted' ? contactsSummary.not_contacted : contactsSummary.total})`}
+                {selectingAll ? 'Selecting…' : `All (${segmentCount(segment)})`}
               </button>
             )}
             {selected.length > 0 && (
@@ -1279,7 +1290,7 @@ export default function App() {
           {!loading && (
             <div className="flex items-center justify-between px-1">
               <span className="text-xs text-gray-400">
-                Showing {contacts.length} of {segment === 'contacted' ? contactsSummary.contacted : segment === 'not_contacted' ? contactsSummary.not_contacted : contactsSummary.total}
+                Showing {contacts.length} of {segmentCount(segment)}
               </span>
               <label className="text-xs text-gray-400 flex items-center gap-1.5">
                 Rows per page

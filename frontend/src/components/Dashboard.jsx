@@ -245,6 +245,8 @@ export default function Dashboard({
 
   const companyCount = stats?.companyCount ?? 0;
   const myCompanies  = stats?.myCompanies  ?? [];
+  const flaggedContacts = stats?.flaggedContacts ?? [];
+  const flaggedCount    = stats?.flaggedCount    ?? 0;
 
   const researchedCompany = companySearch.trim();
 
@@ -536,6 +538,45 @@ export default function Dashboard({
                   </div>
                   <StatusPill status={c.status} />
                   <span className="text-xs text-amber-600 font-medium whitespace-nowrap">{c._staleDays}d ago</span>
+                </button>
+              ))}
+            </div>
+          </CardFlush>
+        </div>
+      )}
+
+      {/* ── Flagged contacts — bounced/undeliverable, needs attention ───────── */}
+      {flaggedContacts.length > 0 && (
+        <div className="space-y-2.5">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-bold text-red-500 uppercase tracking-widest">
+              ⚠ Flagged — {flaggedCount} undeliverable
+            </p>
+            <button onClick={onGoToContacts}
+              className="text-xs text-brand-600 hover:text-brand-800 font-medium transition-colors">
+              View all →
+            </button>
+          </div>
+          <CardFlush className="border-red-100">
+            <div className="divide-y divide-gray-50">
+              {flaggedContacts.map(c => (
+                <button
+                  key={c.id}
+                  onClick={onGoToContacts}
+                  className="w-full flex items-center gap-3 px-5 py-3 hover:bg-red-50/40 transition-colors text-left"
+                >
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-red-400 to-red-600 flex items-center justify-center text-white text-xs font-semibold shrink-0">
+                    {(c.name || '?')[0].toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-800 truncate">{c.name}</p>
+                    <p className="text-xs text-gray-400 truncate">{c.bounce_reason || 'Delivery failed'}</p>
+                  </div>
+                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${
+                    c.email_deliverable === 'hard_bounce' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                  }`}>
+                    {c.email_deliverable === 'hard_bounce' ? 'Hard bounce' : c.email_deliverable === 'soft_bounce' ? 'Soft bounce' : 'Flagged'}
+                  </span>
                 </button>
               ))}
             </div>
