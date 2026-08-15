@@ -55,6 +55,41 @@ export function AuthProvider({ children }) {
   // Store stable ref so event listeners always call the latest sync
   useEffect(() => { syncRef.current = sync; }, [sync]);
 
+  // Retries a transient failure (free-tier cold-start delay, a brief network
+  // blip) before treating the session as invalid. An explicit 401/403 fails
+  // fast since retrying that would never succeed. Used ONLY for the initial
+  // mount below: without this, sync() failing for any non-auth reason (e.g. a
+  // cold host taking longer than the 20s request timeout to wake up) left
+  // `user` at null while still calling setLoading(false) — rendering the app
+  // as fully logged out (even though the token in localStorage was still
+  // valid) until the 30s background poll happened to land. That's exactly
+  // the "something went wrong, then auto-logs-in on its own" / "reload the
+  // page and it's logged out" pattern users were hitting.
+  const syncWithRetry = useCallback(async (maxAttempts = 4) => {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        const u = await api.get('/auth/me');
+        if (u._token) {
+          localStorage.setItem('hr_token', u._token);
+          const { _token, ...userData } = u;
+          setUser(userData);
+        } else {
+          setUser(u);
+        }
+        return;
+      } catch (err) {
+        const status = err?.response?.status;
+        if (status === 401 || status === 403) {
+          localStorage.removeItem('hr_token');
+          setUser(null);
+          return;
+        }
+        if (attempt === maxAttempts - 1) return; // give up quietly — keep the token, next poll/focus will retry
+        await new Promise(r => setTimeout(r, 3000 * (attempt + 1))); // 3s, 6s, 9s backoff
+      }
+    }
+  }, []);
+
   // ── "Continue with Google" redirect landing ──────────────────────────────
   // /api/oauth/google/callback redirects here with ?google_login_code=... on
   // success — a short-lived (60s) one-time code that is exchanged here for a
@@ -106,7 +141,7 @@ export function AuthProvider({ children }) {
       }
       return;
     }
-    sync().finally(() => setLoading(false));
+    syncWithRetry().finally(() => setLoading(false));
 
     // Refresh when user comes back to the tab
     const onVisible = () => { if (document.visibilityState === 'visible') syncRef.current?.(); };

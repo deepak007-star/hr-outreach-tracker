@@ -195,7 +195,14 @@ export default function App() {
   }, [searchInput]);
 
   // silent=true → background auto-refresh (no loading spinner / no error toast)
-  const fetchContacts = useCallback(async ({ silent = false } = {}) => {
+  // Retries a transient (no-response-status) failure before surfacing an
+  // error — a free-tier host waking from a cold-start sleep can take longer
+  // than the request timeout, which otherwise showed a scary "could not
+  // reach backend" toast on the very first load that then silently fixed
+  // itself on the next background poll a few seconds later. Only applies to
+  // the non-silent path (the user actually waiting on this); silent
+  // background refreshes already tolerate a failed attempt with no toast.
+  const fetchContacts = useCallback(async ({ silent = false, _attempt = 0 } = {}) => {
     if (!user) { setLoading(false); return; } // guests land on LandingPage, not the contacts table
     if (!silent) setLoading(true);
     try {
@@ -206,10 +213,17 @@ export default function App() {
       if (tagFilters.length) params.tags  = tagFilters.join(',');
       const data = await api.get('/contacts', { params });
       setContacts(data);
-    } catch {
-      if (!silent) toast.error('Could not reach backend — is it running on port 3001?');
-    } finally {
       if (!silent) setLoading(false);
+    } catch (err) {
+      const isNetworkError = err?.response?.status == null;
+      if (!silent && isNetworkError && _attempt < 2) {
+        setTimeout(() => fetchContacts({ silent: false, _attempt: _attempt + 1 }), 3000 * (_attempt + 1));
+        return;
+      }
+      if (!silent) {
+        toast.error('Could not reach backend — is it running on port 3001?');
+        setLoading(false);
+      }
     }
   }, [search, statusFilter, sourceFilter, tagFilters, user]);
 
