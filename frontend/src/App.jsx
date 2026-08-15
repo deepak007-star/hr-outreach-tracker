@@ -658,8 +658,15 @@ export default function App() {
         )}
 
         {/* ── Job Discovery tab (umbrella: postings + ATS pipeline + LinkedIn) ── */}
+        {/* Each sub-tab gets its OWN TabErrorBoundary below (not one shared
+            boundary around the whole umbrella) — a class component's error
+            state never auto-clears on its own, so a single boundary wrapping
+            all 3 sub-tabs meant one throwing ONCE would permanently show the
+            fallback for the other two as well, until a manual Retry click.
+            Nesting the boundary inside each {subTab === 'x' && ...} branch
+            means switching sub-tabs fully unmounts/remounts a fresh one. */}
         {activeTab === 'job-discovery' && (
-          <TabErrorBoundary>
+          <>
             <div key={jobDiscoverySubTab} className="max-w-screen-xl mx-auto animate-tab-fade-in">
               <div className="mb-5">
                 <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
@@ -703,11 +710,11 @@ export default function App() {
                 </div>
               </div>
 
-              {jobDiscoverySubTab === 'postings' && <JobScraperSection />}
-              {jobDiscoverySubTab === 'intel-contacts' && <JobIntelPanel />}
-              {jobDiscoverySubTab === 'linkedin-hiring-posts' && <LinkedInPosts />}
+              {jobDiscoverySubTab === 'postings' && <TabErrorBoundary><JobScraperSection /></TabErrorBoundary>}
+              {jobDiscoverySubTab === 'intel-contacts' && <TabErrorBoundary><JobIntelPanel /></TabErrorBoundary>}
+              {jobDiscoverySubTab === 'linkedin-hiring-posts' && <TabErrorBoundary><LinkedInPosts /></TabErrorBoundary>}
             </div>
-          </TabErrorBoundary>
+          </>
         )}
 
         {/* ── Resume Tools tab (umbrella: templates + analyzer + bulk apply + vault) ── */}
@@ -716,7 +723,7 @@ export default function App() {
             never loses in-progress unsaved work; retriggering a fade via `key`
             would force-remount them and defeat that entirely. */}
         {activeTab === 'resume-tools' && (
-          <TabErrorBoundary>
+          <>
             <div className="max-w-screen-xl mx-auto">
               <div className="mb-5">
                 <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
@@ -758,10 +765,10 @@ export default function App() {
                 </div>
               </div>
 
-              {resumeToolsSubTab === 'templates' && <TemplatesPage />}
+              {resumeToolsSubTab === 'templates' && <TabErrorBoundary><TemplatesPage /></TabErrorBoundary>}
 
               {resumeToolsSubTab === 'vault' && user && (
-                <ResumeVault />
+                <TabErrorBoundary><ResumeVault /></TabErrorBoundary>
               )}
               {resumeToolsSubTab === 'vault' && !user && (
                 <div className="flex flex-col items-center justify-center h-48 gap-3">
@@ -770,7 +777,7 @@ export default function App() {
                 </div>
               )}
             </div>
-          </TabErrorBoundary>
+          </>
         )}
 
         {/* JobAnalyzer/BulkJobAnalyzer KeepAlive — deliberately OUTSIDE the
@@ -788,14 +795,14 @@ export default function App() {
             name="resume-tools-analyzer"
             visitedRef={analyzerVisitedRef}
           >
-            <JobAnalyzer />
+            <TabErrorBoundary><JobAnalyzer /></TabErrorBoundary>
           </KeepAlive>
           <KeepAlive
             active={activeTab === 'resume-tools' && resumeToolsSubTab === 'bulk-apply'}
             name="resume-tools-bulk"
             visitedRef={analyzerVisitedRef}
           >
-            <BulkJobAnalyzer />
+            <TabErrorBoundary><BulkJobAnalyzer /></TabErrorBoundary>
           </KeepAlive>
         </div>
 
