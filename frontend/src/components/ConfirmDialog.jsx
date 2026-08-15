@@ -1,8 +1,12 @@
 import { useState, useEffect } from 'react';
 import { registerConfirmHandler } from '../utils/confirm';
 
+// Self-hosted visibility (driven by the confirm() promise utility, not a
+// parent-controlled onClose prop) doesn't fit ui/Modal.jsx's render-prop API,
+// so this plays its own matching modal-in/out animation directly instead.
 export default function ConfirmDialog() {
-  const [state, setState] = useState({ open: false, message: '', detail: '', resolve: null });
+  const [state, setState]     = useState({ open: false, message: '', detail: '', resolve: null });
+  const [closing, setClosing] = useState(false);
 
   useEffect(() => {
     registerConfirmHandler((message, detail) =>
@@ -11,15 +15,19 @@ export default function ConfirmDialog() {
   }, []);
 
   const close = (value) => {
-    setState(s => { s.resolve?.(value); return { open: false, message: '', detail: '', resolve: null }; });
+    setClosing(true);
+    setTimeout(() => {
+      setState(s => { s.resolve?.(value); return { open: false, message: '', detail: '', resolve: null }; });
+      setClosing(false);
+    }, 120);
   };
 
   if (!state.open) return null;
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/50" onClick={() => close(false)} />
-      <div className="relative bg-white rounded-md shadow-modal w-full max-w-sm mx-4 p-6">
+      <div className="absolute inset-0 bg-black/50 animate-backdrop-in" onClick={() => close(false)} />
+      <div className={`relative bg-white rounded-md shadow-modal w-full max-w-sm mx-4 p-6 ${closing ? 'animate-modal-out' : 'animate-modal-in'}`}>
         <p className="text-sm font-semibold text-gray-900">{state.message}</p>
         {state.detail && <p className="text-xs text-gray-500 mt-1">{state.detail}</p>}
         <div className="flex justify-end gap-2 mt-5">

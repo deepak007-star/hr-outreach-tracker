@@ -1,7 +1,7 @@
 export default function UnsavedChangesModal({ onSaveDraft, onLeave, onStay }) {
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-md shadow-modal max-w-md w-full p-6">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4 animate-backdrop-in">
+      <div className="bg-white rounded-md shadow-modal max-w-md w-full p-6 animate-modal-in">
         <div className="flex items-start gap-4 mb-5">
           <div className="w-11 h-11 rounded-full bg-amber-100 flex items-center justify-center shrink-0 text-xl">⚠️</div>
           <div>

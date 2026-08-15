@@ -13,10 +13,19 @@ const SIZES = {
   lg: 'w-12 h-12 border-[3px]',
 };
 
-export default function Spinner({ size = 'md', className = '' }) {
+// `color` sets the border color (default brand orange); pass 'white' for use
+// on a solid dark/colored button background (e.g. Button's primary variant).
+// Kept as a literal class-name map (not a template-string interpolation) so
+// Tailwind's JIT can actually see and generate these classes at build time.
+const COLORS = {
+  brand: 'border-brand-500',
+  white: 'border-white',
+};
+
+export default function Spinner({ size = 'md', color = 'brand', className = '' }) {
   return (
     <div
-      className={`${SIZES[size] ?? SIZES.md} border-brand-500 border-t-transparent rounded-full animate-spin ${className}`}
+      className={`${SIZES[size] ?? SIZES.md} ${COLORS[color] ?? COLORS.brand} border-t-transparent rounded-full animate-spin ${className}`}
       role="status"
       aria-label="Loading"
     />

@@ -295,7 +295,7 @@ export default function LandingPage({ onGetStarted, onSignIn, onPlansClick }) {
           </nav>
           <button
             onClick={onSignIn}
-            className="text-sm font-semibold text-brand-700 hover:text-brand-900 transition-colors"
+            className="text-sm font-semibold text-brand-700 hover:text-brand-900 active:scale-95 transition-all"
           >
             Sign in →
           </button>
@@ -328,7 +328,7 @@ export default function LandingPage({ onGetStarted, onSignIn, onPlansClick }) {
         <div className="flex items-center justify-center gap-3 mb-12">
           <button
             onClick={onGetStarted}
-            className="inline-flex items-center gap-2 px-6 py-3 bg-brand-600 text-white rounded-sm text-sm font-semibold hover:bg-brand-700 transition-colors shadow-sm"
+            className="inline-flex items-center gap-2 px-6 py-3 bg-brand-600 text-white rounded-sm text-sm font-semibold hover:bg-brand-700 active:scale-[0.97] transition-all shadow-sm"
           >
             Get started free
             <ArrowRight size={16} />
@@ -541,7 +541,7 @@ export default function LandingPage({ onGetStarted, onSignIn, onPlansClick }) {
           <div className="flex items-center justify-center gap-3">
             <button
               onClick={onGetStarted}
-              className="inline-flex items-center gap-2 px-6 py-3 bg-brand-600 text-white rounded-sm text-sm font-semibold hover:bg-brand-500 transition-colors"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-brand-600 text-white rounded-sm text-sm font-semibold hover:bg-brand-500 active:scale-[0.97] transition-all"
             >
               Get started free
               <ArrowRight size={16} />

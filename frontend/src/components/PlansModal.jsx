@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext.jsx';
 import { api } from '../api/client.js';
 import toast from 'react-hot-toast';
 import { confirm } from '../utils/confirm.js';
+import { Modal } from './ui/index.js';
 
 const PLANS = [
   {
@@ -75,7 +76,7 @@ export default function PlansModal({ onClose, onSignupClick }) {
     }).catch(() => {});
   }, [user]);
 
-  const handleUpgrade = useCallback(async (planId) => {
+  const handleUpgrade = useCallback(async (planId, requestClose) => {
     if (!user) { onSignupClick?.(); return; }
     if (!config?.configured) {
       toast.error('Payment gateway not configured yet. Contact the admin.');
@@ -114,7 +115,7 @@ export default function PlansModal({ onClose, onSignupClick }) {
                 toast.success(`${planId.charAt(0).toUpperCase() + planId.slice(1)} plan activated!`);
                 refreshUser?.();
                 setSubscription(s => ({ ...s, plan: planId, status: 'active' }));
-                onClose();
+                requestClose();
               }
               resolve();
             } catch (e) {
@@ -143,7 +144,7 @@ export default function PlansModal({ onClose, onSignupClick }) {
     } finally {
       setUpgrading(null);
     }
-  }, [user, config, onSignupClick, onClose, refreshUser]);
+  }, [user, config, onSignupClick, refreshUser]);
 
   const handleCancel = useCallback(async () => {
     if (!await confirm('Cancel your subscription? You\'ll keep access until the end of the billing period.')) return;
@@ -162,11 +163,9 @@ export default function PlansModal({ onClose, onSignupClick }) {
   const isConfigured = config?.configured;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div
-        className="bg-white rounded-md shadow-modal w-full max-w-3xl max-h-[90vh] overflow-y-auto"
-        onClick={e => e.stopPropagation()}
-      >
+    <Modal onClose={onClose} maxWidth="max-w-3xl">
+      {({ requestClose }) => (
+      <div className="bg-white rounded-md shadow-modal w-full max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b sticky top-0 bg-white z-10">
           <div>
@@ -181,7 +180,7 @@ export default function PlansModal({ onClose, onSignupClick }) {
             <p className="text-xs text-gray-500 mt-0.5">Unlock more contacts &amp; send more emails</p>
           </div>
           <button
-            onClick={onClose}
+            onClick={requestClose}
             className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 hover:text-gray-800 text-lg font-bold transition"
             aria-label="Close"
           >
@@ -203,7 +202,7 @@ export default function PlansModal({ onClose, onSignupClick }) {
             } else if (plan.btnAction === 'upgrade') {
               btnLabel    = upgrading === plan.id ? 'Loading…' : plan.btnLabel;
               btnDisabled = !!upgrading;
-              btnOnClick  = () => handleUpgrade(plan.id);
+              btnOnClick  = () => handleUpgrade(plan.id, requestClose);
             } else if (plan.btnAction === 'signup') {
               btnLabel    = currentId === 'guest' ? 'Sign Up Free →' : '✓ Signed In';
               btnDisabled = currentId !== 'guest';
@@ -306,6 +305,7 @@ export default function PlansModal({ onClose, onSignupClick }) {
           )}
         </div>
       </div>
-    </div>
+      )}
+    </Modal>
   );
 }
