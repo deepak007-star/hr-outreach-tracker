@@ -471,70 +471,64 @@ async function syncJobIntelContacts(sinceMs = null) {
            WHERE extracted_emails != '[]' AND extracted_emails IS NOT NULL`
         ).all();
 
+    // Auto-tagging: match every synced posting against the owner admin's own
+    // profile skills (these contacts land in their Contacts page) so each one
+    // gets a category tag + up to 5 matched-skill tags — reuses the same
+    // matcher from /contacts personalization (lib/skillMatch.js).
+    const adminProfile = await db.prepare('SELECT skills FROM profiles WHERE user_id = ?').get(adminId).catch(() => null);
+    const adminSkills = parseSkills(adminProfile?.skills);
+
     let totalSynced = 0;
-    for (const admin of admins) {
-      const adminId = admin.id;
+    for (const posting of postings) {
+      let emails = [];
+      try { emails = JSON.parse(posting.extracted_emails); } catch {}
+      if (!emails.length) continue;
 
-      // Auto-tagging: match every synced posting against THIS admin's own
-      // profile skills (these contacts land in their own Contacts page) so
-      // each one gets a category tag + up to 5 matched-skill tags — reuses
-      // the same matcher from /contacts personalization (lib/skillMatch.js).
-      const adminProfile = await db.prepare('SELECT skills FROM profiles WHERE user_id = ?').get(adminId).catch(() => null);
-      const adminSkills = parseSkills(adminProfile?.skills);
+      const categoryLabel  = CATEGORY_LABELS[posting.category] || null;
+      const staffingTag    = isLikelyStaffingAgency(posting.company) ? '🏢 Staffing Agency' : null;
+      const matchedSkills = adminSkills.length
+        ? lightweightSkillMatch(adminSkills, `${posting.title || ''} ${posting.description || ''}`).matched.slice(0, 5)
+        : [];
+      const tags = JSON.stringify([...new Set([categoryLabel, staffingTag, ...matchedSkills].filter(Boolean))]);
 
-      let synced = 0;
-      for (const posting of postings) {
-        let emails = [];
-        try { emails = JSON.parse(posting.extracted_emails); } catch {}
-        if (!emails.length) continue;
+      for (const rawEmail of emails) {
+        const email = cleanExtractedEmail(rawEmail);
+        if (!email) continue;
 
-        const categoryLabel  = CATEGORY_LABELS[posting.category] || null;
-        const staffingTag    = isLikelyStaffingAgency(posting.company) ? '🏢 Staffing Agency' : null;
-        const matchedSkills = adminSkills.length
-          ? lightweightSkillMatch(adminSkills, `${posting.title || ''} ${posting.description || ''}`).matched.slice(0, 5)
-          : [];
-        const tags = JSON.stringify([...new Set([categoryLabel, staffingTag, ...matchedSkills].filter(Boolean))]);
+        const name      = cleanContactName(posting.extracted_contact_name, email);
+        const company   = (posting.company  || '').trim();
+        const jobTitle  = (posting.title    || '').trim();
+        const sourceUrl = (posting.apply_url || '').trim();
+        const notes     = `[Job Intel] ${jobTitle}${company ? ` · ${company}` : ''}${posting.source ? ` (${posting.source})` : ''}`.trim();
 
-        for (const rawEmail of emails) {
-          const email = cleanExtractedEmail(rawEmail);
-          if (!email) continue;
+        // RETURNING (xmax = 0) AS is_new detects true INSERT vs ON CONFLICT UPDATE
+        const row = await db.prepare(`
+          INSERT INTO contacts
+            (id, user_id, name, email, company, title, email_source, status, source_url, notes, date_added, tags, email_verified)
+          VALUES
+            (?, ?, ?, ?, ?, ?, 'job-intel', 'New', ?, ?, ?, ?, 'pending')
+          ON CONFLICT (email, user_id) DO UPDATE SET
+            name       = CASE WHEN contacts.email_source = 'job-intel' AND ? != '' THEN ? ELSE contacts.name END,
+            company    = CASE WHEN contacts.email_source = 'job-intel' AND ? != '' THEN ? ELSE contacts.company END,
+            title      = CASE WHEN contacts.email_source = 'job-intel' AND ? != '' THEN ? ELSE contacts.title END,
+            source_url = CASE WHEN contacts.email_source = 'job-intel' AND ? != '' THEN ? ELSE contacts.source_url END,
+            notes      = CASE WHEN contacts.email_source = 'job-intel' THEN ? ELSE contacts.notes END,
+            tags       = CASE WHEN contacts.email_source = 'job-intel' THEN ? ELSE contacts.tags END
+          RETURNING (xmax = 0) AS is_new
+        `).get(
+          randomUUID(), adminId, name, email, company, jobTitle, sourceUrl, notes, now, tags,
+          name, name,
+          company, company,
+          jobTitle, jobTitle,
+          sourceUrl, sourceUrl,
+          notes,
+          tags,
+        );
 
-          const name      = cleanContactName(posting.extracted_contact_name, email);
-          const company   = (posting.company  || '').trim();
-          const jobTitle  = (posting.title    || '').trim();
-          const sourceUrl = (posting.apply_url || '').trim();
-          const notes     = `[Job Intel] ${jobTitle}${company ? ` · ${company}` : ''}${posting.source ? ` (${posting.source})` : ''}`.trim();
-
-          // RETURNING (xmax = 0) AS is_new detects true INSERT vs ON CONFLICT UPDATE
-          const row = await db.prepare(`
-            INSERT INTO contacts
-              (id, user_id, name, email, company, title, email_source, status, source_url, notes, date_added, tags, email_verified)
-            VALUES
-              (?, ?, ?, ?, ?, ?, 'job-intel', 'New', ?, ?, ?, ?, 'pending')
-            ON CONFLICT (email, user_id) DO UPDATE SET
-              name       = CASE WHEN contacts.email_source = 'job-intel' AND ? != '' THEN ? ELSE contacts.name END,
-              company    = CASE WHEN contacts.email_source = 'job-intel' AND ? != '' THEN ? ELSE contacts.company END,
-              title      = CASE WHEN contacts.email_source = 'job-intel' AND ? != '' THEN ? ELSE contacts.title END,
-              source_url = CASE WHEN contacts.email_source = 'job-intel' AND ? != '' THEN ? ELSE contacts.source_url END,
-              notes      = CASE WHEN contacts.email_source = 'job-intel' THEN ? ELSE contacts.notes END,
-              tags       = CASE WHEN contacts.email_source = 'job-intel' THEN ? ELSE contacts.tags END
-            RETURNING (xmax = 0) AS is_new
-          `).get(
-            randomUUID(), adminId, name, email, company, jobTitle, sourceUrl, notes, now, tags,
-            name, name,
-            company, company,
-            jobTitle, jobTitle,
-            sourceUrl, sourceUrl,
-            notes,
-            tags,
-          );
-
-          if (row?.is_new) synced++;
-        }
+        if (row?.is_new) totalSynced++;
       }
-      console.log(`[Pipeline] syncJobIntelContacts: synced ${synced} contacts to admin ${adminId}'s list`);
-      totalSynced += synced;
     }
+    console.log(`[Pipeline] syncJobIntelContacts: synced ${totalSynced} contacts to admin ${adminId}'s list`);
 
     // settings.value is NOT NULL — 'null' (the JSON literal, as a string) clears
     // the error, not a real SQL NULL, which would violate that constraint.
