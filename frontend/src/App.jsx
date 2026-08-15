@@ -26,7 +26,10 @@ import RateLimitBar      from './components/RateLimitBar.jsx';
 import Dashboard        from './components/Dashboard.jsx';
 import TemplatesPage    from './components/TemplatesPage.jsx';
 import AdminPanel       from './components/AdminPanel.jsx';
-import ColdEmailSection from './components/ColdEmailSection.jsx';
+import GmailConnectCard  from './components/GmailConnectCard.jsx';
+import GmailEmailList    from './components/GmailEmailList.jsx';
+import FeedContactsPanel from './components/FeedContactsPanel.jsx';
+import LinkedInPosts     from './components/LinkedInPosts.jsx';
 import JobScraperSection from './components/JobScraperSection.jsx';
 import UnsavedChangesModal from './components/UnsavedChangesModal.jsx';
 import AskReferral        from './components/AskReferral.jsx';
@@ -76,20 +79,31 @@ const PLAN_NAMES  = { guest: 'Guest', demo: 'Demo', basic: 'Basic', advanced: 'A
 const TAB_PATHS = {
   home:           '/',
   contacts:       '/contacts',
-  templates:      '/templates',
-  jobs:           '/analyzer',
-  bulk:           '/bulk-apply',
+  'job-discovery':'/discover',
+  'resume-tools': '/resume-tools',
   profile:        '/profile',
-  'job-scraper':  '/jobs',
-  'job-intel':    '/job-intel',
-  'resume-vault': '/vault',
   referrals:      '/referrals',
   admin:          '/admin',
 };
 
+// Pre-restructuring URLs (job-scraper/job-intel/templates/jobs/bulk/resume-vault
+// used to be separate top-level tabs — see the Phase 3 nav consolidation) still
+// resolve to the right place, just inside the umbrella tab that now owns them,
+// with the matching sub-tab pre-selected, so a bookmarked/shared link never breaks.
+const LEGACY_TAB_ALIASES = {
+  '/jobs':       { tab: 'job-discovery', subTab: 'postings' },        // old job-scraper tab
+  '/job-intel':  { tab: 'job-discovery', subTab: 'intel-contacts' },
+  '/templates':  { tab: 'resume-tools',  subTab: 'templates' },
+  '/analyzer':   { tab: 'resume-tools',  subTab: 'analyzer' },        // old 'jobs' tab (Resume Analyzer)
+  '/bulk-apply': { tab: 'resume-tools',  subTab: 'bulk-apply' },
+  '/vault':      { tab: 'resume-tools',  subTab: 'vault' },
+};
+
 function getTabFromPath(pathname) {
   const reverse = Object.fromEntries(Object.entries(TAB_PATHS).map(([t, p]) => [p, t]));
-  return reverse[pathname] || 'home';
+  if (reverse[pathname]) return { tab: reverse[pathname], subTab: null };
+  if (LEGACY_TAB_ALIASES[pathname]) return LEGACY_TAB_ALIASES[pathname];
+  return { tab: 'home', subTab: null };
 }
 
 const STATUSES = ['New','Drafted','Sent','Opened','Replied','Interview','Rejected','Do Not Contact'];
@@ -121,11 +135,27 @@ export default function App() {
   const [showReminder,     setShowReminder]     = useState(false);
   const [emailStats,       setEmailStats]       = useState(null);
   const [activityKey,      setActivityKey]      = useState(0);
-  const [activeTab,        setActiveTab]        = useState(() => getTabFromPath(window.location.pathname));
+  const [activeTab,        setActiveTab]        = useState(() => getTabFromPath(window.location.pathname).tab);
   const [showAuthModal,    setShowAuthModal]    = useState(false);
   const [showPlans,        setShowPlans]        = useState(false);
-  // contacts section sub-tabs: 'my' | 'cold-email' | 'job-links'
-  const [contactSubTab,    setContactSubTab]    = useState('my');
+  // Contacts & Outreach sub-tabs: 'my' | 'gmail-sync' | 'linkedin-contacts'
+  const [contactSubTab,    setContactSubTab]    = useState(() => {
+    const nav = getTabFromPath(window.location.pathname);
+    return nav.tab === 'contacts' && nav.subTab ? nav.subTab : 'my';
+  });
+  // Job Discovery sub-tabs: 'postings' | 'intel-contacts' | 'linkedin-hiring-posts'
+  const [jobDiscoverySubTab, setJobDiscoverySubTab] = useState(() => {
+    const nav = getTabFromPath(window.location.pathname);
+    return nav.tab === 'job-discovery' && nav.subTab ? nav.subTab : 'postings';
+  });
+  // Resume Tools sub-tabs: 'templates' | 'analyzer' | 'bulk-apply' | 'vault'
+  const [resumeToolsSubTab, setResumeToolsSubTab] = useState(() => {
+    const nav = getTabFromPath(window.location.pathname);
+    return nav.tab === 'resume-tools' && nav.subTab ? nav.subTab : 'templates';
+  });
+  // Gmail Sync sub-tab state (lifted out of the retired ColdEmailSection.jsx)
+  const [gmailStatus,  setGmailStatus]  = useState(null);
+  const [gmailRefresh, setGmailRefresh] = useState(0);
   const { user, loading: authLoading } = useAuth();
 
   // Unsaved-changes guard: ProfilePage reports dirty state here
@@ -286,8 +316,13 @@ export default function App() {
   // Sync active tab on browser back/forward
   useEffect(() => {
     const onPop = (e) => {
-      const tab = e.state?.tabId || getTabFromPath(window.location.pathname) || 'home';
-      setActiveTab(tab);
+      const nav = e.state?.tabId ? { tab: e.state.tabId, subTab: null } : getTabFromPath(window.location.pathname);
+      setActiveTab(nav.tab || 'home');
+      if (nav.subTab) {
+        if (nav.tab === 'contacts')       setContactSubTab(nav.subTab);
+        else if (nav.tab === 'job-discovery') setJobDiscoverySubTab(nav.subTab);
+        else if (nav.tab === 'resume-tools')  setResumeToolsSubTab(nav.subTab);
+      }
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
@@ -513,16 +548,12 @@ export default function App() {
   // Creative labels (Section 2.6) + always-visible subtitles.
   // Sidebar label must match page <h1> exactly — enforced by using NAV_ITEMS as source of truth.
   const NAV_ITEMS = [
-    { id: 'home',        icon: <Home         size={16} />, label: 'Dashboard',               sub: 'Your outreach at a glance'           },
-    { id: 'contacts',    icon: <Users        size={16} />, label: 'Cold Emailing & Contacts', sub: 'HR contacts & email outreach'        },
-    { id: 'job-scraper', icon: <Briefcase    size={16} />, label: 'Jobs',                    sub: 'Scrape LinkedIn, Naukri & more'      },
-    { id: 'job-intel',   icon: <Zap         size={16} />, label: 'Job Intel Contacts',        sub: 'HR emails extracted from job board APIs & ATS posts' },
-    { id: 'templates',   icon: <FileText     size={16} />, label: 'Templates & Resumes',     sub: 'Email & resume templates'            },
-    { id: 'jobs',        icon: <Target       size={16} />, label: 'Resume Analyzer & Maker', sub: 'ATS score & resume fit check'        },
-    { id: 'bulk',        icon: <ListChecks   size={16} />, label: 'Generalize Resume',       sub: 'Tailor resume to any job description' },
-    { id: 'resume-vault',icon: <FolderOpen   size={16} />, label: 'Resume Vault',            sub: 'Your saved resume versions', requiresAuth: true },
-    { id: 'referrals',   icon: <UserPlus     size={16} />, label: 'Sifarish',                sub: 'Get referred at top companies', requiresAuth: true },
-    { id: 'profile',     icon: <User         size={16} />, label: 'Profile',                 sub: 'Your skills & resume data',  requiresAuth: true },
+    { id: 'home',          icon: <Home         size={16} />, label: 'Dashboard',           sub: 'Your outreach at a glance' },
+    { id: 'contacts',      icon: <Users        size={16} />, label: 'Contacts & Outreach', sub: 'HR list, Gmail sync & LinkedIn contacts' },
+    { id: 'job-discovery', icon: <Briefcase    size={16} />, label: 'Job Discovery',       sub: 'Board postings, ATS pipeline & LinkedIn hiring posts' },
+    { id: 'resume-tools',  icon: <FileText     size={16} />, label: 'Resume Tools',        sub: 'Templates, analyzer, bulk apply & vault' },
+    { id: 'referrals',     icon: <UserPlus     size={16} />, label: 'Sifarish',            sub: 'Get referred at top companies', requiresAuth: true },
+    { id: 'profile',       icon: <User         size={16} />, label: 'Profile',             sub: 'Your skills & resume data',  requiresAuth: true },
     ...(user?.role === 'admin' ? [{ id: 'admin', icon: <ShieldCheck size={16} />, label: 'Admin', sub: 'User & system management', requiresAuth: true }] : []),
   ];
 
@@ -559,7 +590,7 @@ export default function App() {
                 >
                   <span className={`relative ${isActive ? 'text-brand-600' : 'text-gray-400 group-hover:text-gray-500'}`}>
                     {locked ? <Lock size={14} /> : tab.icon}
-                    {tab.id === 'job-intel' && jobIntelStatus !== 'ok' && (
+                    {tab.id === 'job-discovery' && jobIntelStatus !== 'ok' && (
                       <span
                         title={jobIntelStatus === 'proxy_pool_dead' ? 'Job Intel: proxy pool dead' : 'Job Intel: low yield'}
                         className={`absolute -top-1 -right-1.5 w-2 h-2 rounded-full ${
@@ -599,9 +630,6 @@ export default function App() {
           />
         )}
 
-        {/* ── Templates tab ─────────────────────────────────────── */}
-        {activeTab === 'templates' && <TemplatesPage />}
-
         {/* ── Profile tab ────────────────────────────────────────── */}
         {activeTab === 'profile' && user && (
           <ProfilePage onDirtyChange={v => { profileDirtyRef.current = v; }} />
@@ -616,19 +644,6 @@ export default function App() {
         {/* ── Admin tab ─────────────────────────────────────────── */}
         {activeTab === 'admin' && <AdminPanel />}
 
-        {/* ── Resume Vault tab ──────────────────────────────────── */}
-        {activeTab === 'resume-vault' && user && (
-          <TabErrorBoundary>
-            <ResumeVault />
-          </TabErrorBoundary>
-        )}
-        {activeTab === 'resume-vault' && !user && (
-          <div className="flex flex-col items-center justify-center h-48 gap-3">
-            <p className="text-gray-500 text-sm">Sign in to access your Resume Vault.</p>
-            <button onClick={() => setShowAuthModal(true)} className="px-5 py-2 bg-brand-600 text-white rounded-sm text-sm font-semibold hover:bg-brand-700 transition">Sign In</button>
-          </div>
-        )}
-
         {/* ── Ask Referral tab ──────────────────────────────────── */}
         {activeTab === 'referrals' && user && (
           <TabErrorBoundary>
@@ -642,52 +657,162 @@ export default function App() {
           </div>
         )}
 
-        {/* ── Job Analyzer tab ──────────────────────────────────── */}
-        {/* ── Jobs (scraper) tab ────────────────────────────────── */}
-        {activeTab === 'job-scraper' && (
+        {/* ── Job Discovery tab (umbrella: postings + ATS pipeline + LinkedIn) ── */}
+        {activeTab === 'job-discovery' && (
           <TabErrorBoundary>
-            <JobScraperSection />
-          </TabErrorBoundary>
-        )}
-
-        {/* ── Job Intelligence tab (multi-agent pipeline) ───────── */}
-        {activeTab === 'job-intel' && (
-          <TabErrorBoundary>
-            <div className="max-w-screen-xl mx-auto px-4 py-6">
+            <div key={jobDiscoverySubTab} className="max-w-screen-xl mx-auto animate-tab-fade-in">
               <div className="mb-5">
                 <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                  <Zap size={20} className="text-brand-600" /> Job Intel Contacts
+                  <Briefcase size={20} className="text-brand-600" /> Job Discovery
                 </h1>
                 <p className="text-sm text-gray-500 mt-0.5">
-                  HR emails extracted from job descriptions across Arbeitnow, Remotive, RemoteOK, We Work Remotely, Greenhouse, Lever & more.
-                  Configure in <span className="font-medium">Admin Panel → Job Intel Pipeline</span>.
+                  Scraped board postings, the auto-tagged ATS/job-board pipeline, and raw LinkedIn hiring posts — three distinct sources, kept separate on purpose.
                 </p>
               </div>
-              <JobIntelPanel />
+
+              {/* Sub-tabs */}
+              <div className="bg-white border border-gray-200 rounded-md shadow-card overflow-hidden mb-5">
+                <div className="flex border-b border-gray-200 overflow-x-auto">
+                  {[
+                    { id: 'postings',              icon: <Briefcase size={14} />, label: 'Job Postings',              desc: 'Scraped from LinkedIn, Naukri, Internshala & more' },
+                    { id: 'intel-contacts',        icon: <Zap size={14} />,       label: 'ATS & Job-Board Contacts',  desc: 'HR emails auto-extracted from job board APIs & ATS posts', badge: jobIntelStatus !== 'ok' },
+                    { id: 'linkedin-hiring-posts', icon: <MailCheck size={14} />, label: 'LinkedIn Hiring Posts',     desc: 'Raw hiring posts from the LinkedIn feed scraper' },
+                  ].map(sub => (
+                    <button
+                      key={sub.id}
+                      onClick={() => setJobDiscoverySubTab(sub.id)}
+                      title={sub.desc}
+                      className={`relative flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-all duration-150 whitespace-nowrap -mb-px ${
+                        jobDiscoverySubTab === sub.id
+                          ? 'border-brand-600 text-brand-700'
+                          : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'
+                      }`}
+                    >
+                      <span className={`relative ${jobDiscoverySubTab === sub.id ? 'text-brand-600' : 'text-gray-400'}`}>
+                        {sub.icon}
+                        {sub.badge && (
+                          <span
+                            title={jobIntelStatus === 'proxy_pool_dead' ? 'Proxy pool dead' : 'Low yield'}
+                            className={`absolute -top-1 -right-1.5 w-2 h-2 rounded-full ${jobIntelStatus === 'proxy_pool_dead' ? 'bg-red-500' : 'bg-amber-500'}`}
+                          />
+                        )}
+                      </span>
+                      {sub.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {jobDiscoverySubTab === 'postings' && <JobScraperSection />}
+              {jobDiscoverySubTab === 'intel-contacts' && <JobIntelPanel />}
+              {jobDiscoverySubTab === 'linkedin-hiring-posts' && <LinkedInPosts />}
             </div>
           </TabErrorBoundary>
         )}
 
-        {/* ── Resume Analyzer & Maker tab ───────────────────────── */}
-        {/* Kept mounted after first visit so switching tabs doesn't lose unsaved work */}
-        <KeepAlive active={activeTab === 'jobs'} name="jobs" visitedRef={analyzerVisitedRef}>
-          <JobAnalyzer />
-        </KeepAlive>
+        {/* ── Resume Tools tab (umbrella: templates + analyzer + bulk apply + vault) ── */}
+        {/* No key-based remount here (unlike Job Discovery above) — JobAnalyzer/
+            BulkJobAnalyzer are KeepAlive'd specifically so switching sub-tabs
+            never loses in-progress unsaved work; retriggering a fade via `key`
+            would force-remount them and defeat that entirely. */}
+        {activeTab === 'resume-tools' && (
+          <TabErrorBoundary>
+            <div className="max-w-screen-xl mx-auto">
+              <div className="mb-5">
+                <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                  <FileText size={20} className="text-brand-600" /> Resume Tools
+                </h1>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  Email &amp; resume templates, ATS fit-scoring, bulk tailoring, and your saved resume versions.
+                </p>
+              </div>
 
-        {/* ── Bulk Apply tab ────────────────────────────────────── */}
-        <KeepAlive active={activeTab === 'bulk'} name="bulk" visitedRef={analyzerVisitedRef}>
-          <BulkJobAnalyzer />
-        </KeepAlive>
+              {/* Sub-tabs */}
+              <div className="bg-white border border-gray-200 rounded-md shadow-card overflow-hidden mb-5">
+                <div className="flex border-b border-gray-200 overflow-x-auto">
+                  {[
+                    { id: 'templates',   icon: <FileText size={14} />,   label: 'Templates',       desc: 'Email & resume templates' },
+                    { id: 'analyzer',    icon: <Target size={14} />,     label: 'Resume Analyzer',  desc: 'ATS score & resume fit check for one job' },
+                    { id: 'bulk-apply',  icon: <ListChecks size={14} />, label: 'Bulk Apply',       desc: 'Tailor your resume to many jobs at once' },
+                    { id: 'vault',       icon: <FolderOpen size={14} />, label: 'Resume Vault',     desc: 'Your saved resume versions', requiresAuth: true },
+                  ].map(sub => {
+                    const locked = sub.requiresAuth && !user;
+                    return (
+                      <button
+                        key={sub.id}
+                        onClick={() => { if (locked) { setShowAuthModal(true); return; } setResumeToolsSubTab(sub.id); }}
+                        title={sub.desc}
+                        className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-all duration-150 whitespace-nowrap -mb-px ${
+                          resumeToolsSubTab === sub.id
+                            ? 'border-brand-600 text-brand-700'
+                            : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'
+                        } ${locked ? 'opacity-40' : ''}`}
+                      >
+                        <span className={resumeToolsSubTab === sub.id ? 'text-brand-600' : 'text-gray-400'}>
+                          {locked ? <Lock size={14} /> : sub.icon}
+                        </span>
+                        {sub.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {resumeToolsSubTab === 'templates' && <TemplatesPage />}
+
+              {resumeToolsSubTab === 'vault' && user && (
+                <ResumeVault />
+              )}
+              {resumeToolsSubTab === 'vault' && !user && (
+                <div className="flex flex-col items-center justify-center h-48 gap-3">
+                  <p className="text-gray-500 text-sm">Sign in to access your Resume Vault.</p>
+                  <button onClick={() => setShowAuthModal(true)} className="px-5 py-2 bg-brand-600 text-white rounded-sm text-sm font-semibold hover:bg-brand-700 transition">Sign In</button>
+                </div>
+              )}
+            </div>
+          </TabErrorBoundary>
+        )}
+
+        {/* JobAnalyzer/BulkJobAnalyzer KeepAlive — deliberately OUTSIDE the
+            {activeTab === 'resume-tools' && ...} block above (unlike the rest
+            of that tab's content) and gated by a COMPOUND active condition
+            instead. KeepAlive only preserves state across sub-tab switches
+            while its children stay in the React tree; nesting these inside
+            the resume-tools conditional would unmount them the moment the
+            user left the Resume Tools tab entirely (e.g. to check Contacts
+            and come back), silently discarding in-progress unsaved work —
+            exactly the regression KeepAlive exists to prevent. */}
+        <div className="max-w-screen-xl mx-auto">
+          <KeepAlive
+            active={activeTab === 'resume-tools' && resumeToolsSubTab === 'analyzer'}
+            name="resume-tools-analyzer"
+            visitedRef={analyzerVisitedRef}
+          >
+            <JobAnalyzer />
+          </KeepAlive>
+          <KeepAlive
+            active={activeTab === 'resume-tools' && resumeToolsSubTab === 'bulk-apply'}
+            name="resume-tools-bulk"
+            visitedRef={analyzerVisitedRef}
+          >
+            <BulkJobAnalyzer />
+          </KeepAlive>
+        </div>
 
         {/* ── Contacts tab ──────────────────────────────────────── */}
         {activeTab === 'contacts' && <>
 
-        {/* Contact subtabs */}
+        {/* Contact subtabs — Gmail Sync and LinkedIn Feed Contacts are now
+            co-equal, top-level sub-tabs instead of being nested one level
+            deeper inside a single "Cold Emailing" tab that stacked them in
+            one long vertical scroll (LinkedIn contacts required scrolling
+            past the whole Gmail list to reach). */}
         <div className="bg-white border border-gray-200 rounded-md shadow-card overflow-hidden">
           <div className="flex border-b border-gray-200 overflow-x-auto">
             {[
-              { id: 'my',         icon: <Users size={14} />,      label: 'My HR List',      desc: 'Manually added & imported contacts'  },
-              { id: 'cold-email', icon: <MailCheck size={14} />,  label: 'Email Outreach', desc: 'Gmail tracking + LinkedIn feed' },
+              { id: 'my',                 icon: <Users size={14} />,      label: 'My HR List',            desc: 'Manually added & imported contacts' },
+              { id: 'gmail-sync',         icon: <Mail size={14} />,       label: 'Gmail Sync',            desc: 'Emails sent to HRs tracked from your Gmail' },
+              { id: 'linkedin-contacts',  icon: <MailCheck size={14} />,  label: 'LinkedIn Feed Contacts', desc: 'Emailable HR contacts found by the LinkedIn feed scraper' },
             ].map(sub => (
               <button
                 key={sub.id}
@@ -705,11 +830,49 @@ export default function App() {
             ))}
           </div>
 
-          {/* Cold Emailing sub-tab */}
-          {contactSubTab === 'cold-email' && (
-            <div className="p-5 bg-stone-50">
+          {/* Gmail Sync sub-tab */}
+          {contactSubTab === 'gmail-sync' && (
+            <div key="gmail-sync" className="p-5 bg-stone-50 space-y-4 animate-tab-fade-in">
               <TabErrorBoundary>
-                <ColdEmailSection />
+                {!user ? (
+                  <div className="text-center py-10 text-gray-500">
+                    <p className="text-3xl mb-2">🔒</p>
+                    <p className="text-sm">Sign in to view your Gmail outreach tracking</p>
+                  </div>
+                ) : (
+                  <>
+                    <GmailConnectCard
+                      onStatusChange={s => {
+                        setGmailStatus(s);
+                        if (s?.synced) setGmailRefresh(r => r + 1);
+                      }}
+                    />
+                    <GmailEmailList refreshKey={gmailRefresh} myName={user?.name || ''} />
+                  </>
+                )}
+              </TabErrorBoundary>
+            </div>
+          )}
+
+          {/* LinkedIn Feed Contacts sub-tab */}
+          {contactSubTab === 'linkedin-contacts' && (
+            <div key="linkedin-contacts" className="p-5 bg-stone-50 space-y-3 animate-tab-fade-in">
+              <TabErrorBoundary>
+                {!user ? (
+                  <div className="text-center py-10 text-gray-500">
+                    <p className="text-3xl mb-2">🔒</p>
+                    <p className="text-sm">Sign in to view LinkedIn feed contacts</p>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-xs text-gray-400">
+                      Email contacts found by the LinkedIn Feed scraper. Updated automatically — no manual import needed.
+                      Select one or many and send individual emails directly. Raw LinkedIn hiring posts live under
+                      <span className="font-medium"> Job Discovery → LinkedIn Hiring Posts</span>.
+                    </p>
+                    <FeedContactsPanel />
+                  </>
+                )}
               </TabErrorBoundary>
             </div>
           )}
