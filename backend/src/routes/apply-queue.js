@@ -2,10 +2,11 @@
 
 // Apply Queue: a semi-automated job-application review list. The pipeline
 // (agents/applyQueue.js) ranks/matches already-scraped jobs against the
-// user's profile and queues them; every route here only reads/writes
-// job_applications + scraped_jobs — nothing ever submits a form or logs
-// into a job platform. The user clicks "Apply" (opens the real apply page)
-// and then explicitly confirms before a row is marked applied.
+// user's profile and queues them, snapshotting each job's display fields
+// onto job_applications itself (so the record survives scraped_jobs' daily
+// purge). Nothing here ever submits a form or logs into a job platform —
+// the user clicks "Apply" (opens the real apply page) and then explicitly
+// confirms before a row is marked applied.
 
 const express = require('express');
 const crypto  = require('crypto');
@@ -39,13 +40,17 @@ router.get('/', async (req, res) => {
     `).get(...params);
     const total = parseInt(countRow?.total, 10) || 0;
 
+    // Reads straight off job_applications' own snapshot columns (title,
+    // company, link, etc., captured at queue time) rather than joining
+    // scraped_jobs — a JOIN would silently drop rows (or show blanks) once
+    // the source posting ages out of the daily purge's retention window,
+    // which is exactly the data-loss bug this snapshot was added to prevent.
     const rows = await db.prepare(`
       SELECT ja.id, ja.status, ja.match_percent, ja.matched_skills, ja.apply_method,
              ja.skip_reason, ja.queued_at, ja.applied_at, ja.skipped_at,
-             sj.title, sj.company, sj.location, sj.link, sj.apply_link,
-             sj.scraper_type, sj.salary, sj.job_type, sj.description
+             ja.title, ja.company, ja.location, ja.link, ja.apply_link,
+             ja.scraper_type, ja.salary, ja.job_type
       FROM job_applications ja
-      JOIN scraped_jobs sj ON sj.id = ja.job_id
       ${whereSql}
       ORDER BY ja.match_percent DESC, ja.queued_at DESC, ja.id ASC
       LIMIT ? OFFSET ?
@@ -111,9 +116,7 @@ router.post('/:id/apply', async (req, res) => {
   const userId = req.user.userId;
   try {
     const row = await db.prepare(`
-      SELECT ja.id, ja.apply_method, sj.apply_link, sj.link
-      FROM job_applications ja JOIN scraped_jobs sj ON sj.id = ja.job_id
-      WHERE ja.id = ? AND ja.user_id = ?
+      SELECT id, apply_method, apply_link, link FROM job_applications WHERE id = ? AND user_id = ?
     `).get(req.params.id, userId);
     if (!row) return res.status(404).json({ error: 'Not found' });
 

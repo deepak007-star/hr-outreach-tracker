@@ -743,6 +743,39 @@ async function initialize() {
   // see agents/storage.js.
   await addCol('job_postings', 'contact_channel', `TEXT`);
 
+  // Apply Queue: snapshot the job's display fields onto job_applications
+  // itself instead of relying on a live join to scraped_jobs. The daily
+  // purge job (below) deletes scraped_jobs rows older than the retention
+  // window with no awareness that job_applications now referenced them —
+  // ON DELETE CASCADE meant a user's "Applied" history silently vanished
+  // the moment the underlying scraped posting aged out, which defeats the
+  // entire point of that tab (a permanent record of what they applied to).
+  // Snapshotting at queue time makes an application record self-contained
+  // and survives the source row being purged; job_id is relaxed to nullable
+  // with ON DELETE SET NULL so the FK can no longer cascade-delete it.
+  await addCol('job_applications', 'title',        `TEXT`);
+  await addCol('job_applications', 'company',      `TEXT`);
+  await addCol('job_applications', 'location',     `TEXT`);
+  await addCol('job_applications', 'link',         `TEXT`);
+  await addCol('job_applications', 'apply_link',   `TEXT`);
+  await addCol('job_applications', 'salary',       `TEXT`);
+  await addCol('job_applications', 'job_type',     `TEXT`);
+  await addCol('job_applications', 'scraper_type', `TEXT`);
+  await db.exec(`
+    UPDATE job_applications ja SET
+      title = sj.title, company = sj.company, location = sj.location,
+      link = sj.link, apply_link = sj.apply_link, salary = sj.salary,
+      job_type = sj.job_type, scraper_type = sj.scraper_type
+    FROM scraped_jobs sj
+    WHERE sj.id = ja.job_id AND ja.title IS NULL
+  `).catch(e => console.warn('[DB migration] job_applications snapshot backfill skipped:', e.message));
+  await db.exec(`ALTER TABLE job_applications ALTER COLUMN job_id DROP NOT NULL`).catch(() => {});
+  await db.exec(`ALTER TABLE job_applications DROP CONSTRAINT IF EXISTS job_applications_job_id_fkey`).catch(() => {});
+  await db.exec(`
+    ALTER TABLE job_applications ADD CONSTRAINT job_applications_job_id_fkey
+    FOREIGN KEY (job_id) REFERENCES scraped_jobs(id) ON DELETE SET NULL
+  `).catch(e => console.warn('[DB migration] job_applications FK relax skipped:', e.message));
+
   // ── One-time cleanup: contacts where the name field was imported as an email address.
   // Extracts the local part (before @) split on the first dot as a best-effort name.
   // Role keywords (hr, info, recruit, etc.) are blanked so templates fall back to "Hi,".

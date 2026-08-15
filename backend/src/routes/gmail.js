@@ -13,7 +13,26 @@ const { upsertContactState } = require('../lib/contactVisibility');
 // interview gets status='Interview' instead of the generic 'Replied', same
 // distinction the user manually makes today via the status dropdown, now
 // applied automatically from the reply's own subject/snippet text.
-const INTERVIEW_RE = /\b(interview|shortlisted|schedule a call|hiring manager|next round|technical round|available for a (call|chat)|book a slot|calendly|would like to (invite|schedule)|move forward with your (application|profile))\b/i;
+// Deliberately narrower than an earlier version: "hiring manager", "next
+// round", and "move forward with your application/profile" were all removed
+// — each fires on ordinary REJECTION phrasing too ("after reviewing with our
+// hiring manager...", "not selected for the next round", "unable to move
+// forward with your application") with no way to tell the two apart from the
+// interview keyword alone. Only genuinely unambiguous scheduling language
+// stays, and REJECTION_RE below is checked FIRST so a rejection can never be
+// shown as an interview even if it happens to also contain "interview"
+// (e.g. "we've decided not to move forward after your interview").
+const INTERVIEW_RE  = /\b(shortlisted|schedule an? (call|interview)|technical round|available for an? (call|chat|interview)|book a slot|calendly|would like to (invite you|schedule)|(let'?s|we'?d like to) (schedule|set up) a (call|time|interview))\b/i;
+const REJECTION_RE  = /\b(unfortunately|regret to inform|not (been )?selected|will not be (moving forward|proceeding)|decided not to (move forward|proceed)|not moving forward|(not able|unable) to move forward|other candidates|not the right fit|position (has been|is now) filled|no longer (considering|accepting)|thank you for (your interest|applying)[.,]? (unfortunately|however|we)|wish you (the best|success) in your)\b/i;
+
+// Shared by seedFromEmailStatus (below, for a brand-new contact) and the
+// live sync propagation block further down (for an existing contact) — one
+// classification, not two copies that could drift apart.
+function classifyReplyStatus(text) {
+  if (REJECTION_RE.test(text)) return 'Rejected';
+  if (INTERVIEW_RE.test(text)) return 'Interview';
+  return 'Replied';
+}
 
 // Seeds status/deliverability for a contact being promoted for the FIRST
 // time from gmail_tracked_emails (add-contact / add-all-contacts below) —
@@ -30,8 +49,7 @@ function seedFromEmailStatus(row) {
     };
   }
   if (row.email_status === 'replied') {
-    const isInterview = INTERVIEW_RE.test(`${row.subject || ''} ${row.reply_snippet || ''}`);
-    return { status: isInterview ? 'Interview' : 'Replied', emailDeliverable: 'unknown', bounceReason: null };
+    return { status: classifyReplyStatus(`${row.subject || ''} ${row.reply_snippet || ''}`), emailDeliverable: 'unknown', bounceReason: null };
   }
   return { status: 'Sent', emailDeliverable: 'unknown', bounceReason: null };
 }
@@ -204,13 +222,20 @@ async function syncGmailForUser(userId, { maxPages = 10, windowDays = 548 } = {}
 
         const threadMessages = threadDetail.data.messages || [];
         if (threadMessages.length > 1) {
-          // Find a reply that is NOT from the user themselves (not from userEmail)
+          // Gmail returns thread messages oldest-first — take the LATEST
+          // non-self message, not the first one found. Using .find() here
+          // previously meant every re-sync inspected the same earliest reply
+          // forever: an early automated bounce landing in the thread, followed
+          // weeks later by the recruiter's actual reply in the SAME thread,
+          // meant the real reply was never looked at again — status stayed
+          // stuck on 'bounced' permanently even after a genuine response.
           const userEmail = oauthRow?.email || '';
-          const replyMsg  = threadMessages.find(m => {
+          const nonSelfMessages = threadMessages.filter(m => {
             if (m.id === msg.id) return false;
             const from = m.payload?.headers?.find(h => h.name === 'From')?.value || '';
             return !from.toLowerCase().includes(userEmail.toLowerCase());
           });
+          const replyMsg = nonSelfMessages[nonSelfMessages.length - 1];
           if (replyMsg) {
             const replyFrom    = replyMsg.payload?.headers?.find(h => h.name === 'From')?.value || '';
             const replySubject = replyMsg.payload?.headers?.find(h => h.name === 'Subject')?.value || '';
@@ -302,8 +327,7 @@ async function syncGmailForUser(userId, { maxPages = 10, windowDays = 548 } = {}
                 `).run(nowTs, replySnippet || 'Bounce notification received', existing.id);
               }
             } else {
-              const isInterview = INTERVIEW_RE.test(`${subject} ${replySnippet || ''}`);
-              await upsertContactState(existing.id, userId, { status: isInterview ? 'Interview' : 'Replied' });
+              await upsertContactState(existing.id, userId, { status: classifyReplyStatus(`${subject} ${replySnippet || ''}`) });
             }
           }
         }

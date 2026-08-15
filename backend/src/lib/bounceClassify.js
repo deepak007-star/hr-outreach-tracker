@@ -17,8 +17,18 @@ const HARD_PATTERNS = [
   'recipient rejected', 'mailbox not found', 'mailbox unavailable',
   'no mailbox', 'account does not exist', 'undeliverable', 'non-existent',
   'address invalid', 'no route to host', '5.1.1', '5.1.2',
+  // Exchange/Outlook NDR phrasing — "wasn't delivered ... couldn't be found"
+  // doesn't share any substring with the patterns above, so a dead address
+  // on an O365/Exchange recipient fell through entirely and got treated as
+  // a genuine reply (confirmed: this exact phrasing is Microsoft's default
+  // NDR wording, not a rare edge case).
+  "wasn't delivered", 'was not delivered', "couldn't be found", 'could not be found',
+  'recipient not found', 'message blocked', 'delivery incomplete',
 ];
-const SOFT_PATTERNS = ['mailbox full', 'quota', 'over quota', 'temporarily', 'try again', 'service unavailable'];
+const SOFT_PATTERNS = [
+  'mailbox full', 'quota', 'over quota', 'temporarily', 'try again', 'service unavailable',
+  'mailbox is full', // "mailbox full" alone missed the equally common "the recipient's mailbox is full"
+];
 
 // text: lowercase-able free text (SMTP response + message, or a bounce
 // notification's subject + snippet). code: SMTP response code if known.
@@ -39,8 +49,14 @@ function classifyBounce(err) {
   return classifyBounceText(text, code) || 'failed';
 }
 
-const BOUNCE_SENDER_PATTERNS = ['mailer-daemon', 'postmaster@', 'mail delivery subsystem', 'delivery status notification'];
-const BOUNCE_SUBJECT_RE = /undeliverable|delivery (has |status )?fail|mail delivery (failed|subsystem)|returned to sender|delivery status notification|message not delivered|failure notice/i;
+const BOUNCE_SENDER_PATTERNS = [
+  'mailer-daemon', 'postmaster@', 'mail delivery subsystem', 'delivery status notification',
+  'microsoft outlook', 'exchange online protection', 'mail delivery system',
+];
+// "message not delivered" alone missed Microsoft's actual default wording,
+// "Your message wasn't delivered to X" — verified against a real Exchange/
+// O365 NDR subject line, which shares no substring with the original list.
+const BOUNCE_SUBJECT_RE = /undeliverable|delivery (has |status )?fail|mail delivery (failed|subsystem)|returned to sender|delivery status notification|message (was )?not delivered|message wasn'?t delivered|failure notice|couldn'?t be delivered|could not be delivered/i;
 
 // Does an inbound thread message look like an automated bounce/NDR rather
 // than a genuine human reply? Checked BEFORE treating "not from my own

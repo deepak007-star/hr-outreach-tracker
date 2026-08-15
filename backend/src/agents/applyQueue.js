@@ -61,10 +61,17 @@ async function refreshQueue(userId, profile) {
     SELECT * FROM scraped_jobs
     WHERE created_at >= ?
       AND scraper_type != ALL(?)
-      AND id NOT IN (SELECT job_id FROM job_applications WHERE user_id = ?)
+      AND (apply_link != '' OR link != '')
+      AND id NOT IN (SELECT job_id FROM job_applications WHERE user_id = ? AND job_id IS NOT NULL)
     ORDER BY created_at DESC, id ASC
     LIMIT ?
   `).all(cutoff, EXCLUDED_SCRAPER_TYPES, userId, CANDIDATE_CAP);
+  // job_id was relaxed to nullable (ON DELETE SET NULL, so the daily purge
+  // doesn't cascade-delete application history) — SQL's NOT IN treats a set
+  // containing NULL as "unknown" for every row, silently excluding EVERY
+  // candidate the moment even one job_applications row had its job_id
+  // nulled out by a purge. The `job_id IS NOT NULL` filter above is required,
+  // not cosmetic.
 
   const scored = candidates
     .map(job => ({ job, ...lightweightSkillMatch(skills, `${job.title || ''} ${job.description || ''}`) }))
@@ -74,18 +81,29 @@ async function refreshQueue(userId, profile) {
 
   let added = 0;
   for (const s of scored) {
+    const job = s.job;
     const row = await db.prepare(`
-      INSERT INTO job_applications (id, user_id, job_id, status, match_percent, matched_skills, apply_method)
-      VALUES (?, ?, ?, 'queued', ?, ?, ?)
+      INSERT INTO job_applications (
+        id, user_id, job_id, status, match_percent, matched_skills, apply_method,
+        title, company, location, link, apply_link, salary, job_type, scraper_type
+      )
+      VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (user_id, job_id) DO NOTHING
       RETURNING (xmax = 0) AS is_new
     `).get(
-      crypto.randomUUID(), userId, s.job.id, s.percent, JSON.stringify(s.matched), inferApplyMethod(s.job.scraper_type)
+      crypto.randomUUID(), userId, job.id, s.percent, JSON.stringify(s.matched), inferApplyMethod(job.scraper_type),
+      job.title, job.company, job.location, job.link, job.apply_link, job.salary, job.job_type, job.scraper_type
     );
     if (row?.is_new) added++;
   }
 
-  return { added, candidatesScanned: candidates.length, candidate_capped: candidates.length >= CANDIDATE_CAP };
+  // Distinguishes "nothing scanned" (empty scraped_jobs / fresh install),
+  // "scanned plenty but none met the ≥3-matched-skills bar," and the normal
+  // success case — the frontend previously couldn't tell any of these apart
+  // from "queue_full" and showed a misleading "already full" toast even when
+  // the real reason was "no relevant jobs found."
+  const reason = added > 0 ? undefined : candidates.length === 0 ? 'no_candidates_scraped' : 'no_matches_found';
+  return { added, reason, candidatesScanned: candidates.length, candidate_capped: candidates.length >= CANDIDATE_CAP };
 }
 
 module.exports = { refreshQueue, ACTIVE_TARGET, MIN_MATCHED_SKILLS, inferApplyMethod, EXCLUDED_SCRAPER_TYPES };

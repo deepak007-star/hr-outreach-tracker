@@ -165,11 +165,21 @@ export default function ApplyQueue() {
   useEffect(() => { fetchSummary(); }, [fetchSummary]);
   useEffect(() => { setPage(1); }, [segment]);
 
+  const REFRESH_EMPTY_MESSAGES = {
+    queue_full: 'Queue is already full — clear a few (Applied/Skip) to make room for more.',
+    no_candidates_scraped: 'No jobs scraped in the last 30 days yet — check back after the next scrape runs.',
+    no_matches_found: "No jobs matched at least 3 of your profile skills — try adding more skills to your profile, or check back after the next scrape.",
+  };
+
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
       const result = await api.post('/apply-queue/refresh', {});
-      toast.success(result.added > 0 ? `${result.added} new job${result.added !== 1 ? 's' : ''} added to your queue` : 'Queue is already full — no new matches to add');
+      if (result.added > 0) {
+        toast.success(`${result.added} new job${result.added !== 1 ? 's' : ''} added to your queue`);
+      } else {
+        toast(REFRESH_EMPTY_MESSAGES[result.reason] || 'No new jobs to add right now');
+      }
       fetchItems();
       fetchSummary();
     } catch (e) {
