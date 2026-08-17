@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext.jsx';
 import RolesPermissions from './RolesPermissions.jsx';
 import PasswordVault from './PasswordVault.jsx';
 import ApifySettingsModal from './ApifySettingsModal.jsx';
-import { Pencil, Trash2, Eye, EyeOff, Shield, Users, Lock, Search, Database, Settings, LayoutGrid, List, Handshake, Inbox, Copy, Bot, Zap, Play, CheckCircle, ScrollText, RefreshCw, XCircle, AlertTriangle, Info } from 'lucide-react';
+import { Pencil, Trash2, Eye, EyeOff, Shield, Users, Lock, Search, Database, Settings, LayoutGrid, List, Handshake, Inbox, Copy, Bot, Zap, Play, CheckCircle, ScrollText, RefreshCw, XCircle, AlertTriangle, Info, Sparkles, Github, Linkedin } from 'lucide-react';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const PLANS  = ['guest', 'demo', 'basic', 'advanced'];
@@ -1693,6 +1693,282 @@ function JobIntelConfigSection() {
   );
 }
 
+// ── Content AI Pipeline Config Section ────────────────────────────────────
+// Schedule config for agents/content/orchestrator.js, GitHub PAT connect
+// (read-only content signal) and LinkedIn credential connect (real
+// logged-in browser automation via agents/content/linkedinPublisher.js —
+// see the dry_run toggle below, on by default).
+const SCHEDULE_MODES = ['daily', 'weekly', 'biweekly', 'custom'];
+
+function ContentPipelineConfigSection() {
+  const [cfg,      setCfg]      = useState(null);
+  const [saving,   setSaving]   = useState(false);
+  const [running,  setRunning]  = useState(false);
+  const [runs,     setRuns]     = useState([]);
+  const [runMsg,   setRunMsg]   = useState('');
+
+  const [githubStatus, setGithubStatus] = useState(null);
+  const [ghUsername,   setGhUsername]   = useState('');
+  const [ghPat,        setGhPat]        = useState('');
+  const [savingGithub, setSavingGithub] = useState(false);
+
+  const [liStatus,   setLiStatus]   = useState(null);
+  const [liUsername, setLiUsername] = useState('');
+  const [liPassword, setLiPassword] = useState('');
+  const [savingLi,   setSavingLi]   = useState(false);
+
+  const loadAll = useCallback(() => {
+    api.get('/content/config').then(setCfg).catch(() => {});
+    api.get('/content/runs').then(r => setRuns(Array.isArray(r) ? r : [])).catch(() => {});
+    api.get('/content/github/status').then(setGithubStatus).catch(() => {});
+    api.get('/content/linkedin/credentials').then(setLiStatus).catch(() => {});
+  }, []);
+
+  useEffect(() => { loadAll(); }, [loadAll]);
+
+  function setField(key, val) {
+    setCfg(c => ({ ...c, [key]: val }));
+  }
+
+  async function save() {
+    if (!cfg) return;
+    setSaving(true);
+    try {
+      await api.put('/content/config', cfg);
+      toast.success('Content pipeline config saved');
+    } catch (e) {
+      toast.error(e.response?.data?.error || 'Save failed');
+    } finally { setSaving(false); }
+  }
+
+  async function triggerRun() {
+    setRunning(true);
+    setRunMsg('');
+    try {
+      await api.post('/content/run');
+      setRunMsg('Generation run started — new drafts appear in the Content AI tab shortly.');
+      setTimeout(() => api.get('/content/runs').then(r => setRuns(Array.isArray(r) ? r : [])).catch(() => {}), 8000);
+    } catch (e) {
+      setRunMsg(e.response?.data?.error || 'Failed to start');
+    } finally { setRunning(false); }
+  }
+
+  async function saveGithub() {
+    if (!ghUsername.trim() || !ghPat.trim()) { toast.error('Username and PAT are required'); return; }
+    setSavingGithub(true);
+    try {
+      await api.put('/content/github', { pat: ghPat, github_username: ghUsername });
+      setGhPat('');
+      toast.success('GitHub connected');
+      loadAll();
+    } catch (e) {
+      toast.error(e.response?.data?.error || 'Failed to connect GitHub');
+    } finally { setSavingGithub(false); }
+  }
+
+  async function disconnectGithub() {
+    setSavingGithub(true);
+    try {
+      await api.delete('/content/github');
+      toast.success('GitHub disconnected');
+      loadAll();
+    } catch (e) {
+      toast.error(e.response?.data?.error || 'Failed');
+    } finally { setSavingGithub(false); }
+  }
+
+  async function saveLinkedin() {
+    if (!liUsername.trim() || !liPassword.trim()) { toast.error('Username and password are required'); return; }
+    setSavingLi(true);
+    try {
+      await api.put('/content/linkedin/credentials', { username: liUsername, password: liPassword });
+      setLiPassword('');
+      toast.success('LinkedIn credentials saved');
+      loadAll();
+    } catch (e) {
+      toast.error(e.response?.data?.error || 'Failed to save credentials');
+    } finally { setSavingLi(false); }
+  }
+
+  async function disconnectLinkedin() {
+    setSavingLi(true);
+    try {
+      await api.delete('/content/linkedin/credentials');
+      toast.success('LinkedIn credentials removed');
+      loadAll();
+    } catch (e) {
+      toast.error(e.response?.data?.error || 'Failed');
+    } finally { setSavingLi(false); }
+  }
+
+  if (!cfg) return <div className="p-6 text-gray-400 text-sm">Loading…</div>;
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-md p-5 space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-bold text-gray-800 flex items-center gap-2"><Sparkles size={16} className="text-brand-600" /> Content AI Pipeline</h3>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Generates LinkedIn post drafts from your profile + GitHub activity for you to review, then publishes only what you explicitly approve.
+          </p>
+        </div>
+        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
+          cfg.enabled ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+        }`}>
+          {cfg.enabled ? <><CheckCircle size={11} /> Enabled</> : 'Disabled'}
+        </span>
+      </div>
+
+      {/* Safety: dry-run */}
+      <label className={`flex items-center gap-2 cursor-pointer p-3 rounded-md border ${cfg.dry_run ? 'border-amber-200 bg-amber-50' : 'border-red-200 bg-red-50'}`}>
+        <input type="checkbox" checked={!!cfg.dry_run} onChange={e => setField('dry_run', e.target.checked)}
+          className="w-4 h-4 accent-brand-600" />
+        <div>
+          <span className="text-sm font-semibold text-gray-800">Dry run (safety default — recommended while testing)</span>
+          <p className="text-[11px] text-gray-500">
+            {cfg.dry_run
+              ? 'ON — the publisher logs "would publish" and marks the post published WITHOUT launching a browser or touching LinkedIn.'
+              : 'OFF — approved posts will really log into LinkedIn and publish. Irreversible. Verify the whole pipeline with dry-run ON first.'}
+          </p>
+        </div>
+      </label>
+
+      {/* Enable + schedule */}
+      <div className="grid grid-cols-2 gap-4">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" checked={!!cfg.enabled} onChange={e => setField('enabled', e.target.checked)}
+            className="w-4 h-4 accent-brand-600" />
+          <span className="text-sm font-medium text-gray-700">Enable pipeline</span>
+        </label>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Schedule</label>
+          <select value={cfg.schedule_mode || 'weekly'} onChange={e => setField('schedule_mode', e.target.value)}
+            className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500">
+            {SCHEDULE_MODES.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </div>
+        {cfg.schedule_mode === 'custom' && (
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Custom interval (hours)</label>
+            <input type="number" min={1} value={cfg.custom_cron_hours || 168}
+              onChange={e => setField('custom_cron_hours', parseInt(e.target.value) || 168)}
+              className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500" />
+          </div>
+        )}
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Topics per run</label>
+          <input type="number" min={1} max={5} value={cfg.topics_per_run || 1}
+            onChange={e => setField('topics_per_run', parseInt(e.target.value) || 1)}
+            className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Candidates per topic</label>
+          <input type="number" min={1} max={5} value={cfg.candidates_per_topic || 3}
+            onChange={e => setField('candidates_per_topic', parseInt(e.target.value) || 3)}
+            className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Min days between publishes</label>
+          <input type="number" min={0} value={cfg.min_days_between_publishes ?? 1}
+            onChange={e => setField('min_days_between_publishes', parseInt(e.target.value) || 0)}
+            className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500" />
+        </div>
+      </div>
+
+      <label className="flex items-center gap-2 cursor-pointer">
+        <input type="checkbox" checked={!!cfg.auto_publish} onChange={e => setField('auto_publish', e.target.checked)}
+          className="w-4 h-4 accent-brand-600" />
+        <div>
+          <span className="text-sm font-medium text-gray-700">Auto-publish on approve</span>
+          <p className="text-[11px] text-gray-400">If off (default), Approve always requires you to pick a schedule time in the Review Queue.</p>
+        </div>
+      </label>
+
+      <div className="flex gap-2">
+        <button onClick={save} disabled={saving}
+          className="px-4 py-2 text-sm font-semibold bg-brand-600 text-white rounded-md hover:bg-brand-700 disabled:opacity-50">
+          {saving ? 'Saving…' : 'Save Config'}
+        </button>
+        <button onClick={triggerRun} disabled={running}
+          className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold border border-brand-300 text-brand-700 rounded-md hover:bg-brand-50 disabled:opacity-50">
+          <Play size={13} /> {running ? 'Starting…' : 'Run now'}
+        </button>
+      </div>
+      {runMsg && <p className="text-xs text-purple-700 font-medium mt-1">{runMsg}</p>}
+
+      {/* GitHub PAT connect */}
+      <div className="border border-gray-100 rounded-md p-3 space-y-2">
+        <p className="text-xs font-semibold text-gray-700 flex items-center gap-1.5"><Github size={13} /> GitHub signal (read-only)</p>
+        {githubStatus?.connected ? (
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-gray-700">Connected as <strong>@{githubStatus.github_username}</strong></span>
+            <button onClick={disconnectGithub} disabled={savingGithub}
+              className="text-xs text-red-600 hover:underline disabled:opacity-50">Disconnect</button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            <input value={ghUsername} onChange={e => setGhUsername(e.target.value)} placeholder="GitHub username"
+              className="px-3 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500" />
+            <input type="password" value={ghPat} onChange={e => setGhPat(e.target.value)} placeholder="Read-only fine-grained PAT"
+              className="px-3 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500" />
+          </div>
+        )}
+        {!githubStatus?.connected && (
+          <button onClick={saveGithub} disabled={savingGithub}
+            className="px-3 py-1.5 text-xs font-semibold bg-gray-700 text-white rounded-md hover:bg-gray-800 disabled:opacity-50">
+            {savingGithub ? 'Connecting…' : 'Connect GitHub'}
+          </button>
+        )}
+        {githubStatus?.last_error && <p className="text-[11px] text-red-600">{githubStatus.last_error}</p>}
+      </div>
+
+      {/* LinkedIn credentials */}
+      <div className="border border-gray-100 rounded-md p-3 space-y-2">
+        <p className="text-xs font-semibold text-gray-700 flex items-center gap-1.5"><Linkedin size={13} /> LinkedIn login (real, logged-in publishing)</p>
+        <p className="text-[11px] text-gray-400">
+          Stored encrypted (AES-256-GCM), same as auto-apply portal credentials. A failed login marks this invalid and stops — it never retries with a possibly-wrong password.
+        </p>
+        {liStatus?.connected && (
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-gray-700">
+              {liStatus.username} — <span className={liStatus.status === 'invalid' ? 'text-red-600 font-semibold' : 'text-green-700'}>{liStatus.status}</span>
+            </span>
+            <button onClick={disconnectLinkedin} disabled={savingLi}
+              className="text-xs text-red-600 hover:underline disabled:opacity-50">Disconnect</button>
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-2">
+          <input value={liUsername} onChange={e => setLiUsername(e.target.value)} placeholder="LinkedIn email"
+            className="px-3 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500" />
+          <input type="password" value={liPassword} onChange={e => setLiPassword(e.target.value)} placeholder="Password"
+            className="px-3 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-brand-500" />
+        </div>
+        <button onClick={saveLinkedin} disabled={savingLi}
+          className="px-3 py-1.5 text-xs font-semibold bg-gray-700 text-white rounded-md hover:bg-gray-800 disabled:opacity-50">
+          {savingLi ? 'Saving…' : liStatus?.connected ? 'Update credentials' : 'Save credentials'}
+        </button>
+        {liStatus?.last_login_error && <p className="text-[11px] text-red-600">{liStatus.last_login_error}</p>}
+      </div>
+
+      {/* Run history */}
+      {runs.length > 0 && (
+        <div>
+          <h4 className="text-xs font-semibold text-gray-600 mb-2">Recent Runs</h4>
+          <div className="space-y-1">
+            {runs.slice(0, 5).map(r => (
+              <div key={r.id} className="flex items-center gap-3 text-xs text-gray-600 bg-gray-50 px-3 py-2 rounded">
+                <span className={`font-medium ${r.status === 'success' ? 'text-green-600' : r.status === 'running' ? 'text-blue-600' : 'text-red-500'}`}>{r.status}</span>
+                <span>{r.started_at?.slice(0, 16)}</span>
+                <span className="text-gray-400">→ <span className="text-green-700 font-medium">{r.candidates_generated || 0} candidates</span> across {r.topics_generated || 0} topic(s), {r.candidates_dropped_duplicate || 0} dropped as duplicate</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── VartaBot AI Config Section ────────────────────────────────────────────
 function VartaBotSection() {
   const [config,   setConfig]   = useState(null);
@@ -2043,6 +2319,7 @@ export default function AdminPanel() {
   const TABS = [
     { id: 'leads',     Icon: Inbox,      label: 'Interest Leads'       },
     { id: 'job-intel', Icon: Zap,        label: 'Job Intel Pipeline'   },
+    { id: 'content-ai', Icon: Sparkles,  label: 'Content AI Pipeline'  },
     { id: 'users',     Icon: Users,      label: 'User Management'      },
     { id: 'roles',     Icon: Shield,     label: 'Roles & Permissions'  },
     { id: 'passwords', Icon: Lock,       label: 'Password Vault'       },
@@ -2108,6 +2385,7 @@ export default function AdminPanel() {
         </div>
       )}
       {tab === 'job-intel' && <JobIntelConfigSection />}
+      {tab === 'content-ai' && <ContentPipelineConfigSection />}
       {tab === 'scraper'   && <ScraperSection />}
       {tab === 'vartabot'  && <VartaBotSection />}
       {tab === 'referrals' && <ReferralsSection />}

@@ -91,9 +91,13 @@ async function main() {
   const paymentsRouter       = require('./routes/payments');
   const chatbotRouter        = require('./routes/chatbot');
   const jobIntelRouter       = require('./routes/job-intelligence');
+  const contentConfigRouter  = require('./routes/content-config');
+  const contentPostsRouter   = require('./routes/content-posts');
   const logsRouter           = require('./routes/logs');
   const requestLogger        = require('./middleware/requestLogger');
   const { schedulePipeline, syncJobIntelContacts, syncFeedContacts, runPipeline } = require('./agents/orchestrator');
+  const { scheduleContentPipeline } = require('./agents/content/orchestrator');
+  const { runPublishCycle } = require('./agents/content/linkedinPublisher');
   const { getSettings } = require('./routes/apify'); // getSettings supplies the search-query list used by all scrapers
   const { sendReminderEmail } = require('./routes/reminder');
 
@@ -184,6 +188,8 @@ async function main() {
   app.use('/api/payments',        paymentsRouter);
   app.use('/api/chatbot',         chatbotRouter);
   app.use('/api/job-intel',       jobIntelRouter);
+  app.use('/api/content',         contentConfigRouter);
+  app.use('/api/content',         contentPostsRouter);
   app.use('/api/admin/logs',      logsRouter);
   // Lightweight health/keep-warm endpoint (no DB work → always fast). Point an
   // external uptime monitor (UptimeRobot) at this URL every ~5 min so free-tier
@@ -508,6 +514,20 @@ async function main() {
     console.log('[Pipeline] Scheduler skipped — DISABLE_BACKGROUND_JOBS=true');
   } else {
     schedulePipeline().catch(e => console.error('[Pipeline] Scheduler init failed:', e.message));
+  }
+
+  // ── Content AI pipeline scheduler + LinkedIn publish cycle ───────────────
+  // Same shared-DB, multi-instance reasoning as the Job Intel scheduler above
+  // (this box and the deployed instance point at the same DATABASE_URL) — and
+  // the publish cycle is real logged-in browser automation against a user's
+  // actual LinkedIn account, so it stays behind the same guard.
+  if (process.env.DISABLE_BACKGROUND_JOBS === 'true') {
+    console.log('[ContentAI] Scheduler skipped — DISABLE_BACKGROUND_JOBS=true');
+  } else {
+    scheduleContentPipeline().catch(e => console.error('[ContentAI] Scheduler init failed:', e.message));
+    setInterval(() => {
+      runPublishCycle().catch(e => console.error('[ContentAI] Publish cycle failed:', e.message));
+    }, 60_000);
   }
 
   // Job-intel contact sync — runs every 5 minutes so newly extracted emails appear

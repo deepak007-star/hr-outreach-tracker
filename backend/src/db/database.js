@@ -709,6 +709,79 @@ async function initialize() {
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_job_postings_category    ON job_postings (category)`);
   await db.exec(`CREATE INDEX IF NOT EXISTS idx_pipeline_runs_started    ON pipeline_runs (started_at DESC)`);
 
+  // ── Content AI pipeline (Phase 1) — profile+GitHub-driven LinkedIn post
+  // generation, human review, and browser-automation publishing. Separate
+  // from job_postings/pipeline_runs above; mirrors that pipeline's shape.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS content_posts (
+      id                   TEXT PRIMARY KEY,
+      user_id              TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      batch_id             TEXT NOT NULL,
+      topic                TEXT NOT NULL DEFAULT '',
+      variant_label        TEXT NOT NULL DEFAULT 'A',
+      content              TEXT NOT NULL DEFAULT '',
+      original_content     TEXT NOT NULL DEFAULT '',
+      edit_history         TEXT NOT NULL DEFAULT '[]',
+      status               TEXT NOT NULL DEFAULT 'pending_review',
+      rejection_reason     TEXT,
+      regenerate_count     INTEGER NOT NULL DEFAULT 0,
+      source_signals       TEXT NOT NULL DEFAULT '{}',
+      scheduled_for        TEXT,
+      approved_at          TEXT,
+      published_at         TEXT,
+      published_post_url   TEXT,
+      publish_error        TEXT,
+      publish_attempts     INTEGER NOT NULL DEFAULT 0,
+      created_at           TEXT NOT NULL DEFAULT (${NOW_EXPR}),
+      updated_at           TEXT NOT NULL DEFAULT (${NOW_EXPR})
+    );
+
+    CREATE TABLE IF NOT EXISTS content_pipeline_runs (
+      id                           TEXT PRIMARY KEY,
+      started_at                   TEXT NOT NULL DEFAULT (${NOW_EXPR}),
+      finished_at                  TEXT,
+      status                       TEXT NOT NULL DEFAULT 'running',
+      topics_generated             INTEGER NOT NULL DEFAULT 0,
+      candidates_generated         INTEGER NOT NULL DEFAULT 0,
+      candidates_dropped_duplicate INTEGER NOT NULL DEFAULT 0,
+      errors                       TEXT NOT NULL DEFAULT '{}'
+    );
+
+    -- Log-only feedback trail (edit/approve/reject/regenerate). No learning
+    -- logic reads this yet — it's captured now so a future learning phase
+    -- doesn't need a backfill.
+    CREATE TABLE IF NOT EXISTS content_feedback (
+      id             TEXT PRIMARY KEY,
+      post_id        TEXT NOT NULL REFERENCES content_posts(id) ON DELETE CASCADE,
+      user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      action         TEXT NOT NULL,
+      instruction    TEXT,
+      reason         TEXT,
+      before_content TEXT,
+      after_content  TEXT,
+      created_at     TEXT NOT NULL DEFAULT (${NOW_EXPR})
+    );
+
+    -- Read-only GitHub PAT per user, mined as a content signal (recent
+    -- commits/PR titles). pat_encrypted uses the same AES-256-GCM helper as
+    -- portal_credentials.password_encrypted (services/tokenCrypto.js).
+    CREATE TABLE IF NOT EXISTS github_integration (
+      user_id         TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      pat_encrypted   TEXT NOT NULL,
+      github_username TEXT,
+      last_synced_at  TEXT,
+      last_error      TEXT,
+      created_at      TEXT NOT NULL DEFAULT (${NOW_EXPR}),
+      updated_at      TEXT NOT NULL DEFAULT (${NOW_EXPR})
+    );
+  `);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_content_posts_user_status ON content_posts (user_id, status)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_content_posts_batch       ON content_posts (batch_id)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_content_posts_scheduled   ON content_posts (status, scheduled_for)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_content_pipeline_runs_started ON content_pipeline_runs (started_at DESC)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_content_feedback_post     ON content_feedback (post_id)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_content_feedback_user     ON content_feedback (user_id, created_at)`);
+
   // ── Payment subscriptions
   await db.exec(`
     CREATE TABLE IF NOT EXISTS subscriptions (

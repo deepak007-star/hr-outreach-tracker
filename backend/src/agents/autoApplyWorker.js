@@ -27,12 +27,12 @@
 //   - One portal's browser session at a time; human-like delay between
 //     applications.
 
-const { chromium } = require('playwright');
 const crypto = require('crypto');
 const db = require('../db/database');
 const { decrypt } = require('../services/tokenCrypto');
 const { checkAutoApplyAllowed, saveQueueConfig, getQueueConfig } = require('./applyQueue');
 const logger = require('../lib/logger');
+const { launchStealthBrowser, newStealthContext } = require('../lib/browserStealth');
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -40,31 +40,8 @@ const CONSECUTIVE_FAILURE_LIMIT = 3;
 
 const FAILURE_TEXT_RE = /invalid|incorrect|doesn.?t match|does not match|wrong password|captcha|verify you.?re (a )?human|too many (attempts|requests)|account (is )?locked|something went wrong/i;
 
-// ── Browser / stealth (mirrors the pattern already proven in scrapers/naukri.js
-// and scrapers/linkedin-feed.js — real browser channel first, masked webdriver flag) ──
-
-async function launchStealthBrowser() {
-  for (const channel of ['msedge', 'chrome']) {
-    try {
-      return await chromium.launch({ headless: true, channel, args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'] });
-    } catch (_) { /* channel not installed — try next */ }
-  }
-  return chromium.launch({ headless: true, args: ['--no-sandbox'] });
-}
-
-async function newStealthContext(browser) {
-  const ctx = await browser.newContext({
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    viewport: { width: 1366, height: 900 },
-    locale: 'en-IN',
-  });
-  await ctx.addInitScript(() => {
-    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-    if (!window.chrome) window.chrome = { runtime: {} };
-    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
-  });
-  return ctx;
-}
+// ── Browser / stealth: launchStealthBrowser/newStealthContext now live in
+// lib/browserStealth.js, shared with agents/content/linkedinPublisher.js ──
 
 // ── Login handlers — real, verified selectors (confirmed live against the
 // actual public login pages this session; the form fill/submit flow itself
@@ -406,4 +383,4 @@ async function runAutoApplyCycle() {
   return { skipped: false, summary };
 }
 
-module.exports = { runPortalForUser, runAutoApplyCycle, matchAnswer, loginPortal, attemptApply };
+module.exports = { runPortalForUser, runAutoApplyCycle, matchAnswer, loginPortal, attemptApply, markInvalidCredentials };

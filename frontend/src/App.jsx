@@ -3,7 +3,7 @@ import { Toaster, toast } from 'react-hot-toast';
 import {
   Home, Users, FileText, Target, ListChecks,
   FolderOpen, UserPlus, User, ShieldCheck, Crown, Lock,
-  MailCheck, Briefcase, Mail, BarChart3, Bell, Zap,
+  MailCheck, Briefcase, Mail, BarChart3, Bell, Zap, Sparkles,
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './contexts/AuthContext.jsx';
 import { Spinner, MultiSelectDropdown, LoadMoreSentinel } from './components/ui/index.js';
@@ -38,6 +38,8 @@ import ResumeVault        from './components/ResumeVault.jsx';
 import LandingPage        from './components/LandingPage.jsx';
 import Chatbot            from './components/Chatbot.jsx';
 import JobIntelPanel      from './components/JobIntelPanel.jsx';
+import ContentReviewPanel  from './components/ContentReviewPanel.jsx';
+import ContentHistoryPanel from './components/ContentHistoryPanel.jsx';
 import ConfirmDialog from './components/ConfirmDialog.jsx';
 import { confirm }   from './utils/confirm.js';
 import { clearDraft } from './hooks/useDraft.js';
@@ -82,6 +84,7 @@ const TAB_PATHS = {
   contacts:       '/contacts',
   jobs:           '/jobs',
   'job-intel':    '/job-intel',
+  'content-ai':   '/content-ai',
   templates:      '/templates',
   'resume-tools': '/resume-tools',
   profile:        '/profile',
@@ -174,6 +177,11 @@ export default function App() {
   const [jobIntelSubTab, setJobIntelSubTab] = useState(() => {
     const nav = getTabFromPath(window.location.pathname);
     return nav.tab === 'job-intel' && nav.subTab ? nav.subTab : 'intel-contacts';
+  });
+  // Content AI sub-tabs: 'review' | 'history'
+  const [contentAiSubTab, setContentAiSubTab] = useState(() => {
+    const nav = getTabFromPath(window.location.pathname);
+    return nav.tab === 'content-ai' && nav.subTab ? nav.subTab : 'review';
   });
   // Resume Tools sub-tabs: 'analyzer' | 'bulk-apply' | 'vault'
   const [resumeToolsSubTab, setResumeToolsSubTab] = useState(() => {
@@ -448,6 +456,7 @@ export default function App() {
       if (nav.subTab) {
         if (nav.tab === 'contacts')       setContactSubTab(nav.subTab);
         else if (nav.tab === 'job-intel')     setJobIntelSubTab(nav.subTab);
+        else if (nav.tab === 'content-ai')    setContentAiSubTab(nav.subTab);
         else if (nav.tab === 'resume-tools')  setResumeToolsSubTab(nav.subTab);
       }
     };
@@ -679,6 +688,7 @@ export default function App() {
     { id: 'contacts',      icon: <Users        size={16} />, label: 'Contacts & Outreach', sub: 'HR list, Gmail sync & LinkedIn contacts' },
     { id: 'jobs',          icon: <Briefcase    size={16} />, label: 'Jobs',                sub: 'Scraped board postings — LinkedIn, Naukri, Internshala & more' },
     { id: 'job-intel',     icon: <Zap          size={16} />, label: 'Job Intel',           sub: 'ATS & job-board contacts + LinkedIn hiring posts' },
+    { id: 'content-ai',    icon: <Sparkles     size={16} />, label: 'Content AI',          sub: 'AI-drafted LinkedIn posts — reviewed by you, published by you', requiresAuth: true },
     { id: 'templates',     icon: <FileText     size={16} />, label: 'Templates',           sub: 'Email & resume templates' },
     { id: 'resume-tools',  icon: <Target       size={16} />, label: 'Resume Tools',        sub: 'ATS analyzer, bulk apply & resume vault' },
     { id: 'referrals',     icon: <UserPlus     size={16} />, label: 'Sifarish',            sub: 'Get referred at top companies', requiresAuth: true },
@@ -880,6 +890,53 @@ export default function App() {
 
             {jobIntelSubTab === 'intel-contacts' && <TabErrorBoundary><JobIntelPanel /></TabErrorBoundary>}
             {jobIntelSubTab === 'linkedin-hiring-posts' && <TabErrorBoundary><LinkedInPosts /></TabErrorBoundary>}
+          </div>
+        )}
+
+        {/* ── Content AI tab (umbrella: review queue + history) ── */}
+        {activeTab === 'content-ai' && user && (
+          <div key={contentAiSubTab} className="max-w-screen-xl mx-auto animate-tab-fade-in">
+            <div className="mb-5">
+              <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                <Sparkles size={20} className="text-brand-600" /> Content AI
+              </h1>
+              <p className="text-sm text-gray-500 mt-0.5">
+                AI-drafted LinkedIn posts based on your profile & GitHub activity — you review, edit, approve or reject every one before anything goes out.
+              </p>
+            </div>
+
+            {/* Sub-tabs */}
+            <div className="bg-white border border-gray-200 rounded-md shadow-card overflow-hidden mb-5">
+              <div className="flex border-b border-gray-200 overflow-x-auto">
+                {[
+                  { id: 'review',  icon: <ListChecks size={14} />, label: 'Review Queue', desc: 'Generated drafts waiting for your edit/approve/reject' },
+                  { id: 'history', icon: <FileText   size={14} />, label: 'History',       desc: 'Approved, published, rejected & failed posts' },
+                ].map(sub => (
+                  <button
+                    key={sub.id}
+                    onClick={() => setContentAiSubTab(sub.id)}
+                    title={sub.desc}
+                    className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-all duration-150 whitespace-nowrap -mb-px ${
+                      contentAiSubTab === sub.id
+                        ? 'border-brand-600 text-brand-700'
+                        : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300'
+                    }`}
+                  >
+                    <span className={contentAiSubTab === sub.id ? 'text-brand-600' : 'text-gray-400'}>{sub.icon}</span>
+                    {sub.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {contentAiSubTab === 'review'  && <TabErrorBoundary><ContentReviewPanel /></TabErrorBoundary>}
+            {contentAiSubTab === 'history' && <TabErrorBoundary><ContentHistoryPanel /></TabErrorBoundary>}
+          </div>
+        )}
+        {activeTab === 'content-ai' && !user && (
+          <div className="flex flex-col items-center justify-center h-48 gap-3">
+            <p className="text-gray-500 text-sm">Sign in to use the Content AI pipeline.</p>
+            <button onClick={() => setShowAuthModal(true)} className="px-5 py-2 bg-brand-600 text-white rounded-sm text-sm font-semibold hover:bg-brand-700 transition">Sign In</button>
           </div>
         )}
 
