@@ -32,7 +32,7 @@ const db = require('../db/database');
 const { decrypt } = require('../services/tokenCrypto');
 const { checkAutoApplyAllowed, saveQueueConfig, getQueueConfig } = require('./applyQueue');
 const logger = require('../lib/logger');
-const { launchStealthBrowser, newStealthContext } = require('../lib/browserStealth');
+const { launchStealthBrowser, newStealthContext, withBrowserLock } = require('../lib/browserStealth');
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -285,6 +285,11 @@ async function runPortalForUser(userId, portal) {
   const password = decrypt(credRow.password_encrypted);
   const bank = await db.prepare('SELECT question_pattern, answer FROM apply_answer_bank WHERE user_id = ?').all(userId);
 
+  // Serialized with the LinkedIn content publisher's browser too — see
+  // lib/browserStealth.js's withBrowserLock. Two simultaneous Chromium
+  // instances is exactly the kind of compounding that tips a 512MB
+  // container over the edge.
+  return withBrowserLock(async () => {
   const browser = await launchStealthBrowser();
   const ctx = await newStealthContext(browser);
   const page = await ctx.newPage();
@@ -348,6 +353,7 @@ async function runPortalForUser(userId, portal) {
   }
 
   return { processed: applied + needsReview, applied, needsReview };
+  });
 }
 
 // ── Scheduler entry point ────────────────────────────────────────────────────

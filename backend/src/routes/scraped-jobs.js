@@ -358,7 +358,7 @@ async function getFeedContacts({ cutoff, search, source = 'all', profileSkills, 
       scQ += ` AND (title ILIKE ? OR company ILIKE ? OR contact_email ILIKE ? OR description ILIKE ?)`;
       const s = `%${search}%`; scParams.push(s, s, s, s);
     }
-    scQ += ' ORDER BY created_at DESC LIMIT 2000';
+    scQ += ' ORDER BY created_at DESC LIMIT 800';
     linkedinContacts = await db.prepare(scQ).all(...scParams);
 
     // ── 2. Apify linkedin_posts — extract emails from description live ──────
@@ -374,7 +374,7 @@ async function getFeedContacts({ cutoff, search, source = 'all', profileSkills, 
         apQ += ` AND (title ILIKE ? OR company_name ILIKE ? OR description ILIKE ?)`;
         const s = `%${search}%`; apParams.push(s, s, s);
       }
-      apQ += ' ORDER BY scraped_at DESC LIMIT 2000';
+      apQ += ' ORDER BY scraped_at DESC LIMIT 800';
       const apifyRaw = await db.prepare(apQ).all(...apParams);
       for (const post of apifyRaw) {
         const { contactEmail, contactPhone } = extractContacts(post.description || '');
@@ -426,7 +426,7 @@ async function getFeedContacts({ cutoff, search, source = 'all', profileSkills, 
         nkQ += ` AND (title ILIKE ? OR company ILIKE ? OR description ILIKE ?)`;
         const s = `%${search}%`; nkParams.push(s, s, s);
       }
-      nkQ += ' ORDER BY scraped_at DESC LIMIT 2000';
+      nkQ += ' ORDER BY scraped_at DESC LIMIT 800';
       const naukriRaw = await db.prepare(nkQ).all(...nkParams);
 
       for (const row of naukriRaw) {

@@ -20,7 +20,7 @@
 const { randomUUID } = require('crypto');
 const db = require('../../db/database');
 const { decrypt } = require('../../services/tokenCrypto');
-const { launchStealthBrowser, newStealthContext } = require('../../lib/browserStealth');
+const { launchStealthBrowser, newStealthContext, withBrowserLock } = require('../../lib/browserStealth');
 const { markInvalidCredentials } = require('../autoApplyWorker');
 const { getConfig } = require('./orchestrator');
 const logger = require('../../lib/logger');
@@ -116,6 +116,12 @@ async function publishPost(postId) {
   }
 
   const password = decrypt(credRow.password_encrypted);
+
+  // Serialized with the auto-apply worker's browser too — see
+  // lib/browserStealth.js's withBrowserLock. Two simultaneous Chromium
+  // instances is exactly the kind of compounding that tips a 512MB
+  // container over the edge.
+  return withBrowserLock(async () => {
   const browser = await launchStealthBrowser();
   const ctx = await newStealthContext(browser);
   const page = await ctx.newPage();
@@ -154,6 +160,7 @@ async function publishPost(postId) {
     await ctx.close().catch(() => {});
     await browser.close().catch(() => {});
   }
+  });
 }
 
 let _cycleRunning = false;

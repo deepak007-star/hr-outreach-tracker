@@ -146,6 +146,13 @@ async function launchBrowser(proxyUrl = '') {
     '--disable-background-timer-throttling',
     '--disable-backgrounding-occluded-windows',
     '--disable-renderer-backgrounding',
+    // Memory-lean flags — real, quantifiable reduction in headless Chromium's
+    // baseline RSS (no GPU compositor process, no background sync/translate
+    // service workers spun up for no reason on a host with no display and a
+    // 512MB total container budget).
+    '--disable-gpu', '--disable-software-rasterizer',
+    '--disable-background-networking', '--disable-sync', '--disable-translate',
+    '--metrics-recording-only', '--mute-audio',
   ];
   // Chromium's --proxy-server CLI flag can't carry embedded credentials —
   // authenticated proxies (any paid provider) must go through Playwright's
@@ -171,13 +178,12 @@ async function launchBrowser(proxyUrl = '') {
   return chromium.launch({ headless, args, proxy });
 }
 
-async function newStealthPage(browser) {
-  const ua   = randomUA();
-  const vp   = randomVP();
+async function newStealthContext(browser) {
+  const ua = randomUA();
+  const vp = randomVP();
   // Playwright sets user-agent / viewport / locale / headers on the browser
   // CONTEXT, not the page (page.setUserAgent is a Puppeteer-only API and throws
-  // "page.setUserAgent is not a function" here). Create a fresh stealth context
-  // per page so each request rotates its fingerprint.
+  // "page.setUserAgent is not a function" here).
   const context = await browser.newContext({
     userAgent: ua,
     viewport:  vp,
@@ -216,37 +222,52 @@ async function newStealthPage(browser) {
     delete window.__pw_manual;
   });
 
+  return context;
+}
+
+async function newStealthPage(browser) {
+  const context = await newStealthContext(browser);
   const page = await context.newPage();
-  // Callers only call page.close(); tear the context down with it so contexts
-  // don't accumulate across keywords / phases / retries.
+  // Standalone stealth page (deep-fetch/page-scraper callers): tear the
+  // context down with the page, no reuse expected.
   page.once('close', () => { context.close().catch(() => {}); });
   return page;
 }
 
-// One persistent page/context PER ENGINE for the whole run, instead of a
-// brand-new cookie-less context (with a freshly rotated UA/viewport) for
-// every single keyword. 15 completely fresh "first-ever-visit" sessions in a
-// row from the same IP is itself a strong bot signature — accumulating
-// cookies and keeping one stable fingerprint across a run's queries to the
-// same engine looks like one real user running several searches in a
-// sitting, which is exactly what this is. Cleared whenever the browser is
-// relaunched (proxy rotation / dead-proxy fallback) since old pages die with
-// their browser.
-let enginePages = {};
+// One persistent CONTEXT (cookies/fingerprint) per engine for the whole run
+// — 15 completely fresh "first-ever-visit" sessions in a row from the same
+// IP is itself a strong bot signature, so accumulating cookies per engine
+// across a run's queries looks like one real user running several searches
+// in a sitting. BUT the PAGE (and its Chromium renderer process) is created
+// fresh per use and closed by the caller right after — measured at up to 5
+// concurrent open pages/renderers for most of a run's duration under the
+// previous design (one per engine, all kept open simultaneously), which is
+// a real, sustained memory cost on a constrained host. Only ever one page
+// open at a time now; the other engines' contexts sit idle (cheap: cookies
+// only, no renderer) until their turn comes back around.
+let engineContexts = {};
 
+// Returns a fresh page from that engine's persisted context (creating the
+// context on first use). Caller is responsible for closing the PAGE (not
+// the context) when done with it — that's what keeps only one page open at
+// a time while the context/cookies survive for next time. If the cached
+// context has died for any reason, newPage() throws and we just recreate it
+// rather than trying to pre-detect staleness.
 async function getEnginePage(browser, engine) {
-  const cached = enginePages[engine];
-  if (cached && !cached.isClosed()) return cached;
-  const page = await newStealthPage(browser);
-  enginePages[engine] = page;
-  return page;
+  const cached = engineContexts[engine];
+  if (cached) {
+    try { return await cached.newPage(); } catch (_) { /* context dead — fall through to recreate */ }
+  }
+  const context = await newStealthContext(browser);
+  engineContexts[engine] = context;
+  return context.newPage();
 }
 
 async function resetEnginePages() {
-  for (const page of Object.values(enginePages)) {
-    try { await page.close(); } catch (_) {}
+  for (const context of Object.values(engineContexts)) {
+    try { await context.close(); } catch (_) {}
   }
-  enginePages = {};
+  engineContexts = {};
 }
 
 // ─── URL decode (DuckDuckGo) ──────────────────────────────────────────────────
@@ -434,8 +455,9 @@ async function searchDDGRaw(browser, queries, urlFilter, maxResults, tag, engine
     await sleep(3500 + Math.random() * 1500);
   }
 
-  // No page.close() here anymore — this engine's page/context (and its
-  // cookies) stays alive for the rest of the run; see getEnginePage/resetEnginePages.
+  // Close the PAGE (frees its renderer process) but not the context — the
+  // cookies/fingerprint persist in engineContexts for this engine's next turn.
+  try { await page.close(); } catch (_) {}
   return results;
 }
 
@@ -513,6 +535,7 @@ async function searchGoogle(browser, queries, urlFilter, maxResults, tag, engine
     await sleep(2500 + Math.random() * 1500);
   }
 
+  try { await page.close(); } catch (_) {}
   return results;
 }
 
@@ -594,6 +617,7 @@ async function searchBing(browser, queries, urlFilter, maxResults, tag, engineSt
     await sleep(2000 + Math.random() * 1000);
   }
 
+  try { await page.close(); } catch (_) {}
   return results;
 }
 
@@ -677,6 +701,7 @@ async function searchBrave(browser, queries, urlFilter, maxResults, tag, engineS
     await sleep(1500 + Math.random() * 1000);
   }
 
+  try { await page.close(); } catch (_) {}
   return results;
 }
 
@@ -761,6 +786,7 @@ async function searchYahoo(browser, queries, urlFilter, maxResults, tag, engineS
     await sleep(2000 + Math.random() * 1000);
   }
 
+  try { await page.close(); } catch (_) {}
   return results;
 }
 

@@ -21,7 +21,7 @@ const crypto = require('crypto');
 const db = require('../db/database');
 const { lightweightSkillMatch, parseSkills } = require('../lib/skillMatch');
 
-const CANDIDATE_CAP    = 1500; // safety cap on how many scraped_jobs rows get scored per refresh
+const CANDIDATE_CAP    = 800; // safety cap on how many scraped_jobs rows get scored per refresh — trimmed from 1500 for the 512MB container budget
 const CANDIDATE_WINDOW_DAYS = 30;
 // lightweightSkillMatch's percent is matched / total-skills-on-profile — that
 // structurally caps low for anyone with a broad skill list (a 29-skill

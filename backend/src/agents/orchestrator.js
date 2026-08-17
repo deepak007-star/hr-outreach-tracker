@@ -500,6 +500,13 @@ async function syncJobIntelContacts(sinceMs = null) {
       ? new Date(sinceMs).toISOString().replace('T', ' ').slice(0, 19)
       : null;
 
+    // Full-sync path (cutoff=null, called after every pipeline run) had no
+    // LIMIT at all — loading job_postings' entire matching set into memory
+    // every ~3h on a 512MB container is exactly the kind of thing that adds
+    // up. Bounded to the most-recent 5000 (generous headroom over the
+    // current ~1200 rows); logs if the cap is ever actually hit rather than
+    // silently dropping older rows with no visibility.
+    const FULL_SYNC_CAP = 5000;
     const postings = cutoff
       ? await db.prepare(
           `SELECT id, company, title, description, category, apply_url, source, extracted_emails, extracted_contact_name
@@ -510,8 +517,12 @@ async function syncJobIntelContacts(sinceMs = null) {
       : await db.prepare(
           `SELECT id, company, title, description, category, apply_url, source, extracted_emails, extracted_contact_name
            FROM job_postings
-           WHERE extracted_emails != '[]' AND extracted_emails IS NOT NULL`
-        ).all();
+           WHERE extracted_emails != '[]' AND extracted_emails IS NOT NULL
+           ORDER BY fetched_at DESC LIMIT ?`
+        ).all(FULL_SYNC_CAP);
+    if (!cutoff && postings.length >= FULL_SYNC_CAP) {
+      console.warn(`[Pipeline] syncJobIntelContacts: hit the ${FULL_SYNC_CAP}-row full-sync cap — some older postings were skipped this round`);
+    }
 
     // Auto-tagging: match every synced posting against the owner admin's own
     // profile skills (these contacts land in their Contacts page) so each one
