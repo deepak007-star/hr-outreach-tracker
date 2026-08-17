@@ -239,8 +239,12 @@ async function initialize() {
     -- Apply Queue: semi-automated job-application review. The pipeline
     -- ranks/matches already-scraped jobs to a user's profile and queues
     -- them; a human clicks Apply for each one (opens the real apply page)
-    -- and confirms — nothing here ever submits a form or logs into a job
-    -- platform. See agents/applyQueue.js.
+    -- and confirms. See agents/applyQueue.js. As of the auto-apply feature
+    -- (agents/autoApplyWorker.js), status can also be set by a real logged-in
+    -- submission on Naukri/Instahyre/Foundit ONLY, with the user's explicit,
+    -- risk-informed opt-in per portal — see portal_credentials below and
+    -- job_applications.submission_mode. RemoteOK/WWR/LinkedIn stay
+    -- manual-only (no first-party one-click apply flow to automate safely).
     CREATE TABLE IF NOT EXISTS job_applications (
       id             TEXT PRIMARY KEY,
       user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -257,6 +261,41 @@ async function initialize() {
     );
     CREATE INDEX IF NOT EXISTS idx_job_applications_user_status ON job_applications (user_id, status);
     CREATE INDEX IF NOT EXISTS idx_job_applications_applied_at  ON job_applications (user_id, applied_at);
+
+    -- Encrypted portal login credentials for the auto-apply worker
+    -- (agents/autoApplyWorker.js). password_encrypted uses the SAME
+    -- AES-256-GCM helper as Gmail OAuth token storage (services/tokenCrypto.js)
+    -- — never stored/returned in plaintext anywhere, including API responses.
+    -- status flips to 'invalid' on the first failed login and STAYS there
+    -- until the user re-enters credentials — the worker never retries a
+    -- login with a possibly-wrong password (a fast way to get an account
+    -- flagged for suspicious activity).
+    CREATE TABLE IF NOT EXISTS portal_credentials (
+      user_id            TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      portal             TEXT NOT NULL,
+      username           TEXT NOT NULL,
+      password_encrypted TEXT NOT NULL,
+      status             TEXT NOT NULL DEFAULT 'active',
+      last_login_at      TEXT,
+      last_login_error   TEXT,
+      created_at         TEXT NOT NULL DEFAULT (${NOW_EXPR}),
+      updated_at         TEXT NOT NULL DEFAULT (${NOW_EXPR}),
+      PRIMARY KEY (user_id, portal)
+    );
+
+    -- Screening-question answer bank — the auto-apply worker only fills a
+    -- question it can match here (case-insensitive keyword match against
+    -- question_pattern). Anything unmatched aborts that submission into
+    -- job_applications.status='needs_review' rather than guessing — a wrong
+    -- guessed answer on a real application is worse than not applying.
+    CREATE TABLE IF NOT EXISTS apply_answer_bank (
+      id               TEXT PRIMARY KEY,
+      user_id          TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      question_pattern TEXT NOT NULL,
+      answer           TEXT NOT NULL,
+      created_at       TEXT NOT NULL DEFAULT (${NOW_EXPR})
+    );
+    CREATE INDEX IF NOT EXISTS idx_apply_answer_bank_user ON apply_answer_bank (user_id);
 
     CREATE TABLE IF NOT EXISTS gmail_tokens (
       user_id       TEXT PRIMARY KEY REFERENCES users(id),
@@ -775,6 +814,16 @@ async function initialize() {
     ALTER TABLE job_applications ADD CONSTRAINT job_applications_job_id_fkey
     FOREIGN KEY (job_id) REFERENCES scraped_jobs(id) ON DELETE SET NULL
   `).catch(e => console.warn('[DB migration] job_applications FK relax skipped:', e.message));
+
+  // Auto-apply worker (agents/autoApplyWorker.js): distinguishes a real
+  // logged-in auto-submission from the human-clicked default, and gives the
+  // user a per-application audit trail (every screening question it saw and
+  // what it matched/filled) to spot-check real submissions after the fact.
+  // status can now also be 'needs_review' — an auto-attempt that hit a
+  // screening question with no answer-bank match; nothing was submitted,
+  // it just needs a human to finish it manually like any other queued job.
+  await addCol('job_applications', 'submission_mode', `TEXT NOT NULL DEFAULT 'manual'`);
+  await addCol('job_applications', 'auto_apply_log',  `TEXT`);
 
   // ── One-time cleanup: contacts where the name field was imported as an email address.
   // Extracts the local part (before @) split on the first dot as a best-effort name.

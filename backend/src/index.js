@@ -81,6 +81,7 @@ async function main() {
   const scraperRouter        = require('./routes/scraper');
   const scrapedJobsRouter    = require('./routes/scraped-jobs');
   const applyQueueRouter     = require('./routes/apply-queue');
+  const applyAutomationRouter = require('./routes/apply-automation');
   const gmailRouter          = require('./routes/gmail');
   const githubBackupRouter   = require('./routes/github-backup');
   const referralsRouter      = require('./routes/referrals');
@@ -173,6 +174,7 @@ async function main() {
   app.use('/api/scraper',         scraperRouter);
   app.use('/api/scraped-jobs',    scrapedJobsRouter);
   app.use('/api/apply-queue',     applyQueueRouter);
+  app.use('/api/apply-automation', applyAutomationRouter);
   app.use('/api/gmail',           gmailRouter);
   app.use('/api/github-backup',   githubBackupRouter);
   app.use('/api/referrals',        referralsRouter);
@@ -514,6 +516,21 @@ async function main() {
   setTimeout(() => syncJobIntelContacts().catch(e => console.error('[Job Intel sync] Startup sync failed:', e.message)), 45_000);
   // Every 5 min: lightweight sync of the last 30 minutes of new postings
   setInterval(() => syncJobIntelContacts(Date.now() - 30 * 60_000).catch(e => console.error('[Job Intel sync] Periodic sync failed:', e.message)), 5 * 60_000);
+
+  // ── Auto-apply worker (Naukri/Instahyre real logged-in submission) ────────
+  // Real action against third-party auth/apply systems, so this stays inert
+  // by default at every layer: DISABLE_BACKGROUND_JOBS stops this box from
+  // running it at all (same guard as the Job Intel scheduler above, same
+  // reasoning — this box shares the production DB); even when running, the
+  // worker itself (agents/autoApplyWorker.js's runAutoApplyCycle) is a no-op
+  // until a user has BOTH saved valid portal_credentials AND explicitly
+  // flipped that portal's auto_apply.enabled flag on in Auto-Apply Settings.
+  // No credentials + no enabled flag = nothing happens, ever, silently.
+  if (process.env.DISABLE_BACKGROUND_JOBS !== 'true') {
+    const { runAutoApplyCycle } = require('./agents/autoApplyWorker');
+    setTimeout(() => runAutoApplyCycle().catch(e => console.error('[Auto-apply] Startup cycle failed:', e.message)), 90_000);
+    setInterval(() => runAutoApplyCycle().catch(e => console.error('[Auto-apply] Scheduled cycle failed:', e.message)), 3 * 3_600_000);
+  }
 
   // Feed contacts (LinkedIn Feed / Naukri / Apify — the Feed Contacts panel)
   // auto-sync into the shared contacts pool, same cadence as Job Intel above.

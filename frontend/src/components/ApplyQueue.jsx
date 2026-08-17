@@ -1,16 +1,20 @@
 /**
- * Apply Queue — skill-matched jobs queued for the user to review and apply
- * to THEMSELVES. Nothing here submits a form or logs into a job platform:
- * "Apply →" just opens the real apply page in a new tab (using data already
- * in hand, no extra request); a follow-up "✓ Mark as applied" click is what
- * actually records it server-side. Two low-friction clicks, no blocking
- * modal — a modal per job would defeat the point of clearing 50-60/day.
+ * Apply Queue — skill-matched jobs queued for review. By default "Apply →"
+ * just opens the real apply page in a new tab and a follow-up "✓ Mark as
+ * applied" click records it — no form-fill, no login, always human-submitted.
+ * Auto-Apply Settings below opts specific portals (Naukri/Instahyre only —
+ * see agents/autoApplyWorker.js) into REAL logged-in automated submission,
+ * with the account-ban/wrong-answer risk that implies, explicitly accepted
+ * per portal. Auto-submitted rows carry a 🤖 badge; anything the automation
+ * couldn't confidently finish (an unanswerable screening question) lands in
+ * the Needs Review segment instead of being guessed.
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'react-hot-toast';
 import { api } from '../api/client.js';
 import { EmptyState, Spinner } from './ui/index.js';
-import { RefreshCw, ExternalLink, Check, X, PlayCircle, Keyboard, Settings2 } from 'lucide-react';
+import { confirm } from '../utils/confirm.js';
+import { RefreshCw, ExternalLink, Check, X, PlayCircle, Keyboard, Settings2, Bot, Trash2 } from 'lucide-react';
 
 // A short, ready-to-paste opener for portals that ask "why are you
 // interested" / a cover-note field — built from data already on the queue
@@ -27,10 +31,11 @@ async function copyApplyBlurb(item) {
 }
 
 const SEGMENTS = [
-  { id: 'queued',  label: 'Queued',  active: 'bg-brand-600 text-white border-brand-600', dot: 'bg-brand-500' },
-  { id: 'applied', label: 'Applied', active: 'bg-emerald-600 text-white border-emerald-600', dot: 'bg-emerald-500' },
-  { id: 'skipped', label: 'Skipped', active: 'bg-gray-600 text-white border-gray-600', dot: 'bg-gray-400' },
-  { id: 'all',     label: 'All',     active: 'bg-slate-800 text-white border-slate-800', dot: 'bg-slate-500' },
+  { id: 'queued',       label: 'Queued',       active: 'bg-brand-600 text-white border-brand-600', dot: 'bg-brand-500' },
+  { id: 'applied',      label: 'Applied',      active: 'bg-emerald-600 text-white border-emerald-600', dot: 'bg-emerald-500' },
+  { id: 'needs_review', label: 'Needs Review', active: 'bg-amber-600 text-white border-amber-600', dot: 'bg-amber-500' },
+  { id: 'skipped',      label: 'Skipped',      active: 'bg-gray-600 text-white border-gray-600', dot: 'bg-gray-400' },
+  { id: 'all',          label: 'All',          active: 'bg-slate-800 text-white border-slate-800', dot: 'bg-slate-500' },
 ];
 
 const SKIP_REASONS = ['Not relevant', 'Already applied elsewhere', 'Salary too low', 'Other'];
@@ -80,11 +85,21 @@ function JobRow({ item, segment, pendingConfirm, onOpenApply, onMarkApplied, onS
           }`}>
             {item.apply_method === 'easy_apply' ? '⚡ Easy Apply' : '🔗 Direct apply'}
           </span>
+          {item.submission_mode === 'auto' && (
+            <span title="Submitted automatically by Auto-Apply — no human click" className="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+              🤖 Auto-submitted
+            </span>
+          )}
           {segment === 'applied' && item.applied_at && (
             <span className="text-xs text-gray-400">Applied {timeAgo(item.applied_at)}</span>
           )}
           {segment === 'skipped' && (
             <span className="text-xs text-gray-400">Skipped{item.skip_reason ? `: ${item.skip_reason}` : ''}</span>
+          )}
+          {segment === 'needs_review' && item.auto_apply_log?.error && (
+            <span className="text-xs text-amber-700" title="Why the automation stopped here">
+              ⚠ {item.auto_apply_log.error}
+            </span>
           )}
         </div>
       </div>
@@ -95,7 +110,7 @@ function JobRow({ item, segment, pendingConfirm, onOpenApply, onMarkApplied, onS
             <ExternalLink size={14} />
           </a>
         )}
-        {segment === 'queued' && !isPending && (
+        {(segment === 'queued' || segment === 'needs_review') && !isPending && (
           <>
             <button
               onClick={() => onOpenApply(item)}
@@ -106,7 +121,7 @@ function JobRow({ item, segment, pendingConfirm, onOpenApply, onMarkApplied, onS
             <SkipButton onSkip={reason => onSkip(item.id, reason)} />
           </>
         )}
-        {segment === 'queued' && isPending && (
+        {(segment === 'queued' || segment === 'needs_review') && isPending && (
           <>
             <button
               onClick={() => onMarkApplied(item.id)}
@@ -312,6 +327,262 @@ const PORTAL_LABELS = {
   general: 'Remote boards', 'linkedin-jobs': 'LinkedIn Jobs', unknown: 'Other',
 };
 
+// Real, logged-in auto-submit only exists for these — see agents/autoApplyWorker.js.
+// LinkedIn/RemoteOK/WWR stay manual-only (LinkedIn: explicit ban-risk exclusion;
+// RemoteOK/WWR: every listing redirects to a different third-party ATS, no
+// single first-party flow to automate safely).
+const AUTO_APPLY_PORTALS = ['naukri', 'instahyre', 'foundit'];
+
+/**
+ * Auto-Apply Settings — where the real automation risk actually lives.
+ * Per portal: encrypted credentials (password never re-displayed after
+ * saving — this app has no legitimate reason to ever read one back), an
+ * explicit enable toggle (blocked until credentials show status 'active'),
+ * and a daily hard-submit cap. Plus a global pause that overrides every
+ * per-portal setting instantly, and the screening-question answer bank the
+ * worker refuses to guess past (see autoApplyWorker.js's matchAnswer).
+ */
+function AutoApplySettings() {
+  const [creds,   setCreds]   = useState({});
+  const [answers, setAnswers] = useState([]);
+  const [config,  setConfig]  = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [credForm,   setCredForm]   = useState({});
+  const [savingCred, setSavingCred] = useState(null);
+  const [newAnswer,   setNewAnswer]   = useState({ question_pattern: '', answer: '' });
+  const [savingAnswer, setSavingAnswer] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [credRes, ansRes, cfgRes] = await Promise.all([
+        api.get('/apply-automation/credentials'),
+        api.get('/apply-automation/answers'),
+        api.get('/apply-queue/config'),
+      ]);
+      setCreds(credRes.portals || {});
+      setAnswers(ansRes.answers || []);
+      setConfig(cfgRes);
+    } catch {
+      toast.error('Could not load auto-apply settings');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const saveCred = async (portal) => {
+    const { username, password } = credForm[portal] || {};
+    if (!username?.trim() || !password) { toast.error('Username and password are both required'); return; }
+    setSavingCred(portal);
+    try {
+      await api.put(`/apply-automation/credentials/${portal}`, { username: username.trim(), password });
+      toast.success(`${PORTAL_LABELS[portal]} credentials saved`);
+      setCredForm(prev => ({ ...prev, [portal]: { username: '', password: '' } }));
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.error || 'Could not save credentials');
+    } finally {
+      setSavingCred(null);
+    }
+  };
+
+  const removeCred = async (portal) => {
+    if (!await confirm(`Remove stored ${PORTAL_LABELS[portal]} credentials? Auto-apply will stop running for this portal until you re-enter them.`)) return;
+    try {
+      await api.delete(`/apply-automation/credentials/${portal}`);
+      toast.success('Credentials removed');
+      load();
+    } catch {
+      toast.error('Could not remove credentials');
+    }
+  };
+
+  const toggleEnabled = async (portal, on) => {
+    if (on && creds[portal]?.status !== 'active') {
+      toast.error(`Save valid ${PORTAL_LABELS[portal]} credentials first`);
+      return;
+    }
+    try {
+      const next = await api.put('/apply-queue/config', { auto_apply: { enabled: { [portal]: on } } });
+      setConfig(next);
+      toast.success(on ? `Auto-apply enabled for ${PORTAL_LABELS[portal]}` : `Auto-apply disabled for ${PORTAL_LABELS[portal]}`);
+    } catch {
+      toast.error('Could not update setting');
+    }
+  };
+
+  const setCap = async (portal, n) => {
+    try {
+      setConfig(await api.put('/apply-queue/config', { auto_apply: { daily_caps: { [portal]: n } } }));
+    } catch {
+      toast.error('Could not update daily cap');
+    }
+  };
+
+  const togglePause = async () => {
+    try {
+      const next = await api.put('/apply-queue/config', { auto_apply: { paused: !config.auto_apply.paused } });
+      setConfig(next);
+      toast.success(next.auto_apply.paused ? 'All auto-apply paused' : 'Auto-apply resumed');
+    } catch {
+      toast.error('Could not toggle pause');
+    }
+  };
+
+  const addAnswer = async () => {
+    if (!newAnswer.question_pattern.trim() || !newAnswer.answer.trim()) return;
+    setSavingAnswer(true);
+    try {
+      await api.post('/apply-automation/answers', newAnswer);
+      setNewAnswer({ question_pattern: '', answer: '' });
+      load();
+    } catch {
+      toast.error('Could not save answer');
+    } finally {
+      setSavingAnswer(false);
+    }
+  };
+
+  const removeAnswer = async (id) => {
+    try {
+      await api.delete(`/apply-automation/answers/${id}`);
+      load();
+    } catch {
+      toast.error('Could not remove answer');
+    }
+  };
+
+  if (loading || !config) {
+    return <div className="flex justify-center py-8"><Spinner size="md" /></div>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 text-xs text-amber-800">
+        <Bot size={14} className="shrink-0" />
+        Real, logged-in submission — this actually applies for you with no click on the portal itself. Naukri/Instahyre only (Foundit's site currently blocks even a normal page load; revisit later). Start small, watch the Needs Review tab.
+      </div>
+
+      {/* Global kill switch */}
+      <div className="flex items-center justify-between bg-white border rounded-md px-4 py-3">
+        <div>
+          <p className="text-sm font-semibold text-gray-800">Global pause</p>
+          <p className="text-xs text-gray-500">Stops every portal immediately, regardless of individual settings below.</p>
+        </div>
+        <button
+          onClick={togglePause}
+          className={`px-3 py-1.5 text-xs font-semibold rounded-sm transition ${
+            config.auto_apply.paused ? 'bg-red-600 text-white hover:bg-red-700' : 'border border-gray-300 text-gray-600 hover:bg-gray-50'
+          }`}
+        >
+          {config.auto_apply.paused ? '⏸ Paused — click to resume' : 'Pause everything'}
+        </button>
+      </div>
+
+      {/* Per-portal credentials + toggle + cap */}
+      {AUTO_APPLY_PORTALS.map(portal => {
+        const cred    = creds[portal];
+        const enabled = !!config.auto_apply.enabled[portal];
+        const cap     = config.auto_apply.daily_caps[portal];
+        return (
+          <div key={portal} className="bg-white border rounded-md p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-bold text-gray-800">{PORTAL_LABELS[portal]}</span>
+              <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+                <input
+                  type="checkbox" checked={enabled} onChange={e => toggleEnabled(portal, e.target.checked)}
+                  className="accent-brand-600"
+                />
+                Enable real auto-apply
+              </label>
+            </div>
+
+            {cred ? (
+              <div className="flex items-center justify-between text-xs bg-gray-50 rounded-sm px-3 py-2">
+                <span>
+                  {cred.username} — <span className={cred.status === 'active' ? 'text-emerald-600 font-medium' : 'text-red-600 font-medium'}>{cred.status}</span>
+                  {cred.status === 'invalid' && cred.last_login_error && (
+                    <span className="text-gray-400"> ({cred.last_login_error.slice(0, 80)})</span>
+                  )}
+                </span>
+                <button onClick={() => removeCred(portal)} className="text-gray-400 hover:text-red-600" title="Remove credentials">
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <input
+                  placeholder="Username / email" value={credForm[portal]?.username || ''}
+                  onChange={e => setCredForm(prev => ({ ...prev, [portal]: { ...prev[portal], username: e.target.value } }))}
+                  className="flex-1 border rounded-sm px-2 py-1.5 text-xs"
+                />
+                <input
+                  placeholder="Password" type="password" value={credForm[portal]?.password || ''}
+                  onChange={e => setCredForm(prev => ({ ...prev, [portal]: { ...prev[portal], password: e.target.value } }))}
+                  className="flex-1 border rounded-sm px-2 py-1.5 text-xs"
+                />
+                <button
+                  onClick={() => saveCred(portal)} disabled={savingCred === portal}
+                  className="px-3 py-1.5 bg-brand-600 text-white text-xs font-semibold rounded-sm hover:bg-brand-700 disabled:opacity-50 transition"
+                >
+                  Save
+                </button>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-gray-500">Daily submit cap:</span>
+              <input
+                type="number" min="0" value={cap}
+                onChange={e => setCap(portal, Math.max(0, parseInt(e.target.value, 10) || 0))}
+                className="w-16 border rounded-sm px-2 py-1 text-center"
+              />
+              <span className="text-gray-400">start at 20, raise it once you trust the results</span>
+            </div>
+          </div>
+        );
+      })}
+
+      {/* Screening-question answer bank */}
+      <div className="bg-white border rounded-md p-4 space-y-2">
+        <p className="text-sm font-bold text-gray-800">Screening-question answer bank</p>
+        <p className="text-xs text-gray-500">
+          Auto-apply only fills in a question it can match here. Anything unmatched stops that one application — it lands in the Needs Review tab instead of being guessed.
+        </p>
+        {answers.map(a => (
+          <div key={a.id} className="flex items-center gap-2 text-xs bg-gray-50 rounded-sm px-3 py-2">
+            <span className="font-medium text-gray-700 w-40 truncate" title={a.question_pattern}>{a.question_pattern}</span>
+            <span className="flex-1 text-gray-600 truncate" title={a.answer}>{a.answer}</span>
+            <button onClick={() => removeAnswer(a.id)} className="text-gray-400 hover:text-red-600 shrink-0">
+              <X size={13} />
+            </button>
+          </div>
+        ))}
+        <div className="flex items-center gap-2">
+          <input
+            placeholder='Question contains… (e.g. "notice period")' value={newAnswer.question_pattern}
+            onChange={e => setNewAnswer(prev => ({ ...prev, question_pattern: e.target.value }))}
+            className="flex-1 border rounded-sm px-2 py-1.5 text-xs"
+          />
+          <input
+            placeholder="Your answer" value={newAnswer.answer}
+            onChange={e => setNewAnswer(prev => ({ ...prev, answer: e.target.value }))}
+            className="flex-1 border rounded-sm px-2 py-1.5 text-xs"
+          />
+          <button
+            onClick={addAnswer} disabled={savingAnswer}
+            className="px-3 py-1.5 bg-brand-600 text-white text-xs font-semibold rounded-sm hover:bg-brand-700 disabled:opacity-50 transition"
+          >
+            Add
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ApplyQueue() {
   const [items,      setItems]      = useState([]);
   const [summary,    setSummary]    = useState({ queued: 0, applied: 0, skipped: 0, total: 0, applied_today: 0, daily_target: 20, portals: [] });
@@ -324,6 +595,7 @@ export default function ApplyQueue() {
   const [showTargets,   setShowTargets]   = useState(false);
   const [targetDrafts,  setTargetDrafts]  = useState({}); // scraper_type -> string (input draft)
   const [savingTargets, setSavingTargets] = useState(false);
+  const [showAutoApply, setShowAutoApply] = useState(false);
   // Batch Review: selectedMap holds full item data (not just ids) since a
   // "select 50" quick-pick fetches beyond whatever page is currently on
   // screen — the stepper needs the actual job details, not just an id list.
@@ -519,6 +791,13 @@ export default function ApplyQueue() {
             <Settings2 size={13} /> Daily targets
           </button>
           <button
+            onClick={() => setShowAutoApply(s => !s)}
+            title="Configure real logged-in auto-apply (Naukri/Instahyre)"
+            className="flex items-center gap-1.5 px-3 py-1.5 border border-indigo-300 text-indigo-700 text-xs font-semibold rounded-sm hover:bg-indigo-50 transition"
+          >
+            <Bot size={13} /> Auto-Apply Settings
+          </button>
+          <button
             onClick={handleRefresh}
             disabled={refreshing}
             className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 text-gray-600 text-xs font-semibold rounded-sm hover:bg-gray-50 disabled:opacity-50 transition"
@@ -584,6 +863,18 @@ export default function ApplyQueue() {
           >
             {savingTargets ? 'Saving…' : 'Save targets'}
           </button>
+        </div>
+      )}
+
+      {showAutoApply && (
+        <div className="bg-white border-2 border-indigo-200 rounded-md p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-bold text-indigo-700 flex items-center gap-1.5"><Bot size={15} /> Auto-Apply Settings</span>
+            <button onClick={() => setShowAutoApply(false)} className="text-xs text-gray-400 hover:text-gray-600">
+              <X size={14} />
+            </button>
+          </div>
+          <AutoApplySettings />
         </div>
       )}
 

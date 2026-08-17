@@ -17,7 +17,7 @@ const { refreshQueue, getQueueConfig, saveQueueConfig, DEFAULT_TARGET } = requir
 const router = express.Router();
 router.use(requireAuth);
 
-const VALID_SEGMENTS = ['queued', 'applied', 'skipped', 'all'];
+const VALID_SEGMENTS = ['queued', 'applied', 'needs_review', 'skipped', 'all'];
 
 // ── GET /api/apply-queue  ───────────────────────────────────────────────────
 router.get('/', async (req, res) => {
@@ -49,14 +49,19 @@ router.get('/', async (req, res) => {
       SELECT ja.id, ja.status, ja.match_percent, ja.matched_skills, ja.apply_method,
              ja.skip_reason, ja.queued_at, ja.applied_at, ja.skipped_at,
              ja.title, ja.company, ja.location, ja.link, ja.apply_link,
-             ja.scraper_type, ja.salary, ja.job_type
+             ja.scraper_type, ja.salary, ja.job_type,
+             ja.submission_mode, ja.auto_apply_log
       FROM job_applications ja
       ${whereSql}
       ORDER BY ja.match_percent DESC, ja.queued_at DESC, ja.id ASC
       LIMIT ? OFFSET ?
     `).all(...params, limitNum, offset);
 
-    const items = rows.map(r => ({ ...r, matched_skills: JSON.parse(r.matched_skills || '[]') }));
+    const items = rows.map(r => ({
+      ...r,
+      matched_skills: JSON.parse(r.matched_skills || '[]'),
+      auto_apply_log: r.auto_apply_log ? JSON.parse(r.auto_apply_log) : null,
+    }));
     res.json({ items, total, page: pageNum, limit: limitNum, pages: Math.max(1, Math.ceil(total / limitNum)) });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -70,9 +75,9 @@ router.get('/summary', async (req, res) => {
     const rows = await db.prepare(
       `SELECT status, COUNT(*) AS c FROM job_applications WHERE user_id = ? GROUP BY status`
     ).all(userId);
-    const counts = { queued: 0, applied: 0, skipped: 0 };
+    const counts = { queued: 0, applied: 0, needs_review: 0, skipped: 0 };
     for (const r of rows) counts[r.status] = parseInt(r.c, 10) || 0;
-    const total = counts.queued + counts.applied + counts.skipped;
+    const total = counts.queued + counts.applied + counts.needs_review + counts.skipped;
 
     const today = new Date().toISOString().slice(0, 10);
     const todayRow = await db.prepare(
@@ -128,7 +133,7 @@ router.get('/config', async (req, res) => {
 // Body: { default_target?, targets?: { [scraper_type]: number } } — the
 // per-portal "start at 20, increase gradually" dial, adjustable from the UI.
 router.put('/config', async (req, res) => {
-  const { default_target, targets } = req.body || {};
+  const { default_target, targets, auto_apply } = req.body || {};
   try {
     const patch = {};
     if (default_target != null) {
@@ -143,6 +148,26 @@ router.put('/config', async (req, res) => {
         if (Number.isFinite(n) && n >= 0) clean[k] = n;
       }
       patch.targets = clean;
+    }
+    // auto_apply: { enabled?: {portal: bool}, daily_caps?: {portal: number}, paused?: bool }
+    // Enabling a portal here does NOT check for credentials — that's the
+    // worker's job at run time (checkAutoApplyAllowed) — but the frontend
+    // should already be blocking the toggle until credentials are saved.
+    if (auto_apply && typeof auto_apply === 'object') {
+      const clean = {};
+      if (typeof auto_apply.paused === 'boolean') clean.paused = auto_apply.paused;
+      if (auto_apply.enabled && typeof auto_apply.enabled === 'object') {
+        clean.enabled = {};
+        for (const [k, v] of Object.entries(auto_apply.enabled)) clean.enabled[k] = !!v;
+      }
+      if (auto_apply.daily_caps && typeof auto_apply.daily_caps === 'object') {
+        clean.daily_caps = {};
+        for (const [k, v] of Object.entries(auto_apply.daily_caps)) {
+          const n = parseInt(v, 10);
+          if (Number.isFinite(n) && n >= 0) clean.daily_caps[k] = n;
+        }
+      }
+      patch.auto_apply = clean;
     }
     res.json(await saveQueueConfig(patch));
   } catch (err) {

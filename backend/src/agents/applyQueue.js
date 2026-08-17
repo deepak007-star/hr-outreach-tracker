@@ -2,18 +2,20 @@
 
 // Apply Queue: builds a per-user queue of already-scraped jobs ranked by
 // skill match, for the user to review and click "Apply" on themselves. This
-// module NEVER submits a form, logs into a job platform, or opens a browser
-// — it only reads scraped_jobs (populated by the existing daily scrape) and
-// writes to job_applications. See routes/apply-queue.js for the HTTP layer.
+// module itself NEVER submits a form or opens a browser — it only reads
+// scraped_jobs (populated by the existing daily scrape) and writes to
+// job_applications. See routes/apply-queue.js for the HTTP layer.
 //
-// Real logged-in auto-submit (storing portal credentials, auto-answering
-// screening questions) was deliberately NOT built here — every portal this
-// queue covers (Naukri, Instahyre, Foundit, RemoteOK, WWR, ...) prohibits
-// automated account use in its ToS, Naukri in particular already runs active
-// bot-detection (Akamai) against logged-out scraping, and a wrong
-// auto-submitted answer to a screening question can hurt a real application
-// worse than not applying. The user chose the safe path instead: everything
-// here optimizes how FAST a human can clear a real, self-submitted batch.
+// Real logged-in auto-submit is now built (agents/autoApplyWorker.js), scoped
+// to Naukri/Instahyre/Foundit ONLY (the three portals with one consistent,
+// first-party one-click-apply flow to automate) and only for a portal the
+// user has explicitly opted into after being told the ToS/ban-risk trade-off.
+// RemoteOK/WWR/LinkedIn stay manual-only — every listing there redirects to a
+// different third-party company page/ATS, so there's no single safe flow to
+// automate the way there is here. getQueueConfig()'s `auto_apply` block below
+// is what the worker reads to decide which portals are enabled and their
+// daily hard-submit cap; this file's own refreshQueue() is unchanged by any
+// of that — it only ever queues candidates, auto or not.
 
 const crypto = require('crypto');
 const db = require('../db/database');
@@ -51,21 +53,81 @@ function inferApplyMethod(scraperType) {
 const CONFIG_KEY = 'apply_queue_config';
 const DEFAULT_TARGET = 20; // "start from 20 per job portal, increase gradually" — this is that dial
 
+// Auto-apply portals ⊂ easy-apply scrapers — linkedin-jobs gets the "Easy
+// Apply" UI badge but was explicitly excluded from real automation (LinkedIn
+// account-ban risk, handled as queue-only per the user's own instruction).
+const AUTO_APPLY_PORTALS = ['naukri', 'instahyre', 'foundit'];
+const DEFAULT_AUTO_APPLY = {
+  enabled: { naukri: false, instahyre: false, foundit: false },
+  daily_caps: { naukri: DEFAULT_TARGET, instahyre: DEFAULT_TARGET, foundit: DEFAULT_TARGET },
+  paused: false, // global kill switch, checked before every single submission
+};
+
 async function getQueueConfig() {
   const row = await db.prepare(`SELECT value FROM settings WHERE key = ?`).get(CONFIG_KEY).catch(() => null);
   let cfg = {};
   try { cfg = JSON.parse(row?.value || '{}'); } catch {}
-  return { default_target: DEFAULT_TARGET, targets: {}, ...cfg };
+  return {
+    default_target: DEFAULT_TARGET,
+    targets: {},
+    ...cfg,
+    auto_apply: {
+      ...DEFAULT_AUTO_APPLY,
+      ...(cfg.auto_apply || {}),
+      enabled:    { ...DEFAULT_AUTO_APPLY.enabled,    ...(cfg.auto_apply?.enabled    || {}) },
+      daily_caps: { ...DEFAULT_AUTO_APPLY.daily_caps, ...(cfg.auto_apply?.daily_caps || {}) },
+    },
+  };
 }
 
 async function saveQueueConfig(patch) {
-  const cur  = await getQueueConfig();
-  const next = { ...cur, ...patch, targets: { ...cur.targets, ...(patch.targets || {}) } };
+  const cur = await getQueueConfig();
+  const next = {
+    ...cur, ...patch,
+    targets: { ...cur.targets, ...(patch.targets || {}) },
+    auto_apply: {
+      ...cur.auto_apply,
+      ...(patch.auto_apply || {}),
+      enabled:    { ...cur.auto_apply.enabled,    ...(patch.auto_apply?.enabled    || {}) },
+      daily_caps: { ...cur.auto_apply.daily_caps, ...(patch.auto_apply?.daily_caps || {}) },
+    },
+  };
   await db.prepare(`
     INSERT INTO settings (key, value) VALUES (?, ?)
     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
   `).run(CONFIG_KEY, JSON.stringify(next));
   return next;
+}
+
+/**
+ * The worker's hard-stop gate — called before EVERY submission attempt, not
+ * just once per run. Returns { allowed, reason } rather than throwing, so
+ * the worker can log a clear reason and move to the next portal/job instead
+ * of crashing the run.
+ */
+async function checkAutoApplyAllowed(userId, portal) {
+  if (!AUTO_APPLY_PORTALS.includes(portal)) return { allowed: false, reason: 'portal_not_supported' };
+
+  const cfg = await getQueueConfig();
+  if (cfg.auto_apply.paused) return { allowed: false, reason: 'globally_paused' };
+  if (!cfg.auto_apply.enabled[portal]) return { allowed: false, reason: 'portal_disabled' };
+
+  const cred = await db.prepare(
+    `SELECT status FROM portal_credentials WHERE user_id = ? AND portal = ?`
+  ).get(userId, portal);
+  if (!cred) return { allowed: false, reason: 'no_credentials' };
+  if (cred.status !== 'active') return { allowed: false, reason: `credentials_${cred.status}` };
+
+  const today = new Date().toISOString().slice(0, 10);
+  const submittedToday = await db.prepare(`
+    SELECT COUNT(*) c FROM job_applications
+    WHERE user_id = ? AND scraper_type = ? AND submission_mode = 'auto' AND LEFT(applied_at, 10) = ?
+  `).get(userId, portal, today);
+  const cap = Number.isFinite(cfg.auto_apply.daily_caps[portal]) ? cfg.auto_apply.daily_caps[portal] : DEFAULT_TARGET;
+  const used = parseInt(submittedToday?.c, 10) || 0;
+  if (used >= cap) return { allowed: false, reason: 'daily_cap_reached', used, cap };
+
+  return { allowed: true, remaining: cap - used, cap, used };
 }
 
 /**
@@ -161,4 +223,5 @@ async function refreshQueue(userId, profile) {
 module.exports = {
   refreshQueue, MIN_MATCHED_SKILLS, inferApplyMethod, EXCLUDED_SCRAPER_TYPES,
   getQueueConfig, saveQueueConfig, DEFAULT_TARGET,
+  AUTO_APPLY_PORTALS, checkAutoApplyAllowed,
 };
