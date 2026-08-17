@@ -6,6 +6,9 @@
 // since both need byte-identical launch/context setup.
 
 const { chromium } = require('playwright');
+const db = require('../db/database');
+const proxyRotator = require('./proxyRotator');
+const { parseProxyForLaunch } = require('./common');
 
 // Memory-lean flags — real, quantifiable reduction in headless Chromium's
 // baseline RSS (no GPU compositor process, no background sync/translate
@@ -18,13 +21,32 @@ const LEAN_ARGS = [
   '--metrics-recording-only', '--mute-audio', '--disable-extensions',
 ];
 
+// Reuses the exact same `proxy_list` setting Job Intel's proxy panel already
+// manages (lib/proxyRotator.js) — a real logged-in session hitting a site's
+// login endpoint directly from a datacenter IP (Render's) is exactly the kind
+// of request Naukri's Akamai bot-detection is tuned to flag; the passive
+// scraper already fights this and gets a proxy pool, so login should too.
+// No proxies configured = launches direct, unchanged from before.
+async function getProxyOption() {
+  try {
+    const row = await db.prepare(`SELECT value FROM settings WHERE key = 'proxy_list'`).get().catch(() => null);
+    if (row?.value?.trim()) {
+      proxyRotator.loadFromString(row.value);
+      await proxyRotator.healthCheckAll(8000);
+    }
+  } catch (_) { /* fall through to direct */ }
+  const url = proxyRotator.nextHttp() || proxyRotator.next();
+  return url ? parseProxyForLaunch(url) : undefined;
+}
+
 async function launchStealthBrowser() {
+  const proxy = await getProxyOption();
   for (const channel of ['msedge', 'chrome']) {
     try {
-      return await chromium.launch({ headless: true, channel, args: LEAN_ARGS });
+      return await chromium.launch({ headless: true, channel, args: LEAN_ARGS, ...(proxy ? { proxy } : {}) });
     } catch (_) { /* channel not installed — try next */ }
   }
-  return chromium.launch({ headless: true, args: LEAN_ARGS });
+  return chromium.launch({ headless: true, args: LEAN_ARGS, ...(proxy ? { proxy } : {}) });
 }
 
 // App-wide lock so auto-apply and the LinkedIn content publisher never both
