@@ -77,7 +77,10 @@ const LOGIN_HANDLERS = {
   instahyre: async (page, { username, password }) => {
     await page.goto('https://www.instahyre.com/', { waitUntil: 'domcontentloaded', timeout: 25000 });
     await page.waitForTimeout(1200 + Math.random() * 800);
-    await page.locator('text=LOGIN').first().click({ timeout: 8000 });
+    // Bumped from 8000 to match naukri's 10000 — a resource-constrained
+    // container renders/hydrates slower than local dev, where this button
+    // already took ~3s to become clickable on an otherwise-unblocked run.
+    await page.locator('text=LOGIN').first().click({ timeout: 10000 });
     await page.waitForTimeout(1000);
     await page.fill('input[name="email"]', username);
     await page.fill('input[name="password"]', password);
