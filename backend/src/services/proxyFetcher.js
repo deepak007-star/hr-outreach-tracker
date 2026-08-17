@@ -77,6 +77,7 @@ async function fetchCandidates(cfg) {
   const sources = buildSources(cfg);
   const perSource = {};
   const all = new Set();
+  const premium = new Set(); // authenticated/paid sources — always tested, never diluted out
 
   await Promise.all(sources.map(async src => {
     try {
@@ -102,16 +103,22 @@ async function fetchCandidates(cfg) {
         }
       }
       perSource[src.name] = urls.length;
-      urls.forEach(u => all.add(u));
+      urls.forEach(u => { all.add(u); if (src.kind === 'webshare') premium.add(u); });
     } catch (e) {
       perSource[src.name] = `err: ${e.message.slice(0, 40)}`;
     }
   }));
 
-  let list = [...all];
-  // Shuffle so the candidate cap samples across sources, then cap
-  for (let i = list.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [list[i], list[j]] = [list[j], list[i]]; }
-  if (list.length > cfg.maxCandidates) list = list.slice(0, cfg.maxCandidates);
+  // Premium (paid, authenticated) proxies are a tiny fraction of the free-list
+  // volume (e.g. 10 vs 8000+) — shuffling everything together and capping at
+  // maxCandidates meant they had only a ~1-in-800 chance of even being tested,
+  // silently drowning out the one source actually worth using. Guarantee them
+  // a slot; only fill the rest of the cap from the shuffled free pool.
+  const premiumList = [...premium];
+  let freeList = [...all].filter(u => !premium.has(u));
+  for (let i = freeList.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [freeList[i], freeList[j]] = [freeList[j], freeList[i]]; }
+  const freeBudget = Math.max(0, cfg.maxCandidates - premiumList.length);
+  let list = [...premiumList, ...freeList.slice(0, freeBudget)];
   return { candidates: list, perSource, totalFetched: all.size };
 }
 
@@ -123,10 +130,17 @@ function validateHttpProxy(proxyUrl, timeoutMs) {
     const finish = ok => { if (!done) { done = true; resolve(ok); } };
     try {
       const u = new URL(proxyUrl);
+      // httpbin.org used to be the test target here — it's a free, heavily-
+      // abused public service that's itself slow/unreachable often enough to
+      // fail validation through perfectly good proxies (verified live: a real
+      // Webshare proxy returned 200 OK against Firefox's own endpoint below in
+      // under a second, but timed out against httpbin.org through the exact
+      // same proxy). Mozilla's captive-portal check is built for exactly this
+      // kind of high-volume connectivity probing and is far more reliable.
       const opts = {
         host: u.hostname, port: u.port || 80, method: 'GET',
-        path: 'http://httpbin.org/ip',               // absolute-form → proxy fetches it
-        headers: { Host: 'httpbin.org', 'User-Agent': 'Mozilla/5.0', Accept: '*/*' },
+        path: 'http://detectportal.firefox.com/success.txt', // absolute-form → proxy fetches it
+        headers: { Host: 'detectportal.firefox.com', 'User-Agent': 'Mozilla/5.0', Accept: '*/*' },
         timeout: timeoutMs,
       };
       if (u.username) opts.headers['Proxy-Authorization'] =

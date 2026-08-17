@@ -73,10 +73,18 @@ const FUZZY_THRESHOLD = 0.6;
 // English words ("Requirements" contains "ts", "background" contains "go").
 // hayTokens is pre-split on non-alphanumeric chars, so a token match there
 // is always a real whole-word hit.
+// Single-word terms that are a literal text PREFIX of a totally unrelated
+// technology's name (not a plural/suffix of the same skill) — the raw
+// substring fallback below would otherwise false-positive on these, e.g.
+// "java" matching inside "javascript" even though the languages are
+// unrelated, silently surfacing Node/React/full-stack postings to a
+// Java-only profile.
+const STRICT_WHOLE_WORD_TERMS = new Set(['java']);
+
 function containsTerm(text, hayTokens, term) {
   if (!term) return false;
   if (term.includes(' ')) return text.includes(term); // multi-word phrase spans tokens — substring is the only option
-  if (term.length <= 3) return hayTokens.has(term);    // short single token — whole-word only
+  if (term.length <= 3 || STRICT_WHOLE_WORD_TERMS.has(term)) return hayTokens.has(term); // whole-word only
   return hayTokens.has(term) || text.includes(term);   // longer single word — token match, or substring for plurals/suffixes
 }
 

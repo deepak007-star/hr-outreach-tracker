@@ -64,12 +64,37 @@ function needsGuessedFetch(job) {
     && !!guessCompanyDomain(job.company || job.company_name);
 }
 
+// Interleave candidates across sources (round-robin) before applying the cap.
+// ingestAll() pushes sources in a fixed order (internal DB, then Arbeitnow,
+// Remotive, RemoteOK, WWR, Himalayas, Jobicy, then Greenhouse/Lever LAST) —
+// slicing straight to `cap` in that order meant Greenhouse alone (by far the
+// single biggest raw source, and real company career pages are a much
+// higher-value deep-fetch target than generic aggregator listings) could
+// structurally never get a single page fetched: the smaller upstream sources
+// filled the entire 200-slot cap before the array ever reached it.
+function roundRobinBySource(list) {
+  const bySource = new Map();
+  for (const job of list) {
+    const key = job.source || 'unknown';
+    if (!bySource.has(key)) bySource.set(key, []);
+    bySource.get(key).push(job);
+  }
+  const buckets = [...bySource.values()];
+  const out = [];
+  for (let i = 0; out.length < list.length; i++) {
+    for (const bucket of buckets) {
+      if (i < bucket.length) out.push(bucket[i]);
+    }
+  }
+  return out;
+}
+
 // Fetch + scan apply pages concurrently. Mutates jobs in place (sets the
 // _pre_contact_email / _pre_all_contacts fast-path fields extractFromJob reads).
 async function enrichWithPageEmails(jobs, { cap = 150, concurrency = 8, timeoutMs = 10000, budgetMs = 90000 } = {}) {
   const direct  = jobs.filter(needsFetch);
   const guessed = jobs.filter(j => !needsFetch(j) && needsGuessedFetch(j));
-  const targets = [...direct, ...guessed].slice(0, cap);
+  const targets = roundRobinBySource([...direct, ...guessed]).slice(0, cap);
   let enriched = 0, guessedEnriched = 0, jsFallbackList = [], idx = 0, loggedOneFailure = false;
   const deadline = Date.now() + budgetMs;   // hard overall cap so a run never bogs down
 
@@ -123,9 +148,12 @@ async function enrichWithBrowser(jobs, { cap = 25, timeoutMs = 15000 } = {}) {
   const list = jobs.slice(0, cap);
   try {
     const { chromium } = require('playwright');
-    const proxy = process.env.PROXY_URL && /^(https?|socks[45]):\/\//i.test(process.env.PROXY_URL)
-      ? { server: process.env.PROXY_URL } : undefined;
-    browser = await chromium.launch({ headless: true, args: ['--no-sandbox'], ...(proxy ? { proxy } : {}) });
+    const { parseProxyForLaunch } = require('../lib/common');
+    // parseProxyForLaunch splits out username/password into their own field —
+    // passing them embedded in `server` (as this used to) silently fails to
+    // authenticate against any credentialed (paid) proxy.
+    const proxy = parseProxyForLaunch(process.env.PROXY_URL || '');
+    browser = await chromium.launch({ headless: true, args: ['--no-sandbox'], proxy });
     const ctx = await browser.newContext({ userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0 Safari/537.36' });
     for (const job of list) {
       const page = await ctx.newPage();

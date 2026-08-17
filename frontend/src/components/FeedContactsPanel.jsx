@@ -518,7 +518,9 @@ export default function FeedContactsPanel() {
   const [contacts,   setContacts]   = useState([]);
   const [counts,     setCounts]     = useState({ linkedin: 0, naukri: 0 });
   const [loading,    setLoading]    = useState(true);
-  const [since,      setSince]      = useState('30d');
+  const [since,      setSince]      = useState('7d');
+  const [usedSince,  setUsedSince]  = useState('7d');
+  const [widened,    setWidened]    = useState(false);
   const [search,     setSearch]     = useState('');
   const [sourceTab,  setSourceTab]  = useState('all');
   const [filterTab,  setFilterTab]  = useState('all');
@@ -544,6 +546,8 @@ export default function FeedContactsPanel() {
       setRelevantToday(data.relevant_today);
       setDailyTarget(data.daily_target || 25);
       setMatchedProfile(!!data.matched_profile);
+      setUsedSince(data.used_since || since);
+      setWidened(!!data.widened);
       setLastSync(new Date());
     } catch {
       if (!silent) toast.error('Failed to load feed contacts');
@@ -764,6 +768,11 @@ export default function FeedContactsPanel() {
                   className="border rounded-sm px-2 py-1.5 text-xs focus:ring-2 focus:ring-brand-300 outline-none bg-white">
             {SINCE_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
+          {widened && (
+            <span className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-sm px-2 py-1.5">
+              Nothing new in {SINCE_OPTS.find(o => o.value === since)?.label.toLowerCase() || 'that window'} — showing {SINCE_OPTS.find(o => o.value === usedSince)?.label.toLowerCase() || 'older results'} instead
+            </span>
+          )}
           <input type="text" placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)}
                  className="border rounded-sm px-3 py-1.5 text-xs w-40 focus:ring-2 focus:ring-brand-300 outline-none" />
           <button onClick={() => fetchContacts()} className="text-xs text-gray-500 border rounded-sm px-2 py-1.5 hover:bg-gray-50">

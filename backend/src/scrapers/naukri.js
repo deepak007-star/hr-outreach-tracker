@@ -33,7 +33,7 @@ const fs   = require('fs');
 const { chromium } = require('playwright');
 const {
   sleep, stripHtml, resolveRelativeDate, sinceToDays,
-  applyFilters, parseArgs, proxyLaunchArgs, ensureBrowserReachable, rotateBrowserProxy,
+  applyFilters, parseArgs, proxyLaunchOption, ensureBrowserReachable, rotateBrowserProxy,
   saveRawCache, buildSuffix, saveCSV, saveHTML,
   TODAY, RUN_STAMP,
 } = require('../lib/common');
@@ -61,14 +61,15 @@ async function launchBrowser() {
       const b = await chromium.launch({
         headless: false,
         channel,
-        args: ['--no-sandbox', '--disable-infobars', ...proxyLaunchArgs()],
+        args: ['--no-sandbox', '--disable-infobars'],
+        proxy: proxyLaunchOption(),
       });
       console.log(`  Browser : system ${channel}`);
       return b;
     } catch (_) {}
   }
   console.warn('  No system Edge/Chrome found — using headless Chromium (may be blocked by Akamai)');
-  return chromium.launch({ headless: true, args: ['--no-sandbox', ...proxyLaunchArgs()] });
+  return chromium.launch({ headless: true, args: ['--no-sandbox'], proxy: proxyLaunchOption() });
 }
 
 // ─── Parse one job from Naukri's internal API JSON ────────────────────────────

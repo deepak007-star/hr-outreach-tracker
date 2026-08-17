@@ -35,7 +35,7 @@ const path   = require('path');
 const fs     = require('fs');
 const { chromium } = require('playwright');
 const {
-  sleep, parseArgs, buildSuffix, saveCSV, saveHTML, saveRawCache, RUN_STAMP,
+  sleep, parseArgs, buildSuffix, saveCSV, saveHTML, saveRawCache, RUN_STAMP, parseProxyForLaunch,
 } = require('../lib/common');
 const { detectBotChallenge, EngineState } = require('../lib/captchaDetector');
 const proxyRotator = require('../lib/proxyRotator');
@@ -147,15 +147,28 @@ async function launchBrowser(proxyUrl = '') {
     '--disable-backgrounding-occluded-windows',
     '--disable-renderer-backgrounding',
   ];
-  if (proxyUrl) {
-    args.push(`--proxy-server=${proxyUrl}`);
+  // Chromium's --proxy-server CLI flag can't carry embedded credentials —
+  // authenticated proxies (any paid provider) must go through Playwright's
+  // dedicated `proxy` launch option instead, or the auth silently fails.
+  const proxy = parseProxyForLaunch(proxyUrl);
+  if (proxy) {
     console.log(`[browser] Using proxy: ${proxyUrl.replace(/:[^:@]+@/, ':***@')}`);
   }
-  // Try real browsers first (better fingerprint), fall back to bundled Chromium
+  // Try real browsers first (better TLS/JA3 fingerprint match for their UA
+  // string than bundled Chromium), fall back to bundled Chromium. NOTE: the
+  // deployed Docker image only runs `playwright install --with-deps chromium`
+  // (see backend/Dockerfile) — msedge/chrome aren't installed there, so this
+  // silently falls through to bundled Chromium on every real run. Logged
+  // explicitly so that's visible instead of assumed.
   for (const channel of ['msedge', 'chrome']) {
-    try { return await chromium.launch({ headless, channel, args }); } catch (_) {}
+    try {
+      const b = await chromium.launch({ headless, channel, args, proxy });
+      console.log(`[browser] launched real browser channel: ${channel}`);
+      return b;
+    } catch (_) {}
   }
-  return chromium.launch({ headless, args });
+  console.log('[browser] real browser channels unavailable — using bundled Chromium (weaker fingerprint match)');
+  return chromium.launch({ headless, args, proxy });
 }
 
 async function newStealthPage(browser) {
@@ -208,6 +221,32 @@ async function newStealthPage(browser) {
   // don't accumulate across keywords / phases / retries.
   page.once('close', () => { context.close().catch(() => {}); });
   return page;
+}
+
+// One persistent page/context PER ENGINE for the whole run, instead of a
+// brand-new cookie-less context (with a freshly rotated UA/viewport) for
+// every single keyword. 15 completely fresh "first-ever-visit" sessions in a
+// row from the same IP is itself a strong bot signature — accumulating
+// cookies and keeping one stable fingerprint across a run's queries to the
+// same engine looks like one real user running several searches in a
+// sitting, which is exactly what this is. Cleared whenever the browser is
+// relaunched (proxy rotation / dead-proxy fallback) since old pages die with
+// their browser.
+let enginePages = {};
+
+async function getEnginePage(browser, engine) {
+  const cached = enginePages[engine];
+  if (cached && !cached.isClosed()) return cached;
+  const page = await newStealthPage(browser);
+  enginePages[engine] = page;
+  return page;
+}
+
+async function resetEnginePages() {
+  for (const page of Object.values(enginePages)) {
+    try { await page.close(); } catch (_) {}
+  }
+  enginePages = {};
 }
 
 // ─── URL decode (DuckDuckGo) ──────────────────────────────────────────────────
@@ -289,11 +328,10 @@ function buildGenericLinkedInQueries() {
 
 // ─── DuckDuckGo search ────────────────────────────────────────────────────────
 
-let ddgBlocked  = false;
 let ddgWarmedUp = false;
 
 async function warmUpDDG(browser) {
-  if (ddgWarmedUp || ddgBlocked) return;
+  if (ddgWarmedUp) return;
   try {
     const p = await newStealthPage(browser);
     await p.goto('https://duckduckgo.com/', { waitUntil: 'domcontentloaded', timeout: 20000 });
@@ -323,13 +361,13 @@ async function gotoTracked(page, url) {
 async function searchDDGRaw(browser, queries, urlFilter, maxResults, tag, engineState) {
   const seen    = new Set();
   const results = [];
-  if (ddgBlocked || engineState.isBlocked('duckduckgo')) return results;
+  if (engineState.isBlocked('duckduckgo')) return results;
 
   await warmUpDDG(browser);
-  let page = await newStealthPage(browser);
+  let page = await getEnginePage(browser, 'duckduckgo');
 
   for (const q of queries) {
-    if (results.length >= maxResults || ddgBlocked) break;
+    if (results.length >= maxResults || engineState.isBlocked('duckduckgo')) break;
 
     let retried = false;
     retry:
@@ -343,7 +381,11 @@ async function searchDDGRaw(browser, queries, urlFilter, maxResults, tag, engine
         const challenge = await detectBotChallenge(page);
         if (challenge.detected) {
           if (retried) {
-            ddgBlocked = true;
+            // 8-minute cooldown via engineState only — no separate permanent
+            // latch. The old `ddgBlocked` boolean never reset once tripped,
+            // so one bad pair of detections (including a false positive)
+            // silently killed DDG — the most bot-tolerant, primary engine —
+            // for the rest of every remaining keyword in the run.
             engineState.markBlocked('duckduckgo', 8 * 60_000);
             console.warn('  [ddg] persistently blocked — switching to other engines');
             break retry;
@@ -383,8 +425,7 @@ async function searchDDGRaw(browser, queries, urlFilter, maxResults, tag, engine
       } catch (err) {
         console.error(`  [ddg/${tag}] error: ${err.message.split('\n')[0]}`);
         if (page.isClosed() || /crashed|closed/i.test(err.message)) {
-          try { await page.close(); } catch (_) {}
-          page = await newStealthPage(browser);
+          page = await getEnginePage(browser, 'duckduckgo');
         }
         break retry;
       }
@@ -393,7 +434,8 @@ async function searchDDGRaw(browser, queries, urlFilter, maxResults, tag, engine
     await sleep(3500 + Math.random() * 1500);
   }
 
-  try { await page.close(); } catch (_) {}
+  // No page.close() here anymore — this engine's page/context (and its
+  // cookies) stays alive for the rest of the run; see getEnginePage/resetEnginePages.
   return results;
 }
 
@@ -415,7 +457,7 @@ async function searchGoogle(browser, queries, urlFilter, maxResults, tag, engine
   if (engineState.isBlocked('google')) return results;
   googleBlocked = false;
 
-  let page = await newStealthPage(browser);
+  let page = await getEnginePage(browser, 'google');
 
   for (const q of queries) {
     if (results.length >= maxResults || googleBlocked) break;
@@ -465,14 +507,12 @@ async function searchGoogle(browser, queries, urlFilter, maxResults, tag, engine
     } catch (err) {
       console.error(`  [google/${tag}] error: ${err.message.split('\n')[0]}`);
       if (page.isClosed() || /crashed|closed/i.test(err.message)) {
-        try { await page.close(); } catch (_) {}
-        page = await newStealthPage(browser);
+        page = await getEnginePage(browser, 'google');
       }
     }
     await sleep(2500 + Math.random() * 1500);
   }
 
-  try { await page.close(); } catch (_) {}
   return results;
 }
 
@@ -486,7 +526,7 @@ async function searchBing(browser, queries, urlFilter, maxResults, tag, engineSt
     return results;
   }
 
-  let page = await newStealthPage(browser);
+  let page = await getEnginePage(browser, 'bing');
 
   for (const q of queries) {
     if (results.length >= maxResults) break;
@@ -497,7 +537,16 @@ async function searchBing(browser, queries, urlFilter, maxResults, tag, engineSt
       await gotoTracked(page, url);
       await sleep(2000 + Math.random() * 1500);
 
-      const challenge = await detectBotChallenge(page);
+      let challenge = await detectBotChallenge(page);
+      if (challenge.detected) {
+        // One retry before giving up — a transient hiccup (slow proxy,
+        // one-off rate limit) shouldn't cost this engine 5 minutes for the
+        // rest of the run the way a single detection used to.
+        console.warn(`  [bing/${tag}] challenge detected (${challenge.type}) — retrying once...`);
+        await sleep(8000 + Math.random() * 4000);
+        try { await gotoTracked(page, url); await sleep(2000 + Math.random() * 1500); } catch (_) {}
+        challenge = await detectBotChallenge(page);
+      }
       if (challenge.detected) {
         console.warn(`  [bing/${tag}] blocked (${challenge.type})`);
         engineState.markBlocked('bing', 5 * 60_000);
@@ -539,14 +588,12 @@ async function searchBing(browser, queries, urlFilter, maxResults, tag, engineSt
     } catch (err) {
       console.error(`  [bing/${tag}] error: ${err.message.split('\n')[0]}`);
       if (page.isClosed() || /crashed|closed/i.test(err.message)) {
-        try { await page.close(); } catch (_) {}
-        page = await newStealthPage(browser);
+        page = await getEnginePage(browser, 'bing');
       }
     }
     await sleep(2000 + Math.random() * 1000);
   }
 
-  try { await page.close(); } catch (_) {}
   return results;
 }
 
@@ -560,7 +607,7 @@ async function searchBrave(browser, queries, urlFilter, maxResults, tag, engineS
     return results;
   }
 
-  let page = await newStealthPage(browser);
+  let page = await getEnginePage(browser, 'brave');
 
   for (const q of queries) {
     if (results.length >= maxResults) break;
@@ -570,7 +617,13 @@ async function searchBrave(browser, queries, urlFilter, maxResults, tag, engineS
       await gotoTracked(page, url);
       await sleep(1800 + Math.random() * 1200);
 
-      const challenge = await detectBotChallenge(page);
+      let challenge = await detectBotChallenge(page);
+      if (challenge.detected) {
+        console.warn(`  [brave/${tag}] challenge detected (${challenge.type}) — retrying once...`);
+        await sleep(8000 + Math.random() * 4000);
+        try { await gotoTracked(page, url); await sleep(1800 + Math.random() * 1200); } catch (_) {}
+        challenge = await detectBotChallenge(page);
+      }
       if (challenge.detected) {
         console.warn(`  [brave/${tag}] blocked (${challenge.type})`);
         engineState.markBlocked('brave', 5 * 60_000);
@@ -618,14 +671,12 @@ async function searchBrave(browser, queries, urlFilter, maxResults, tag, engineS
     } catch (err) {
       console.error(`  [brave/${tag}] error: ${err.message.split('\n')[0]}`);
       if (page.isClosed() || /crashed|closed/i.test(err.message)) {
-        try { await page.close(); } catch (_) {}
-        page = await newStealthPage(browser);
+        page = await getEnginePage(browser, 'brave');
       }
     }
     await sleep(1500 + Math.random() * 1000);
   }
 
-  try { await page.close(); } catch (_) {}
   return results;
 }
 
@@ -639,7 +690,7 @@ async function searchYahoo(browser, queries, urlFilter, maxResults, tag, engineS
     return results;
   }
 
-  let page = await newStealthPage(browser);
+  let page = await getEnginePage(browser, 'yahoo');
 
   for (const q of queries) {
     if (results.length >= maxResults) break;
@@ -649,7 +700,13 @@ async function searchYahoo(browser, queries, urlFilter, maxResults, tag, engineS
       await gotoTracked(page, url);
       await sleep(2000 + Math.random() * 1500);
 
-      const challenge = await detectBotChallenge(page);
+      let challenge = await detectBotChallenge(page);
+      if (challenge.detected) {
+        console.warn(`  [yahoo/${tag}] challenge detected (${challenge.type}) — retrying once...`);
+        await sleep(8000 + Math.random() * 4000);
+        try { await gotoTracked(page, url); await sleep(2000 + Math.random() * 1500); } catch (_) {}
+        challenge = await detectBotChallenge(page);
+      }
       if (challenge.detected) {
         console.warn(`  [yahoo/${tag}] blocked (${challenge.type})`);
         engineState.markBlocked('yahoo', 5 * 60_000);
@@ -698,14 +755,12 @@ async function searchYahoo(browser, queries, urlFilter, maxResults, tag, engineS
     } catch (err) {
       console.error(`  [yahoo/${tag}] error: ${err.message.split('\n')[0]}`);
       if (page.isClosed() || /crashed|closed/i.test(err.message)) {
-        try { await page.close(); } catch (_) {}
-        page = await newStealthPage(browser);
+        page = await getEnginePage(browser, 'yahoo');
       }
     }
     await sleep(2000 + Math.random() * 1000);
   }
 
-  try { await page.close(); } catch (_) {}
   return results;
 }
 
@@ -859,12 +914,14 @@ async function main() {
       const next = proxyRotator.nextHttp() || proxyRotator.next();
       if (!next || next === currentProxy) break;
       try { await browser.close(); } catch {}
+      await resetEnginePages(); // old pages/contexts died with that browser
       currentProxy = next;
       browser = await launchBrowser(currentProxy);
       if (await probeBrowser()) { console.log(`[proxy] using working proxy ${currentProxy.replace(/:[^:@]+@/, ':***@')}`); return; }
     }
     console.log('[proxy] no working proxy — relaunching DIRECT (no proxy) to avoid stalling');
     try { await browser.close(); } catch {}
+    await resetEnginePages();
     currentProxy = '';
     browser = await launchBrowser('');
   }
@@ -888,6 +945,7 @@ async function main() {
     }
     console.log(`[proxy] Rotating after ${reason} — new proxy: ${next.replace(/:[^:@]+@/, ':***@')}`);
     try { await browser.close(); } catch {}
+    await resetEnginePages();
     currentProxy = next;
     browser = await launchBrowser(currentProxy);
     // If the freshly-picked proxy is itself dead, probe + fall back to direct
@@ -985,6 +1043,7 @@ async function main() {
       if (!proxyDisabled && currentProxy && navTimeoutCount >= TIMEOUT_GIVEUP) {
         console.log(`[proxy] ${navTimeoutCount} navigation timeouts — proxy too slow, switching to DIRECT for the rest of the run`);
         try { await browser.close(); } catch {}
+        await resetEnginePages();
         currentProxy = '';
         browser = await launchBrowser('');
         proxyDisabled = true;
@@ -1048,7 +1107,7 @@ async function main() {
       let allResults = mergeResults([ddgLI, googleLI, bingLI, braveLI, yahooLI]);
 
       // ── Phase 6: DuckDuckGo Twitter + Telegram ────────────────────────────
-      if (!ddgBlocked && !engineState.isBlocked('duckduckgo')) {
+      if (!engineState.isBlocked('duckduckgo')) {
         const twFilter = u => /(?:twitter\.com|x\.com)\/[^/]+\/status\//.test(u);
         const tgFilter = u => /t\.me\/[A-Za-z0-9_]+/.test(u);
         const tw = await searchDDGRaw(browser, buildTwitterDDGQueries(keyword), twFilter, Math.ceil(target * 1.5), 'twitter', engineState);
@@ -1108,7 +1167,7 @@ async function main() {
       const braveGen  = await searchBrave(browser, buildGenericLinkedInQueries(), liFilter, remaining * 3, 'generic-li', engineState);
       let broadResults = mergeResults([googleGen, bingGen, braveGen]);
 
-      if (!ddgBlocked && !engineState.isBlocked('duckduckgo')) {
+      if (!engineState.isBlocked('duckduckgo')) {
         const ddgGen = await searchDDGRaw(browser, buildGenericLinkedInQueries(), liFilter, remaining * 3, 'generic-li', engineState);
         broadResults = mergeResults([...broadResults, ddgGen]);
       }
@@ -1120,6 +1179,7 @@ async function main() {
     }
 
   } finally {
+    await resetEnginePages();
     await browser.close();
   }
 

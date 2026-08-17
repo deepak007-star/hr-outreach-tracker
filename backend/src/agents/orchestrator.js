@@ -31,14 +31,25 @@ const DEFAULT_CONFIG = {
   run_every_hours:      6,
   keywords:             DEFAULT_KEYWORDS, // 340+ role variants (Java/Python/Frontend/DevOps/AI/...) — rotated, see keywordRotation.js
   locations:            ['India', 'Remote'],
-  // Live-verified (real HTTP call, 200 + non-empty board) as of 2026-08-15 — mix of
-  // global tech (with India offices posting India-location roles) and India-native
-  // companies (postman, groww, freshworks, meesho, cred).
-  greenhouse_companies: ['stripe', 'airbnb', 'figma', 'coinbase', 'discord', 'robinhood', 'asana', 'databricks', 'gitlab', 'postman', 'groww'],
-  lever_companies:      ['plaid', 'freshworks', 'meesho', 'cred'],
+  // Live-verified (real HTTP call, 200 + non-empty board) as of 2026-08-16 — mix of
+  // global tech (with India offices posting India-location roles), India-native
+  // companies (postman, groww, freshworks, meesho, cred), and — per request to
+  // broaden country coverage — Germany (n26, trivago, celonis), UK/global
+  // (wise, canonical), Canada (hootsuite, wealthsimple), Australia (deputy).
+  greenhouse_companies: ['stripe', 'airbnb', 'figma', 'coinbase', 'discord', 'robinhood', 'asana', 'databricks', 'gitlab', 'postman', 'groww',
+                         'n26', 'trivago', 'celonis', 'wise', 'canonical', 'hootsuite'],
+  lever_companies:      ['plaid', 'freshworks', 'meesho', 'cred', 'deputy', 'wealthsimple'],
   adzuna_app_id:        '',
   adzuna_key:           '',
+  // Adzuna runs one country per pipeline run, rotating through this list
+  // (lib/keywordRotation.js) so quota use stays flat while coverage still
+  // cycles through all of them over successive runs. api.adzuna.com uses a
+  // per-country path segment — see agents/ingestion/adzuna.js.
+  adzuna_countries:     ['in', 'us', 'gb', 'de', 'au', 'ca'],
   jooble_key:           '',
+  // Same rotation idea for Jooble — it's one global endpoint with a free-text
+  // `location` param rather than per-country hosts.
+  jooble_locations:     ['India', 'United States', 'United Kingdom', 'Germany', 'Australia', 'Canada'],
   classify:             false, // disabled by default — contact extraction doesn't need job relevance scoring
   relevance_filter:     true,  // deterministic keyword/location gate — set false to disable
   min_confidence:       0.5,
@@ -236,11 +247,18 @@ async function runPipeline(triggeredBy = 'scheduler') {
     if (cfg.deep_fetch !== false) {
       try {
         const { enrichWithPageEmails, enrichWithBrowser } = require('./deepFetch');
+        // cap raised 200→320 and budget 90s→120s now that deepFetch.js
+        // round-robins across sources instead of taking candidates in raw
+        // ingestion order — previously the cap barely mattered for most
+        // sources since Greenhouse (the single biggest, ~80% of raw volume,
+        // and real company pages are a stronger deep-fetch target than
+        // generic aggregator listings) is pushed last by ingestAll() and got
+        // starved of the entire budget before its turn ever came.
         const http = await enrichWithPageEmails(unique, {
-          cap:         cfg.deep_fetch_cap || 200,
+          cap:         cfg.deep_fetch_cap || 320,
           concurrency: cfg.deep_fetch_concurrency || 15,
           timeoutMs:   cfg.deep_fetch_timeout_ms || 10000,
-          budgetMs:    cfg.deep_fetch_budget_ms || 90000, // hard overall cap
+          budgetMs:    cfg.deep_fetch_budget_ms || 120000, // hard overall cap
         });
         console.log(`[Pipeline] Deep-fetch (http): enriched ${http.enriched}/${http.attempted} apply pages` +
           (http.guessedEnriched ? ` (${http.guessedEnriched} via guessed company domain, e.g. LinkedIn-sourced jobs)` : ''));
@@ -408,11 +426,30 @@ async function schedulePipeline() {
   }
 
   const intervalMs = Math.max(1, cfg.run_every_hours || 6) * 3_600_000;
-  console.log(`[Pipeline] Scheduling every ${cfg.run_every_hours}h`);
+  console.log(`[Pipeline] Scheduling every ~${cfg.run_every_hours}h (±15% jitter)`);
 
-  // Run once after 30s to populate on startup, then on interval
+  // A plain setInterval fires at a mathematically exact period forever — from
+  // the same handful of IPs, that's a textbook non-human timing signature
+  // (search-engine anti-bot systems specifically watch for perfectly regular
+  // polling). Self-rescheduling setTimeout with ±15% jitter per cycle instead,
+  // so the real-world gap between runs varies (e.g. a "6h" schedule lands
+  // anywhere from ~5.1h to ~6.9h) rather than landing on the exact same
+  // offset every single time.
+  function jittered(ms) {
+    const jitter = ms * 0.15;
+    return ms + (Math.random() * 2 - 1) * jitter;
+  }
+  function scheduleNext() {
+    setTimeout(() => {
+      runPipeline('scheduler')
+        .catch(e => console.error('[Pipeline] Scheduled run failed:', e.message))
+        .finally(scheduleNext);
+    }, jittered(intervalMs));
+  }
+
+  // Run once after 30s to populate on startup, then keep rescheduling
   setTimeout(() => runPipeline('startup').catch(e => console.error('[Pipeline] Startup run failed:', e.message)), 30_000);
-  setInterval(() => runPipeline('scheduler').catch(e => console.error('[Pipeline] Scheduled run failed:', e.message)), intervalMs);
+  scheduleNext();
 }
 
 /**

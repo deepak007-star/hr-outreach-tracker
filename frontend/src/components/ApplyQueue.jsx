@@ -10,7 +10,21 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'react-hot-toast';
 import { api } from '../api/client.js';
 import { EmptyState, Spinner } from './ui/index.js';
-import { RefreshCw, ExternalLink, Check, X, PlayCircle } from 'lucide-react';
+import { RefreshCw, ExternalLink, Check, X, PlayCircle, Keyboard, Settings2 } from 'lucide-react';
+
+// A short, ready-to-paste opener for portals that ask "why are you
+// interested" / a cover-note field — built from data already on the queue
+// item (title, company, matched_skills), no extra request needed. Copied to
+// the clipboard automatically the moment a job's apply page opens, so
+// switching to that tab and pasting is the very next action.
+function buildApplyBlurb(item) {
+  const skills = (item.matched_skills || []).slice(0, 3).join(', ');
+  const skillsPart = skills ? ` With hands-on experience in ${skills}, I believe I'd be a strong fit for this role.` : '';
+  return `Hi, I'm interested in the ${item.title || 'this'} position at ${item.company || 'your company'}.${skillsPart}`;
+}
+async function copyApplyBlurb(item) {
+  try { await navigator.clipboard.writeText(buildApplyBlurb(item)); } catch { /* clipboard permission denied — non-fatal */ }
+}
 
 const SEGMENTS = [
   { id: 'queued',  label: 'Queued',  active: 'bg-brand-600 text-white border-brand-600', dot: 'bg-brand-500' },
@@ -163,11 +177,15 @@ function BatchReview({ queue, onMarkApplied, onSkip, onExit }) {
 
   // Auto-open the apply page the moment a new job becomes "current" — once
   // per job (openedForRef guards against re-opening on an unrelated re-render).
+  // Also copies a ready-to-paste cover-note opener to the clipboard in the
+  // same step, so tabbing over to the just-opened apply page and pasting is
+  // the very next action — no separate "compose a note" detour per job.
   useEffect(() => {
     if (!current || openedForRef.current === current.id) return;
     openedForRef.current = current.id;
     const url = current.apply_link || current.link;
     if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    copyApplyBlurb(current);
   }, [current]);
 
   const advance = () => setIndex(i => i + 1);
@@ -198,6 +216,25 @@ function BatchReview({ queue, onMarkApplied, onSkip, onExit }) {
     const url = current.apply_link || current.link;
     if (url) window.open(url, '_blank', 'noopener,noreferrer');
   };
+
+  // Keyboard-driven review — this is the actual throughput lever for
+  // clearing 20-50/day: Enter confirms the current job as applied and
+  // advances, S skips it (default reason, still recorded), R reopens the
+  // apply tab if it got lost, Esc exits the batch. No form field on this
+  // screen needs focus, so a bare keydown listener (not tied to an input)
+  // is the right scope — typing in the browser tab that actually opened
+  // (the job site) is a completely separate window/context.
+  useEffect(() => {
+    function onKeyDown(e) {
+      if (done || busy) return;
+      if (e.key === 'Enter')      { e.preventDefault(); handleApplied(); }
+      else if (e.key === 's' || e.key === 'S') { e.preventDefault(); handleSkip('Other'); }
+      else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); handleReopen(); }
+      else if (e.key === 'Escape') { e.preventDefault(); onExit(); }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [done, busy, current]);
 
   return (
     <div className="bg-white border-2 border-brand-200 rounded-md p-5 space-y-4">
@@ -238,7 +275,14 @@ function BatchReview({ queue, onMarkApplied, onSkip, onExit }) {
           </div>
 
           <p className="text-xs text-gray-400">
-            The apply page opened in a new tab automatically. Submit it there, then click below to move on.
+            The apply page opened in a new tab automatically, and a ready-to-paste cover note is on your clipboard. Submit it there, then confirm below to move on.
+          </p>
+          <p className="text-xs text-gray-400 flex items-center gap-1.5 flex-wrap">
+            <Keyboard size={12} className="shrink-0" />
+            <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-[11px] font-mono">Enter</kbd> applied & next
+            <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-[11px] font-mono">S</kbd> skip
+            <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-[11px] font-mono">R</kbd> reopen tab
+            <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-[11px] font-mono">Esc</kbd> exit
           </p>
 
           <div className="flex items-center gap-2">
@@ -263,15 +307,23 @@ function BatchReview({ queue, onMarkApplied, onSkip, onExit }) {
   );
 }
 
+const PORTAL_LABELS = {
+  naukri: 'Naukri', instahyre: 'Instahyre', foundit: 'Foundit', jora: 'Jora',
+  general: 'Remote boards', 'linkedin-jobs': 'LinkedIn Jobs', unknown: 'Other',
+};
+
 export default function ApplyQueue() {
   const [items,      setItems]      = useState([]);
-  const [summary,    setSummary]    = useState({ queued: 0, applied: 0, skipped: 0, total: 0, applied_today: 0, daily_target: 60 });
+  const [summary,    setSummary]    = useState({ queued: 0, applied: 0, skipped: 0, total: 0, applied_today: 0, daily_target: 20, portals: [] });
   const [segment,    setSegment]    = useState('queued');
   const [page,       setPage]       = useState(1);
   const [pages,      setPages]      = useState(1);
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [pendingConfirm, setPendingConfirm] = useState(new Set());
+  const [showTargets,   setShowTargets]   = useState(false);
+  const [targetDrafts,  setTargetDrafts]  = useState({}); // scraper_type -> string (input draft)
+  const [savingTargets, setSavingTargets] = useState(false);
   // Batch Review: selectedMap holds full item data (not just ids) since a
   // "select 50" quick-pick fetches beyond whatever page is currently on
   // screen — the stepper needs the actual job details, not just an id list.
@@ -306,6 +358,42 @@ export default function ApplyQueue() {
     no_matches_found: "No jobs matched at least 3 of your profile skills — try adding more skills to your profile, or check back after the next scrape.",
   };
 
+  // "Start from 20 per portal, increase gradually" — this is that dial. Each
+  // portal has its own target (falls back to a shared default), adjustable
+  // from here rather than a code change.
+  const openTargets = () => {
+    const drafts = {};
+    for (const p of summary.portals || []) drafts[p.scraper_type] = String(p.target);
+    setTargetDrafts(drafts);
+    setShowTargets(true);
+  };
+
+  const bumpTarget = (type, delta) => {
+    setTargetDrafts(prev => {
+      const cur = parseInt(prev[type], 10) || 0;
+      return { ...prev, [type]: String(Math.max(0, cur + delta)) };
+    });
+  };
+
+  const saveTargets = async () => {
+    setSavingTargets(true);
+    try {
+      const targets = {};
+      for (const [type, v] of Object.entries(targetDrafts)) {
+        const n = parseInt(v, 10);
+        if (Number.isFinite(n) && n >= 0) targets[type] = n;
+      }
+      await api.put('/apply-queue/config', { targets });
+      toast.success('Daily targets updated');
+      setShowTargets(false);
+      fetchSummary();
+    } catch {
+      toast.error('Could not save targets');
+    } finally {
+      setSavingTargets(false);
+    }
+  };
+
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
@@ -328,6 +416,7 @@ export default function ApplyQueue() {
     const url = item.apply_link || item.link;
     if (!url) { toast.error('No apply link on this posting'); return; }
     window.open(url, '_blank', 'noopener,noreferrer');
+    copyApplyBlurb(item);
     setPendingConfirm(prev => new Set(prev).add(item.id));
   };
 
@@ -421,15 +510,82 @@ export default function ApplyQueue() {
             <div className="h-full bg-emerald-500 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
           </div>
         </div>
-        <button
-          onClick={handleRefresh}
-          disabled={refreshing}
-          className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 text-gray-600 text-xs font-semibold rounded-sm hover:bg-gray-50 disabled:opacity-50 transition"
-        >
-          <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
-          {refreshing ? 'Refreshing…' : 'Refresh queue'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={openTargets}
+            title="Adjust daily target per job portal"
+            className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 text-gray-600 text-xs font-semibold rounded-sm hover:bg-gray-50 transition"
+          >
+            <Settings2 size={13} /> Daily targets
+          </button>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 text-gray-600 text-xs font-semibold rounded-sm hover:bg-gray-50 disabled:opacity-50 transition"
+          >
+            <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
+            {refreshing ? 'Refreshing…' : 'Refresh queue'}
+          </button>
+        </div>
       </div>
+
+      {/* Per-portal breakdown — each portal ramps up independently ("20 to
+          start, increase gradually") rather than sharing one global number. */}
+      {summary.portals?.length > 0 && (
+        <div className="bg-white border rounded-md p-3 flex flex-wrap gap-4">
+          {summary.portals.map(p => {
+            const ppct = p.target > 0 ? Math.min(100, (p.applied_today / p.target) * 100) : 0;
+            return (
+              <div key={p.scraper_type} className="flex items-center gap-2 text-xs">
+                <span className="font-semibold text-gray-700 whitespace-nowrap">
+                  {PORTAL_LABELS[p.scraper_type] || p.scraper_type}
+                </span>
+                <span className="text-gray-400 tabular-nums">{p.applied_today}/{p.target}</span>
+                <div className="w-16 h-1 bg-gray-200 rounded-full overflow-hidden">
+                  <div className="h-full bg-brand-500 rounded-full" style={{ width: `${ppct}%` }} />
+                </div>
+                <span className="text-gray-400 tabular-nums" title="Currently queued">({p.queued} queued)</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {showTargets && (
+        <div className="bg-white border-2 border-brand-200 rounded-md p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-bold text-brand-700">Daily target per portal</span>
+            <button onClick={() => setShowTargets(false)} className="text-xs text-gray-400 hover:text-gray-600">
+              <X size={14} />
+            </button>
+          </div>
+          <p className="text-xs text-gray-500">
+            How many jobs the queue tries to keep ready per portal each day. Start low (e.g. 20) and raise it once you're comfortably clearing that many.
+          </p>
+          <div className="space-y-2">
+            {Object.keys(targetDrafts).map(type => (
+              <div key={type} className="flex items-center gap-2">
+                <span className="text-sm text-gray-700 w-32 shrink-0">{PORTAL_LABELS[type] || type}</span>
+                <button onClick={() => bumpTarget(type, -5)} className="w-7 h-7 border border-gray-300 rounded-sm text-gray-500 hover:bg-gray-50">−</button>
+                <input
+                  type="number" min="0" value={targetDrafts[type]}
+                  onChange={e => setTargetDrafts(prev => ({ ...prev, [type]: e.target.value }))}
+                  className="w-16 text-center border rounded-sm px-2 py-1 text-sm"
+                />
+                <button onClick={() => bumpTarget(type, 5)} className="w-7 h-7 border border-gray-300 rounded-sm text-gray-500 hover:bg-gray-50">+</button>
+                <button onClick={() => bumpTarget(type, 10)} className="text-xs text-brand-600 hover:text-brand-800 underline ml-1">+10</button>
+              </div>
+            ))}
+          </div>
+          <button
+            onClick={saveTargets}
+            disabled={savingTargets}
+            className="px-4 py-2 bg-brand-600 text-white text-sm font-semibold rounded-sm hover:bg-brand-700 disabled:opacity-50 transition"
+          >
+            {savingTargets ? 'Saving…' : 'Save targets'}
+          </button>
+        </div>
+      )}
 
       {/* Segment tabs */}
       <div className="flex flex-wrap items-center gap-2">

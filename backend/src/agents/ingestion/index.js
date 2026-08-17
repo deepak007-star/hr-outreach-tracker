@@ -12,6 +12,7 @@ const fetchJooble           = require('./jooble');
 const fetchLinkedinPostsDB  = require('./db-linkedin-posts');
 const fetchScrapedJobsDB    = require('./db-scraped');
 const { pickWeightedKeywordWindow } = require('../../lib/categoryYield');
+const { nextWindow }        = require('../../lib/keywordRotation');
 const { isSourceDisabled }  = require('../pipelineHealth');
 
 // Internal DB sources are never auto-disabled by pipelineHealth — a "0 results"
@@ -38,8 +39,20 @@ async function ingestAll(cfg) {
     : ['Backend Developer', 'Node.js Developer', 'Java Developer', 'React Developer'];
   const ghCompanies = Array.isArray(cfg.greenhouse_companies) ? cfg.greenhouse_companies : [];
   const lvCompanies = Array.isArray(cfg.lever_companies)      ? cfg.lever_companies      : [];
-  const adzunaOpts  = { appId: cfg.adzuna_app_id, appKey: cfg.adzuna_key, location: cfg.adzuna_location || '' };
-  const joobleOpts  = { key: cfg.jooble_key, location: cfg.jooble_location || 'India' };
+
+  // One country/location per run, rotating through the configured list (same
+  // nextWindow() helper the keyword rotation below uses) — keeps call volume
+  // flat (still ~5 calls/run each) while cycling through every configured
+  // country/location over successive runs instead of only ever querying the
+  // first one.
+  const adzunaCountries = Array.isArray(cfg.adzuna_countries) && cfg.adzuna_countries.length ? cfg.adzuna_countries : ['in'];
+  const joobleLocations = Array.isArray(cfg.jooble_locations) && cfg.jooble_locations.length ? cfg.jooble_locations : ['India'];
+  const [[adzunaCountry], [joobleLocation]] = await Promise.all([
+    nextWindow('adzuna_country', adzunaCountries, 1),
+    nextWindow('jooble_location', joobleLocations, 1),
+  ]);
+  const adzunaOpts  = { appId: cfg.adzuna_app_id, appKey: cfg.adzuna_key, country: adzunaCountry, location: cfg.adzuna_location || '' };
+  const joobleOpts  = { key: cfg.jooble_key, location: joobleLocation || cfg.jooble_location || 'India' };
 
   // Adzuna/Jooble only take 5 keywords/run (rate-limit budget). With a large
   // target-role list (100+ entries), always taking the first 5 would mean the

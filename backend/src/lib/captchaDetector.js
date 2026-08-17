@@ -66,8 +66,10 @@ const TEXT_PATTERNS = [
   { re: /join linkedin to see/i,                               engine: 'linkedin'   },
   { re: /sign in to continue/i,                                engine: 'linkedin'   },
   { re: /you need to sign in/i,                                engine: 'linkedin'   },
-  { re: /security check/i,                                     engine: 'generic'    },
-  { re: /please enable javascript/i,                           engine: 'generic'    },
+  // "security check"/"please enable javascript" were removed — both show up
+  // verbatim in ordinary, non-blocked SERP boilerplate (footer text, <noscript>
+  // fallbacks) often enough that they were false-positive-triggering markBlocked()
+  // on real, unblocked pages, killing an engine's yield for the rest of the run.
   // Bing block
   { re: /this page has been blocked/i,                         engine: 'bing'       },
   // Yahoo CAPTCHA

@@ -488,7 +488,25 @@ async function main() {
   }
 
   // ── Multi-agent Job Intelligence Pipeline scheduler ───────────────────────
-  schedulePipeline().catch(e => console.error('[Pipeline] Scheduler init failed:', e.message));
+  // job_intel_config.enabled is a single shared-DB flag — every server process
+  // that boots against this DATABASE_URL (this local dev box AND the deployed
+  // Render instance both point at the same Supabase DB) independently starts
+  // its own scrape/ingest cycle. Unlike DAILY_SCRAPE_JOBS below (which is
+  // cross-instance-safe via a DB-backed `scrape_done_<date>` dedup key),
+  // runPipeline()'s `_running` guard is in-memory only — useless across two
+  // separate processes. Found live: 100+ orphaned `pipeline_runs` rows stuck
+  // in 'running' status, clustered in tight bursts exactly matching a nodemon
+  // restart storm — every local restart kicked off a fresh LinkedIn Feed
+  // scrape, then killed it mid-flight on the next restart, burning through
+  // search-engine goodwill and polluting the shared antibot_status/pipeline
+  // audit trail that the real (Render) deployment's Admin Panel reads. Set
+  // DISABLE_BACKGROUND_JOBS=true in local .env to stop this box from ever
+  // running it — never set it on the actual deployed instance.
+  if (process.env.DISABLE_BACKGROUND_JOBS === 'true') {
+    console.log('[Pipeline] Scheduler skipped — DISABLE_BACKGROUND_JOBS=true');
+  } else {
+    schedulePipeline().catch(e => console.error('[Pipeline] Scheduler init failed:', e.message));
+  }
 
   // Job-intel contact sync — runs every 5 minutes so newly extracted emails appear
   // in HR List and Job Intel Contacts within a few minutes of the pipeline finishing.

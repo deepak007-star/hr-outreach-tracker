@@ -41,11 +41,35 @@ function toAxiosProxy(url) {
   } catch { return null; }
 }
 
-// For Playwright browser scrapers: chromium --proxy-server args (http or socks).
-function proxyLaunchArgs() {
-  const url = process.env.PROXY_URL || '';
-  return /^(https?|socks[45]):\/\//i.test(url) ? [`--proxy-server=${url}`] : [];
+// For Playwright browser scrapers. Chromium's `--proxy-server` CLI flag
+// cannot carry embedded credentials (`user:pass@host`) — it silently drops
+// or chokes on them, so an authenticated proxy passed that way never
+// actually authenticates. That was invisible until now because every proxy
+// in the pool has been free/unauthenticated; paid residential providers
+// (Decodo, IPRoyal, etc.) all require username/password. Playwright's
+// documented fix is passing `{ server, username, password }` as its own
+// `proxy` launch option, not baking it into `args`.
+function parseProxyForLaunch(url) {
+  if (!/^(https?|socks[45]):\/\//i.test(url || '')) return undefined;
+  try {
+    const u      = new URL(url);
+    const server = `${u.protocol}//${u.hostname}${u.port ? ':' + u.port : ''}`;
+    return u.username
+      ? { server, username: decodeURIComponent(u.username), password: decodeURIComponent(u.password) }
+      : { server };
+  } catch { return undefined; }
 }
+
+// env-var-driven variant for the scrapers that read PROXY_URL directly.
+function proxyLaunchOption() {
+  return parseProxyForLaunch(process.env.PROXY_URL || '');
+}
+
+// Deprecated — every prior caller spread this into `args`, which is now
+// wrong (see above). Kept as a no-op export so nothing crashes; callers
+// should add `proxy: proxyLaunchOption()` to their chromium.launch() call
+// instead of spreading this into args.
+function proxyLaunchArgs() { return []; }
 
 // Probe a launched browser's proxy by loading a light page; if it fails (dead
 // proxy), clear PROXY_URL and relaunch DIRECT via the caller's launchFn so a bad
@@ -589,7 +613,7 @@ ${cards}
 }
 
 module.exports = {
-  sleep, get, proxyLaunchArgs, ensureBrowserReachable, rotateBrowserProxy, stripHtml, escH,
+  sleep, get, proxyLaunchArgs, parseProxyForLaunch, proxyLaunchOption, ensureBrowserReachable, rotateBrowserProxy, stripHtml, escH,
   TODAY, RUN_STAMP, parseSince, sinceToSeconds, sinceToDays, resolveRelativeDate, jobDate,
   isRemote, matchesLocation,
   applyFilters, parseArgs,

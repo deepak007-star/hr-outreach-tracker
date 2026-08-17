@@ -492,22 +492,28 @@ async function getFeedContacts({ cutoff, search, source = 'all', profileSkills, 
   // plenty existed further down. When profile signal is present, sort by
   // match strength first (recency as the tiebreak) instead of pure recency.
   const combinedSkills = [...(profileSkills || []), ...(profileTitles || [])].filter(Boolean);
+  let relevant = merged;
   if (combinedSkills.length) {
     for (const c of merged) {
       const { percent, matched } = lightweightSkillMatch(combinedSkills, `${c.title || ''} ${c.description || ''}`);
       c.match_percent   = percent;
       c.matched_skills  = matched;
     }
-    merged.sort((a, b) =>
+    // Actually FILTER to matches, not just sort — previously this only
+    // re-ordered the full unfiltered list, so once real matches ran out the
+    // rest of the page silently filled with unrelated postings (e.g. a
+    // Java-only profile still seeing Node/React/full-stack contacts).
+    relevant = merged.filter(c => (c.matched_skills?.length || 0) > 0);
+    relevant.sort((a, b) =>
       (b.matched_skills?.length || 0) - (a.matched_skills?.length || 0)
       || (b.created_at || b.scraped_at || '').localeCompare(a.created_at || a.scraped_at || '')
     );
   } else {
-    merged.sort((a, b) => (b.created_at || b.scraped_at || '').localeCompare(a.created_at || a.scraped_at || ''));
+    relevant.sort((a, b) => (b.created_at || b.scraped_at || '').localeCompare(a.created_at || a.scraped_at || ''));
   }
 
   return {
-    merged,
+    merged: relevant,
     counts: {
       linkedin: linkedinContacts.length + apifyContacts.length,
       naukri:   naukriContacts.length,
@@ -522,14 +528,21 @@ const RELEVANT_CONTACTS_DAILY_TARGET = 25;
 
 router.get('/feed-contacts', requireAuth, async (req, res) => {
   try {
-    const { since = '30d', limit = '200', page = '1', search, source = 'all', matchProfile } = req.query;
+    const { since = '7d', limit = '200', page = '1', search, source = 'all', matchProfile } = req.query;
     const limitNum = Math.min(parseInt(limit) || 100, 500);
     const pageNum  = Math.max(parseInt(page)  || 1,   1);
     const offset   = (pageNum - 1) * limitNum;
 
     const daysMap = { '1d': 1, '3d': 3, '7d': 7, '14d': 14, '30d': 30, '90d': 90 };
-    const cutoff  = new Date(Date.now() - (daysMap[since] || 30) * 86_400_000)
-      .toISOString().replace('T', ' ').slice(0, 19);
+    // Fresh-first, widen-on-empty: always try the requested window first (the
+    // recruiter posts that matter most are the newest ones), and only reach
+    // further back in time if that window has literally nothing. Walking the
+    // ladder from wherever the caller started keeps an explicit "90d" request
+    // from silently widening past what was asked, while a bare default load
+    // (7d) escalates all the way to 90d before giving up.
+    const WINDOW_LADDER = ['7d', '14d', '30d', '90d'];
+    let sinceIdx = WINDOW_LADDER.indexOf(since);
+    if (sinceIdx === -1) sinceIdx = WINDOW_LADDER.indexOf('30d');
 
     // Default to the caller's own profile (skills + preferred titles) for
     // relevance scoring, same opt-out pattern JobScraperSection/LinkedInPosts
@@ -545,7 +558,18 @@ router.get('/feed-contacts', requireAuth, async (req, res) => {
       }
     }
 
-    const { merged, counts } = await getFeedContacts({ cutoff, search, source, profileSkills, profileTitles });
+    let effectiveSince = WINDOW_LADDER[sinceIdx];
+    let merged, counts;
+    while (true) {
+      const cutoff = new Date(Date.now() - daysMap[effectiveSince] * 86_400_000)
+        .toISOString().replace('T', ' ').slice(0, 19);
+      ({ merged, counts } = await getFeedContacts({ cutoff, search, source, profileSkills, profileTitles }));
+      if (merged.length > 0 || sinceIdx >= WINDOW_LADDER.length - 1) break;
+      sinceIdx += 1;
+      effectiveSince = WINDOW_LADDER[sinceIdx];
+    }
+    const widened = effectiveSince !== since;
+
     const contacts = merged.slice(offset, offset + limitNum);
 
     // "Relevant today" = matched at least one profile skill/title AND first
@@ -578,6 +602,9 @@ router.get('/feed-contacts', requireAuth, async (req, res) => {
       relevant_today: relevantToday,
       daily_target:   RELEVANT_CONTACTS_DAILY_TARGET,
       matched_profile: profileSkills.length > 0 || profileTitles.length > 0,
+      requested_since: since,
+      used_since:      effectiveSince,
+      widened,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

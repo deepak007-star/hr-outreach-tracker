@@ -12,7 +12,7 @@ const express = require('express');
 const crypto  = require('crypto');
 const db      = require('../db/database');
 const { requireAuth } = require('../middleware/auth');
-const { refreshQueue, ACTIVE_TARGET } = require('../agents/applyQueue');
+const { refreshQueue, getQueueConfig, saveQueueConfig, DEFAULT_TARGET } = require('../agents/applyQueue');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -79,12 +79,72 @@ router.get('/summary', async (req, res) => {
       `SELECT COUNT(*) AS c FROM job_applications WHERE user_id = ? AND LEFT(applied_at, 10) = ?`
     ).get(userId, today);
 
+    // Per-portal breakdown — this is what the "20/portal, ramp up gradually"
+    // config actually tracks against, since each portal has its own target.
+    const cfg = await getQueueConfig();
+    const byType = await db.prepare(`
+      SELECT scraper_type,
+             COUNT(*) FILTER (WHERE status = 'queued') AS queued,
+             COUNT(*) FILTER (WHERE status = 'applied' AND LEFT(applied_at, 10) = ?) AS applied_today,
+             COUNT(*) FILTER (WHERE status = 'applied') AS applied_total
+      FROM job_applications
+      WHERE user_id = ?
+      GROUP BY scraper_type
+    `).all(today, userId);
+    const portals = byType.map(r => {
+      const type = r.scraper_type || 'unknown';
+      const target = Number.isFinite(cfg.targets?.[type]) ? cfg.targets[type] : cfg.default_target;
+      return {
+        scraper_type: type,
+        queued: parseInt(r.queued, 10) || 0,
+        applied_today: parseInt(r.applied_today, 10) || 0,
+        applied_total: parseInt(r.applied_total, 10) || 0,
+        target,
+      };
+    });
+
     res.json({
       ...counts,
       total,
       applied_today: parseInt(todayRow?.c, 10) || 0,
-      daily_target: ACTIVE_TARGET,
+      daily_target: portals.reduce((sum, p) => sum + p.target, 0) || DEFAULT_TARGET,
+      portals,
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/apply-queue/config  ────────────────────────────────────────────
+router.get('/config', async (req, res) => {
+  try {
+    res.json(await getQueueConfig());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── PUT /api/apply-queue/config  ────────────────────────────────────────────
+// Body: { default_target?, targets?: { [scraper_type]: number } } — the
+// per-portal "start at 20, increase gradually" dial, adjustable from the UI.
+router.put('/config', async (req, res) => {
+  const { default_target, targets } = req.body || {};
+  try {
+    const patch = {};
+    if (default_target != null) {
+      const n = parseInt(default_target, 10);
+      if (!Number.isFinite(n) || n < 1) return res.status(400).json({ error: 'default_target must be a positive number' });
+      patch.default_target = n;
+    }
+    if (targets && typeof targets === 'object') {
+      const clean = {};
+      for (const [k, v] of Object.entries(targets)) {
+        const n = parseInt(v, 10);
+        if (Number.isFinite(n) && n >= 0) clean[k] = n;
+      }
+      patch.targets = clean;
+    }
+    res.json(await saveQueueConfig(patch));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
