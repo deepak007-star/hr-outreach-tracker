@@ -122,11 +122,12 @@ async function publishPost(postId) {
   // instances is exactly the kind of compounding that tips a 512MB
   // container over the edge.
   return withBrowserLock(async () => {
-  const browser = await launchStealthBrowser();
-  const ctx = await newStealthContext(browser);
-  const page = await ctx.newPage();
-
+  let browser, ctx;
   try {
+    browser = await launchStealthBrowser();
+    ctx = await newStealthContext(browser);
+    const page = await ctx.newPage();
+
     const login = await loginLinkedIn(page, { username: credRow.username, password });
     if (!login.ok) {
       await markInvalidCredentials(post.user_id, 'linkedin', login.error);
@@ -157,8 +158,8 @@ async function publishPost(postId) {
       .run(String(e.message || e).slice(0, 500), nowStr(), postId);
     return { ok: false, error: e.message };
   } finally {
-    await ctx.close().catch(() => {});
-    await browser.close().catch(() => {});
+    if (ctx) await ctx.close().catch(() => {});
+    if (browser) await browser.close().catch(() => {});
   }
   });
 }

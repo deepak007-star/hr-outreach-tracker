@@ -290,12 +290,13 @@ async function runPortalForUser(userId, portal) {
   // instances is exactly the kind of compounding that tips a 512MB
   // container over the edge.
   return withBrowserLock(async () => {
-  const browser = await launchStealthBrowser();
-  const ctx = await newStealthContext(browser);
-  const page = await ctx.newPage();
-
+  let browser;
   let applied = 0, needsReview = 0, consecutiveFailures = 0;
   try {
+    browser = await launchStealthBrowser();
+    const ctx = await newStealthContext(browser);
+    const page = await ctx.newPage();
+
     const login = await loginPortal(page, portal, { username: credRow.username, password });
     if (!login.ok) {
       await markInvalidCredentials(userId, portal, login.error);
@@ -349,7 +350,7 @@ async function runPortalForUser(userId, portal) {
       await sleep(8000 + Math.random() * 12000);
     }
   } finally {
-    await browser.close();
+    if (browser) await browser.close().catch(() => {});
   }
 
   return { processed: applied + needsReview, applied, needsReview };
@@ -374,10 +375,12 @@ async function testLogin(userId, portal) {
   const password = decrypt(credRow.password_encrypted);
 
   return withBrowserLock(async () => {
-    const browser = await launchStealthBrowser();
-    const ctx = await newStealthContext(browser);
-    const page = await ctx.newPage();
+    let browser, ctx;
     try {
+      browser = await launchStealthBrowser();
+      ctx = await newStealthContext(browser);
+      const page = await ctx.newPage();
+
       const login = await loginPortal(page, portal, { username: credRow.username, password });
       const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
       if (!login.ok) {
@@ -393,8 +396,8 @@ async function testLogin(userId, portal) {
       await markInvalidCredentials(userId, portal, e.message);
       return { ok: false, error: e.message };
     } finally {
-      await ctx.close().catch(() => {});
-      await browser.close().catch(() => {});
+      if (ctx) await ctx.close().catch(() => {});
+      if (browser) await browser.close().catch(() => {});
     }
   });
 }
