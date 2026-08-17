@@ -1,10 +1,13 @@
 'use strict';
 
-// Real, logged-in auto-apply for Naukri and Instahyre (Foundit's homepage is
-// currently blocked outright by its WAF even with the same stealth profile
-// that gets past Naukri's — see the plan; revisit once/if that's solved,
-// possibly with a working proxy). Every design choice here optimizes for
-// "fail safe," never "assume success":
+// Real, logged-in auto-apply for Naukri, Instahyre, and Foundit. Foundit's
+// login handler is UNVERIFIED even at the page-load level — its homepage
+// returned a WAF "Access Denied" on every attempt from this dev sandbox
+// (default Chromium, real-browser-channel stealth, and twice more through
+// different residential proxy exit IPs). It's included anyway since that
+// block may be specific to this sandbox's network rather than foundit.in
+// broadly — worth retesting once actually deployed. Every design choice
+// here optimizes for "fail safe," never "assume success":
 //   - A failed login marks the credential 'invalid' and STOPS — never
 //     retries with a possibly-wrong password (a fast way to get an account
 //     flagged for suspicious activity).
@@ -107,6 +110,39 @@ const LOGIN_HANDLERS = {
     const stillHasForm = await page.locator('input[name="password"]').count();
     if (stillHasForm > 0 || hasFailureText(bodyText)) {
       return { ok: false, error: bodyText.slice(0, 300) || 'Login form still present after submit' };
+    }
+    return { ok: true };
+  },
+  // UNVERIFIED — foundit.in's homepage returned a WAF "Access Denied" on
+  // every attempt this session (default Chromium, real-browser-channel
+  // stealth, and twice more through two different residential proxy exit
+  // IPs) — never once got far enough to see a real page, let alone the
+  // login form. Selectors below are generic guesses (common seeker-portal
+  // patterns), not confirmed against real markup like naukri/instahyre's
+  // are. Could genuinely work once run from Render's network instead of
+  // this dev sandbox's — that's untested. Fails safe either way: an
+  // unreachable/changed page just returns ok:false and the credential gets
+  // marked invalid with the real error message, it never assumes success.
+  foundit: async (page, { username, password }) => {
+    await page.goto('https://www.foundit.in/seeker/login', { waitUntil: 'domcontentloaded', timeout: 25000 });
+    await page.waitForTimeout(1500 + Math.random() * 1000);
+    const bodyTextBefore = await page.evaluate(() => document.body?.innerText || '').catch(() => '');
+    if (/access denied|blocked|forbidden/i.test(bodyTextBefore)) {
+      return { ok: false, error: `Page blocked before a login form ever loaded: ${bodyTextBefore.slice(0, 200)}` };
+    }
+    const emailField = page.locator('input[type="email"], input[name*="email" i], input[placeholder*="email" i]').first();
+    const passField  = page.locator('input[type="password"]').first();
+    if (await emailField.count() === 0 || await passField.count() === 0) {
+      return { ok: false, error: 'No recognizable login form found on foundit.in — selectors need live verification' };
+    }
+    await emailField.fill(username);
+    await passField.fill(password);
+    await page.locator('button:has-text("Login"), button[type="submit"]').first().click({ timeout: 10000 });
+    await page.waitForTimeout(4000);
+    const bodyText2 = await page.evaluate(() => document.body?.innerText || '').catch(() => '');
+    const stillHasForm2 = await passField.count();
+    if (stillHasForm2 > 0 || hasFailureText(bodyText2)) {
+      return { ok: false, error: bodyText2.slice(0, 300) || 'Login form still present after submit' };
     }
     return { ok: true };
   },

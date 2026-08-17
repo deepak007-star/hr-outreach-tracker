@@ -462,7 +462,7 @@ function AutoApplySettings() {
     <div className="space-y-4">
       <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 text-xs text-amber-800">
         <Bot size={14} className="shrink-0" />
-        Real, logged-in submission — this actually applies for you with no click on the portal itself. Naukri/Instahyre only (Foundit's site currently blocks even a normal page load; revisit later). Start small, watch the Needs Review tab.
+        Real, logged-in submission — this actually applies for you with no click on the portal itself. Naukri and Instahyre are tested at the login-form level; Foundit's login flow is unverified (its site blocked every reachability check from the dev environment, so treat it as experimental until proven live). Start small, watch the Needs Review tab.
       </div>
 
       {/* Global kill switch */}
