@@ -356,6 +356,49 @@ async function runPortalForUser(userId, portal) {
   });
 }
 
+// ── On-demand login test ─────────────────────────────────────────────────────
+// Exposed via POST /api/apply-automation/credentials/:portal/test so the user
+// can get an immediate answer to "does this actually work now" instead of
+// waiting for the next scheduled cycle (every 3h) — same login code path the
+// worker runs unattended, just triggered by an explicit user click on their
+// own stored credentials rather than a timer. Works regardless of the
+// credential's current status (including 'invalid') since the whole point is
+// re-testing after a fix; a fresh success clears 'invalid' the same way a
+// fresh failure would set it.
+async function testLogin(userId, portal) {
+  const credRow = await db.prepare(
+    'SELECT username, password_encrypted FROM portal_credentials WHERE user_id = ? AND portal = ?'
+  ).get(userId, portal);
+  if (!credRow) return { ok: false, error: 'no_credentials' };
+
+  const password = decrypt(credRow.password_encrypted);
+
+  return withBrowserLock(async () => {
+    const browser = await launchStealthBrowser();
+    const ctx = await newStealthContext(browser);
+    const page = await ctx.newPage();
+    try {
+      const login = await loginPortal(page, portal, { username: credRow.username, password });
+      const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+      if (!login.ok) {
+        await markInvalidCredentials(userId, portal, login.error);
+        return { ok: false, error: login.error };
+      }
+      await db.prepare(
+        `UPDATE portal_credentials SET status = 'active', last_login_at = ?, last_login_error = NULL WHERE user_id = ? AND portal = ?`
+      ).run(now, userId, portal);
+      logger.info(`[auto-apply] ${portal} test login succeeded`, { userId });
+      return { ok: true };
+    } catch (e) {
+      await markInvalidCredentials(userId, portal, e.message);
+      return { ok: false, error: e.message };
+    } finally {
+      await ctx.close().catch(() => {});
+      await browser.close().catch(() => {});
+    }
+  });
+}
+
 // ── Scheduler entry point ────────────────────────────────────────────────────
 // Iterates every user with an active credential row for an enabled portal,
 // running them ONE AT A TIME (never concurrent browser sessions — see file
@@ -389,4 +432,4 @@ async function runAutoApplyCycle() {
   return { skipped: false, summary };
 }
 
-module.exports = { runPortalForUser, runAutoApplyCycle, matchAnswer, loginPortal, attemptApply, markInvalidCredentials };
+module.exports = { runPortalForUser, runAutoApplyCycle, matchAnswer, loginPortal, attemptApply, markInvalidCredentials, testLogin };

@@ -75,6 +75,22 @@ router.put('/credentials/:portal', async (req, res) => {
   }
 });
 
+// POST /api/apply-automation/credentials/:portal/test — real, immediate login
+// attempt against the stored credentials, so the user gets a direct answer
+// instead of waiting for the next scheduled auto-apply cycle. Launches a real
+// browser — can take a few seconds.
+router.post('/credentials/:portal/test', async (req, res) => {
+  const { portal } = req.params;
+  if (!VALID_PORTALS.includes(portal)) return res.status(400).json({ error: 'Unknown portal' });
+  try {
+    const { testLogin } = require('../agents/autoApplyWorker');
+    const result = await testLogin(req.user.userId, portal);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // DELETE /api/apply-automation/credentials/:portal
 router.delete('/credentials/:portal', async (req, res) => {
   const { portal } = req.params;

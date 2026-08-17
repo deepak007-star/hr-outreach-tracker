@@ -351,6 +351,7 @@ function AutoApplySettings() {
   const [savingCred, setSavingCred] = useState(null);
   const [newAnswer,   setNewAnswer]   = useState({ question_pattern: '', answer: '' });
   const [savingAnswer, setSavingAnswer] = useState(false);
+  const [testingCred, setTestingCred] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -385,6 +386,20 @@ function AutoApplySettings() {
       toast.error(e?.response?.data?.error || 'Could not save credentials');
     } finally {
       setSavingCred(null);
+    }
+  };
+
+  const testLogin = async (portal) => {
+    setTestingCred(portal);
+    try {
+      const result = await api.post(`/apply-automation/credentials/${portal}/test`, {}, { timeout: 60000 });
+      if (result.ok) toast.success(`${PORTAL_LABELS[portal]} login succeeded — credentials are working right now`);
+      else toast.error(`${PORTAL_LABELS[portal]} login failed: ${(result.error || 'unknown error').slice(0, 150)}`);
+    } catch (e) {
+      toast.error(e?.response?.data?.error || 'Could not run login test');
+    } finally {
+      setTestingCred(null);
+      load();
     }
   };
 
@@ -507,9 +522,18 @@ function AutoApplySettings() {
                     <span className="text-gray-400"> ({cred.last_login_error.slice(0, 80)})</span>
                   )}
                 </span>
-                <button onClick={() => removeCred(portal)} className="text-gray-400 hover:text-red-600" title="Remove credentials">
-                  <Trash2 size={13} />
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => testLogin(portal)} disabled={testingCred === portal}
+                    className="text-[11px] font-semibold text-brand-600 hover:text-brand-700 disabled:opacity-50 whitespace-nowrap"
+                    title="Runs a real login attempt right now instead of waiting for the next scheduled cycle"
+                  >
+                    {testingCred === portal ? 'Testing…' : 'Test login'}
+                  </button>
+                  <button onClick={() => removeCred(portal)} className="text-gray-400 hover:text-red-600" title="Remove credentials">
+                    <Trash2 size={13} />
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="flex items-center gap-2">
