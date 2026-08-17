@@ -31,8 +31,14 @@ Suggest ${count} distinct, specific LinkedIn post topic ideas based ONLY on the 
 Respond with valid JSON only (no explanation): {"topics": ["topic 1", "topic 2"]}`;
 
     const chat = await groq.chat.completions.create({
-      model:      'llama-3.3-70b-versatile',
+      model:      'openai/gpt-oss-120b', // Groq retired the llama-3.x lineup — verified live against the current /v1/models list
       max_tokens: 400,
+      // Forces strictly valid JSON (no markdown fencing, no explanatory
+      // wrapper text) instead of relying on the model reliably following a
+      // prompt instruction — verified live that plain prompting alone
+      // sometimes produces JSON the regex-extract-then-parse below can't
+      // handle (LLM output isn't deterministic run to run).
+      response_format: { type: 'json_object' },
       messages:   [{ role: 'user', content: prompt }],
     });
     const text = chat.choices?.[0]?.message?.content?.trim() || '';

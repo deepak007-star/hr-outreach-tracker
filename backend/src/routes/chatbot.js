@@ -4,7 +4,11 @@ const { requireAuth, requireAdmin } = require('../middleware/auth');
 const database = require('../db/database');
 const { randomUUID } = require('crypto');
 
-const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+// Groq retired the llama-3.x lineup — verified live against the current
+// /v1/models list (only openai/gpt-oss-*, qwen/*, allam-2-7b, and groq/compound*
+// remain). Anyone who'd set GROQ_MODEL to an old llama-3.x name in their own
+// env still overrides this and would need to update it themselves.
+const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 
 // Resolve API key: env var takes priority, then DB settings row (set via Admin Panel)
 async function getGroqKey() {
@@ -246,7 +250,7 @@ router.post('/message', requireAuth, async (req, res) => {
       return res.status(503).json({ error: 'Groq API key is invalid or expired. Please update GROQ_API_KEY in backend/.env and restart the server.' });
     }
     if (e.status === 404) {
-      return res.status(503).json({ error: `AI model "${GROQ_MODEL}" is not available. Set GROQ_MODEL in backend/.env to a supported model (e.g. llama-3.3-70b-versatile).` });
+      return res.status(503).json({ error: `AI model "${GROQ_MODEL}" is not available. Set GROQ_MODEL in backend/.env to a supported model (e.g. openai/gpt-oss-120b) — see https://console.groq.com/docs/models for the current list.` });
     }
     res.status(500).json({ error: 'Failed to get AI response. Please try again.' });
   }

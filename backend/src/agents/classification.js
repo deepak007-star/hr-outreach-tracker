@@ -42,8 +42,15 @@ Classify this job. Respond with valid JSON only (no explanation):
 {"is_relevant":true,"seniority":"entry|mid|senior|lead|any","confidence":0.0,"reason":"brief reason under 20 words"}`;
 
     const chat = await groq.chat.completions.create({
-      model:      'llama-3.3-70b-versatile',
-      max_tokens: 100,
+      model:      'openai/gpt-oss-120b', // Groq retired the llama-3.x lineup — verified live against the current /v1/models list
+      // gpt-oss-120b spends part of the budget on internal reasoning before
+      // writing output; too-small a cap fails outright with forced JSON mode
+      // instead of truncating (see candidateGenerator.js). Live-verified:
+      // 300 still failed with an empty failed_generation (ran out of budget
+      // before writing anything) — 1200 gives real headroom for this short
+      // a JSON reply.
+      max_tokens: 1200,
+      response_format: { type: 'json_object' }, // forces strictly valid JSON — see agents/content/topicGenerator.js's comment
       messages:   [{ role: 'user', content: prompt }],
     });
     const text = chat.choices?.[0]?.message?.content?.trim() || '';

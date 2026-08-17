@@ -21,8 +21,11 @@ async function llmExtract(description) {
     const groq  = new Groq({ apiKey: key });
     const snip  = description.slice(0, 1200);
     const chat  = await groq.chat.completions.create({
-      model:      'llama-3.1-8b-instant',
-      max_tokens: 120,
+      model:      'openai/gpt-oss-20b', // Groq retired the llama-3.x lineup — verified live; smaller/faster tier matches the old 8b-instant's role
+      // Bumped from 120 — same reasoning-token headroom issue as the 120b
+      // model's calls elsewhere (see candidateGenerator.js's comment).
+      max_tokens: 300,
+      response_format: { type: 'json_object' }, // forces strictly valid JSON — see agents/content/topicGenerator.js's comment
       messages:   [{
         role:    'user',
         content: `Extract direct HR contact information from this job description (email addresses, contact person name). Respond with valid JSON only, no explanation:\n{"found":false,"emails":[],"contact_name":null}\n\nJob description:\n${snip}`,

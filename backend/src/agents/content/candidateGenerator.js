@@ -32,8 +32,17 @@ Write ${n} distinctly different draft posts on this topic, in the first person, 
 Respond with valid JSON only: {"drafts": ["draft 1 text", "draft 2 text"]}`;
 
     const chat = await groq.chat.completions.create({
-      model:      'llama-3.3-70b-versatile',
-      max_tokens: 1500,
+      model:      'openai/gpt-oss-120b', // Groq retired the llama-3.x lineup — verified live against the current /v1/models list
+      // gpt-oss-120b is a reasoning model — it spends some of max_tokens on
+      // internal reasoning before writing the actual output, and combined
+      // with forced JSON mode below, a too-small budget fails outright
+      // (400 json_validate_failed) instead of just truncating. Verified
+      // live: 1500 wasn't enough headroom for n=2 full 80-200-word drafts;
+      // bumped with real margin for n up to ~5 (this repo's VARIANT_LABELS cap).
+      max_tokens: 4000,
+      // Forces strictly valid JSON — see topicGenerator.js's identical
+      // comment for why plain prompting alone isn't reliable enough here.
+      response_format: { type: 'json_object' },
       messages:   [{ role: 'user', content: prompt }],
     });
     const text = chat.choices?.[0]?.message?.content?.trim() || '';
@@ -72,7 +81,7 @@ Instruction for the revision: "${instruction || 'Make it sound more like me — 
 Rewrite the post applying that instruction. Keep it 80-200 words, first person, ready to publish as-is. Respond with the revised post text ONLY — no surrounding quotes, no preamble, no explanation.`;
 
     const chat = await groq.chat.completions.create({
-      model:      'llama-3.3-70b-versatile',
+      model:      'openai/gpt-oss-120b', // Groq retired the llama-3.x lineup — verified live against the current /v1/models list
       max_tokens: 600,
       messages:   [{ role: 'user', content: prompt }],
     });
