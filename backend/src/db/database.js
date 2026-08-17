@@ -1,4 +1,5 @@
 const { Pool, Client } = require('pg');
+const crypto = require('crypto');
 
 const connectionString = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/hr_outreach_tracker';
 const isLocal = /localhost|127\.0\.0\.1/.test(connectionString);
@@ -75,6 +76,27 @@ async function initialize() {
   });
 
   try {
+  // ── Fast path: skip the ~130-statement migration block entirely when
+  // nothing in it has changed since the last successful boot. Each
+  // statement below is a real network round-trip to Supabase — measured at
+  // ~15s total for a full run, which was tipping Render's health-check
+  // timeout on every deploy once today's new tables piled on. The
+  // fingerprint is this function's OWN source text, so it invalidates
+  // itself automatically the moment a migration is added/edited — nothing
+  // to remember to bump manually. Falls through to the full run (safe,
+  // just slow) if the settings table doesn't exist yet (first-ever boot)
+  // or the fingerprint doesn't match.
+  const migrationFingerprint = crypto.createHash('sha256').update(initialize.toString()).digest('hex');
+  let priorFingerprint = null;
+  try {
+    const row = await db.prepare(`SELECT value FROM settings WHERE key = 'schema_migration_fingerprint'`).get();
+    priorFingerprint = row?.value || null;
+  } catch (_) { /* settings table doesn't exist yet — first-ever boot */ }
+
+  if (priorFingerprint === migrationFingerprint) {
+    console.log('[DB] Schema unchanged since last boot — skipping migration checks');
+  } else {
+
   await db.exec(`
     CREATE TABLE IF NOT EXISTS contacts (
       id                TEXT PRIMARY KEY,
@@ -1010,6 +1032,13 @@ async function initialize() {
       console.log('[DB migration] Promoted first user to admin role');
     }
   }
+
+  await db.prepare(`
+    INSERT INTO settings (key, value) VALUES ('schema_migration_fingerprint', ?)
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+  `).run(migrationFingerprint);
+
+  } // end of the fingerprint-mismatch branch
 
   } finally {
     // Restore pool-based db methods and close the init connection
