@@ -243,6 +243,85 @@ router.put('/change-password', requireAuth, async (req, res) => {
   res.json({ ok: true, token: freshToken });
 });
 
+// ── POST /api/auth/forgot-password ────────────────────────────────────────
+// Always responds with the same generic message regardless of whether the
+// email exists — standard practice so this endpoint can't be used to probe
+// which addresses have accounts. Reuses getTransportForUser (falls back to
+// the site's global smtp_config if the target user has no personal OAuth
+// connected — the normal case for anyone hitting "forgot password" at all).
+router.post('/forgot-password', authLimiter, authSlowDown, authRateLimit, async (req, res) => {
+  const { email } = req.body || {};
+  const GENERIC = { ok: true, message: 'If an account exists for that email, a reset link has been sent.' };
+  if (!email?.trim()) return res.status(400).json({ error: 'Email is required.' });
+
+  try {
+    const user = await db.prepare('SELECT id, name, email FROM users WHERE LOWER(email) = ?').get(email.trim().toLowerCase());
+    if (!user) return res.json(GENERIC); // don't leak whether the account exists
+
+    const { getTransportForUser } = require('../services/mailTransport');
+    const mail = await getTransportForUser(user.id);
+    if (!mail) {
+      // Nothing configured to send from — tell the truth here rather than a
+      // silent no-op the user has no way to diagnose (this is a server
+      // config gap, not a "does this email exist" leak).
+      console.error('[auth] forgot-password: no mail transport configured (smtp_config unset)');
+      return res.status(503).json({ error: 'Password reset email could not be sent — email sending is not configured on this server yet. Contact the admin.' });
+    }
+
+    const token     = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19); // 1h
+    await db.prepare('INSERT INTO password_resets (token, user_id, expires_at) VALUES (?, ?, ?)').run(token, user.id, expiresAt);
+
+    const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();
+    const resetLink = `${frontendUrl}/?reset_token=${token}`;
+
+    await mail.transport.sendMail({
+      from:    mail.fromName ? `"${mail.fromName}" <${mail.fromEmail}>` : mail.fromEmail,
+      to:      user.email,
+      subject: 'Reset your HR Outreach Tracker password',
+      html: `
+        <p>Hi ${user.name || ''},</p>
+        <p>Someone requested a password reset for this account. Click below to set a new password — this link expires in 1 hour and can only be used once.</p>
+        <p><a href="${resetLink}">${resetLink}</a></p>
+        <p>If you didn't request this, you can safely ignore this email — your password won't change unless you click the link above and set a new one.</p>
+      `,
+    });
+
+    res.json(GENERIC);
+  } catch (e) {
+    console.error('[auth] forgot-password failed:', e.message);
+    res.status(500).json({ error: 'Something went wrong sending the reset email. Please try again.' });
+  }
+});
+
+// ── POST /api/auth/reset-password ─────────────────────────────────────────
+router.post('/reset-password', authLimiter, authSlowDown, authRateLimit, async (req, res) => {
+  const { token, newPassword } = req.body || {};
+  if (!token)     return res.status(400).json({ error: 'Reset token is required.' });
+  if (!newPassword || newPassword.length < 6)
+    return res.status(400).json({ error: 'New password must be at least 6 characters.' });
+
+  try {
+    const row = await db.prepare('SELECT * FROM password_resets WHERE token = ?').get(token);
+    if (!row)         return res.status(400).json({ error: 'This reset link is invalid.' });
+    if (row.used_at)  return res.status(400).json({ error: 'This reset link has already been used. Request a new one.' });
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    if (row.expires_at < now) return res.status(400).json({ error: 'This reset link has expired. Request a new one.' });
+
+    const hash = await bcrypt.hash(newPassword, 10);
+    // Bump token_version too — resetting the password should sign out every
+    // other session, same as change-password already does.
+    await db.prepare('UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?')
+      .run(hash, row.user_id);
+    await db.prepare('UPDATE password_resets SET used_at = ? WHERE token = ?').run(now, token);
+
+    res.json({ ok: true, message: 'Password reset — you can now sign in with your new password.' });
+  } catch (e) {
+    console.error('[auth] reset-password failed:', e.message);
+    res.status(500).json({ error: 'Something went wrong resetting your password. Please try again.' });
+  }
+});
+
 // ── DELETE /api/auth/me ────────────────────────────────────────────────────
 // Self-service account deletion — reuses the same cascade admin.js's delete
 // route already had (previously admin-only). Doesn't re-require the password

@@ -162,6 +162,24 @@ export default function App() {
   const [activityKey,      setActivityKey]      = useState(0);
   const [activeTab,        setActiveTab]        = useState(() => getTabFromPath(window.location.pathname).tab);
   const [showAuthModal,    setShowAuthModal]    = useState(false);
+  const [authModalTab,     setAuthModalTab]     = useState('login');
+  const [resetToken,       setResetToken]       = useState(null);
+
+  // "Forgot password" email link lands here with ?reset_token=... — same
+  // detect-strip-act pattern AuthContext.jsx already uses for the Google
+  // OAuth callback's ?google_login_code=.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('reset_token');
+    if (token) {
+      window.history.replaceState({}, '', window.location.pathname);
+      setResetToken(token);
+      setAuthModalTab('reset');
+      setShowAuthModal(true);
+    }
+  }, []);
+
+  const closeAuthModal = () => { setShowAuthModal(false); setAuthModalTab('login'); setResetToken(null); };
   const [showPlans,        setShowPlans]        = useState(false);
   // Contacts & Outreach sub-tabs: 'my' | 'gmail-sync' | 'linkedin-contacts'
   const [contactSubTab,    setContactSubTab]    = useState(() => {
@@ -669,7 +687,7 @@ export default function App() {
           onSignIn={() => setShowAuthModal(true)}
           onPlansClick={() => setShowPlans(true)}
         />
-        {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} />}
+        {showAuthModal && <AuthModal onClose={closeAuthModal} initialTab={authModalTab} resetToken={resetToken} />}
         {showPlans && (
           <PlansModal
             onClose={() => setShowPlans(false)}
@@ -1424,7 +1442,7 @@ export default function App() {
 
       {showSmtp     && <SmtpSettingsModal onClose={() => setShowSmtp(false)} />}
       {showReminder && <ReminderModal     onClose={() => setShowReminder(false)} />}
-      {showAuthModal && <AuthModal         onClose={() => setShowAuthModal(false)} />}
+      {showAuthModal && <AuthModal         onClose={closeAuthModal} initialTab={authModalTab} resetToken={resetToken} />}
       {showPlans && (
         <PlansModal
           onClose={() => setShowPlans(false)}

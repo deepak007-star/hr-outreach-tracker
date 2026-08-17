@@ -139,6 +139,19 @@ async function initialize() {
       created_at    TEXT NOT NULL DEFAULT (${NOW_EXPR})
     );
 
+    -- "Forgot password" tokens. One-time-use (used_at set on redemption,
+    -- never reused), short-lived (checked against expires_at at redemption
+    -- time, not enforced by the DB). token is a random 32-byte hex string —
+    -- safe to use directly as the PK since it's never guessable.
+    CREATE TABLE IF NOT EXISTS password_resets (
+      token      TEXT PRIMARY KEY,
+      user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      expires_at TEXT NOT NULL,
+      used_at    TEXT,
+      created_at TEXT NOT NULL DEFAULT (${NOW_EXPR})
+    );
+    CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets (user_id);
+
     CREATE TABLE IF NOT EXISTS notifications (
       id         TEXT PRIMARY KEY,
       user_id    TEXT,

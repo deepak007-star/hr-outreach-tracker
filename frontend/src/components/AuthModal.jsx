@@ -42,7 +42,12 @@ function Field({ label, fkey, type, placeholder, hint, form, errors, set, showPa
 }
 
 // ── Main modal ──────────────────────────────────────────────────────────────
-export default function AuthModal({ onClose }) {
+// tab: 'login' | 'register' | 'forgot' | 'reset'. 'reset' is entered directly
+// (not via the tab bar) when App.jsx detects ?reset_token=... in the URL and
+// passes it down as resetToken — see AuthContext.jsx's OAuth-callback effect
+// for the identical "detect a one-time token in the URL, strip it, act on
+// it" pattern this follows.
+export default function AuthModal({ onClose, initialTab, resetToken }) {
   const { login, enableDevBypass, bypassAvailable } = useAuth();
   const [bypassing, setBypassing] = useState(false);
 
@@ -52,12 +57,17 @@ export default function AuthModal({ onClose }) {
     setBypassing(false);
     if (ok) requestClose();
   };
-  const [tab,      setTab]      = useState('login');
+  const [tab,      setTab]      = useState(initialTab || 'login');
   const [loading,  setLoading]  = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [showPass, setShowPass] = useState(false);
   const [errors,   setErrors]   = useState({});
   const [form,     setForm]     = useState({ name: '', identifier: '', password: '', confirm: '' });
+  const [forgotEmail,   setForgotEmail]   = useState('');
+  const [forgotSent,    setForgotSent]    = useState(false);
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetConfirm,  setResetConfirm]  = useState('');
+  const [resetDone,     setResetDone]     = useState(false);
 
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
@@ -130,6 +140,39 @@ export default function AuthModal({ onClose }) {
     setForm({ name: '', identifier: '', password: '', confirm: '' });
     setErrors({});
     setShowPass(false);
+    setForgotSent(false);
+  };
+
+  const handleForgotSubmit = async (e) => {
+    e.preventDefault();
+    if (!forgotEmail.trim()) { setErrors({ general: 'Enter your email address.' }); return; }
+    setLoading(true);
+    setErrors({});
+    try {
+      await api.post('/auth/forgot-password', { email: forgotEmail.trim() });
+      setForgotSent(true);
+    } catch (err) {
+      setErrors({ general: err.response?.data?.error || 'Could not send the reset email. Please try again.' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetSubmit = async (e) => {
+    e.preventDefault();
+    if (!resetPassword || resetPassword.length < 6) { setErrors({ general: 'New password must be at least 6 characters.' }); return; }
+    if (resetPassword !== resetConfirm) { setErrors({ general: 'Passwords do not match.' }); return; }
+    setLoading(true);
+    setErrors({});
+    try {
+      await api.post('/auth/reset-password', { token: resetToken, newPassword: resetPassword });
+      setResetDone(true);
+      toast.success('Password reset! You can now sign in.');
+    } catch (err) {
+      setErrors({ general: err.response?.data?.error || 'Could not reset your password. The link may have expired — request a new one.' });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const fieldProps = { form, errors, set, showPass, setShowPass };
@@ -143,14 +186,16 @@ export default function AuthModal({ onClose }) {
         <div className="flex items-center justify-between p-5 border-b">
           <div>
             <h2 className="text-lg font-bold text-gray-800">
-              {tab === 'login' ? 'Sign In' : 'Create Account'}
+              {tab === 'login' ? 'Sign In' : tab === 'register' ? 'Create Account'
+                : tab === 'forgot' ? 'Reset your password' : 'Set a new password'}
             </h2>
             <p className="text-xs text-gray-400 mt-0.5">HR Outreach Tracker</p>
           </div>
           <button onClick={requestClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
         </div>
 
-        {/* Tabs */}
+        {/* Tabs — hidden during forgot/reset, those are their own linear flow */}
+        {(tab === 'login' || tab === 'register') && (
         <div className="flex border-b">
           {['login', 'register'].map(t => (
             <button
@@ -165,8 +210,94 @@ export default function AuthModal({ onClose }) {
             </button>
           ))}
         </div>
+        )}
+
+        {/* Forgot password: request a reset link */}
+        {tab === 'forgot' && (
+          <div className="p-5 space-y-4">
+            {forgotSent ? (
+              <div className="text-center py-4 space-y-3">
+                <p className="text-sm text-gray-700">
+                  If an account exists for <strong>{forgotEmail}</strong>, a reset link is on its way — check your inbox (and spam folder).
+                </p>
+                <button type="button" onClick={() => switchTab('login')} className="text-brand-600 hover:underline text-sm font-medium">
+                  Back to sign in
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleForgotSubmit} className="space-y-4" noValidate>
+                <p className="text-xs text-gray-500">Enter the email on your account and we'll send you a link to set a new password.</p>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={forgotEmail}
+                    onChange={e => { setForgotEmail(e.target.value); setErrors({}); }}
+                    placeholder="you@example.com"
+                    autoComplete="email"
+                    className="w-full border border-gray-300 rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-200 outline-none"
+                  />
+                </div>
+                {errors.general && <p className="text-xs text-red-500 font-medium">{errors.general}</p>}
+                <Button type="submit" disabled={loading} className="w-full">
+                  {loading ? <Spinner size="sm" color="white" /> : 'Send reset link'}
+                </Button>
+                <p className="text-center">
+                  <button type="button" onClick={() => switchTab('login')} className="text-brand-600 hover:underline text-xs font-medium">
+                    Back to sign in
+                  </button>
+                </p>
+              </form>
+            )}
+          </div>
+        )}
+
+        {/* Reset password: landed here via the emailed link (?reset_token=...) */}
+        {tab === 'reset' && (
+          <div className="p-5 space-y-4">
+            {resetDone ? (
+              <div className="text-center py-4 space-y-3">
+                <p className="text-sm text-gray-700">Your password has been reset.</p>
+                <button type="button" onClick={() => switchTab('login')} className="px-4 py-2 bg-brand-600 text-white text-sm font-semibold rounded-sm hover:bg-brand-700 transition">
+                  Sign in
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleResetSubmit} className="space-y-4" noValidate>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">New password</label>
+                  <input
+                    type="password"
+                    value={resetPassword}
+                    onChange={e => { setResetPassword(e.target.value); setErrors({}); }}
+                    placeholder="Min. 6 characters"
+                    autoComplete="new-password"
+                    className="w-full border border-gray-300 rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-200 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Confirm new password</label>
+                  <input
+                    type="password"
+                    value={resetConfirm}
+                    onChange={e => { setResetConfirm(e.target.value); setErrors({}); }}
+                    placeholder="Repeat password"
+                    autoComplete="new-password"
+                    className="w-full border border-gray-300 rounded-sm px-3 py-2 text-sm focus:ring-2 focus:ring-brand-200 outline-none"
+                  />
+                </div>
+                {errors.general && <p className="text-xs text-red-500 font-medium">{errors.general}</p>}
+                <Button type="submit" disabled={loading} className="w-full">
+                  {loading ? <Spinner size="sm" color="white" /> : 'Reset password'}
+                </Button>
+              </form>
+            )}
+          </div>
+        )}
 
         {/* Continue with Google */}
+        {(tab === 'login' || tab === 'register') && (
+        <>
         <div className="px-5 pt-5">
           <Button
             type="button"
@@ -221,6 +352,14 @@ export default function AuthModal({ onClose }) {
             hint={tab === 'register' ? 'At least 6 characters' : undefined}
           />
 
+          {tab === 'login' && (
+            <p className="-mt-2 text-right">
+              <button type="button" onClick={() => switchTab('forgot')} className="text-xs text-brand-600 hover:underline font-medium">
+                Forgot password?
+              </button>
+            </p>
+          )}
+
           {tab === 'register' && (
             <Field {...fieldProps} label="Confirm Password" fkey="confirm" type="password" placeholder="Repeat password" />
           )}
@@ -267,6 +406,8 @@ export default function AuthModal({ onClose }) {
             {tab === 'login' ? 'Register' : 'Sign in'}
           </button>
         </p>
+        </>
+        )}
       </div>
       )}
     </Modal>
