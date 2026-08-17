@@ -1846,8 +1846,8 @@ function LogsSection() {
       if (level) params.set('level', level);
       if (search.trim()) params.set('search', search.trim());
       const res = await api.get(`/admin/logs?${params}`);
-      setLogs(res.data.logs || []);
-      setTotal(res.data.total || 0);
+      setLogs(res.logs || []);
+      setTotal(res.total || 0);
     } catch (e) {
       toast.error('Failed to load logs: ' + (e.response?.data?.error || e.message));
     } finally {
@@ -1867,7 +1867,7 @@ function LogsSection() {
     if (!await confirm(`Delete logs older than ${days} day(s)?`)) return;
     try {
       const res = await api.delete(`/admin/logs?days=${days}`);
-      toast.success(`Deleted ${res.data.deleted} log entries`);
+      toast.success(`Deleted ${res.deleted} log entries`);
       fetchLogs(true);
     } catch (e) {
       toast.error('Failed to clear logs');
