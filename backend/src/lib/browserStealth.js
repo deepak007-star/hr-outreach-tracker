@@ -7,7 +7,6 @@
 
 const { chromium } = require('playwright');
 const db = require('../db/database');
-const proxyRotator = require('./proxyRotator');
 const { parseProxyForLaunch } = require('./common');
 
 // Memory-lean flags — real, quantifiable reduction in headless Chromium's
@@ -21,22 +20,21 @@ const LEAN_ARGS = [
   '--metrics-recording-only', '--mute-audio', '--disable-extensions',
 ];
 
-// Reuses the exact same `proxy_list` setting Job Intel's proxy panel already
-// manages (lib/proxyRotator.js) — a real logged-in session hitting a site's
-// login endpoint directly from a datacenter IP (Render's) is exactly the kind
-// of request Naukri's Akamai bot-detection is tuned to flag; the passive
-// scraper already fights this and gets a proxy pool, so login should too.
-// No proxies configured = launches direct, unchanged from before.
+// Reuses services/proxyFetcher.js's buildScraperProxyEnv — the SAME merged
+// manual (`proxy_list`) + auto-fetched-and-validated (`proxy_auto_cache`,
+// refreshed from free sources + optional Webshare key) pool the Job Intel
+// pipeline already scrapes through. A real logged-in session hitting a
+// site's login endpoint directly from a datacenter IP (Render's) is exactly
+// the kind of request Naukri's Akamai bot-detection is tuned to flag; the
+// passive scraper already fights this with this same pool, so login should
+// too. No proxies alive = launches direct, unchanged from before.
 async function getProxyOption() {
   try {
-    const row = await db.prepare(`SELECT value FROM settings WHERE key = 'proxy_list'`).get().catch(() => null);
-    if (row?.value?.trim()) {
-      proxyRotator.loadFromString(row.value);
-      await proxyRotator.healthCheckAll(8000);
-    }
+    const { buildScraperProxyEnv } = require('../services/proxyFetcher');
+    const { env } = await buildScraperProxyEnv(db);
+    if (env?.PROXY_URL) return parseProxyForLaunch(env.PROXY_URL);
   } catch (_) { /* fall through to direct */ }
-  const url = proxyRotator.nextHttp() || proxyRotator.next();
-  return url ? parseProxyForLaunch(url) : undefined;
+  return undefined;
 }
 
 async function launchStealthBrowser() {
