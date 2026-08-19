@@ -27,6 +27,25 @@ const EMAIL_SPAM = [
   'greenhouse.io', 'lever.co', 'myworkday.com', 'successfactors', 'bamboohr.com', 'workable.com',
 ];
 
+// Placeholder / form-boilerplate emails. Job boards very commonly render an
+// "enter your email for job alerts" widget with a pre-filled EXAMPLE value —
+// e.g. Adzuna's apply-page interstitial shows "your.name@email.com" as the
+// input's visible text before you type anything. That's page chrome, not a
+// real HR contact, but scanning the raw page HTML (deepFetch.js) or a search
+// snippet catches it exactly like a real address would. Matched against the
+// FULL local part (before @) so a genuine short/real local part like
+// "raj@company.com" is never caught by this — only the well-known
+// placeholder tokens are.
+const PLACEHOLDER_LOCAL_RE = /^(your[.\-_]?(name|email|address|id)?|you|email|e-?mail|test|demo|sample|dummy|username|firstname|lastname|first[.\-_]?last(?:name)?|john[.\-_]?doe|jane[.\-_]?doe|foo|bar|foobar|abc|xyz|someone|placeholder|enter[.\-_]?your[.\-_]?email|name)$/i;
+
+// Domains used as generic form placeholders across job boards / templates —
+// never a real employer's mail domain.
+const PLACEHOLDER_DOMAINS = new Set([
+  'email.com', 'example.com', 'example.org', 'example.net',
+  'yourcompany.com', 'company.com', 'domain.com', 'test.com',
+  'sample.com', 'yourdomain.com', 'website.com', 'acme.com',
+]);
+
 // Filename/asset extensions that are NOT real TLDs but are short enough to
 // pass the TLD-length check below — e.g. a retina image filename like
 // "logo@2x.png" syntactically matches the email regex (local="logo",
@@ -60,6 +79,10 @@ function cleanExtractedEmail(raw) {
 
   // Phone numbers masquerading as emails (e.g. 8650032095@wa.me)
   if (/^\d+$/.test(local)) return null;
+
+  // Form-placeholder / example addresses (see PLACEHOLDER_LOCAL_RE/DOMAINS above)
+  if (PLACEHOLDER_LOCAL_RE.test(local)) return null;
+  if (PLACEHOLDER_DOMAINS.has(domain)) return null;
 
   // TLD (segment after last dot) must be 2–6 all-letter chars.
   // This rejects absorbed adjacent words like .aupostal (8 chars) while

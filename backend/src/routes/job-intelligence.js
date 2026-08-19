@@ -340,6 +340,42 @@ router.get('/health', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
+// ── GET /api/job-intel/extraction-quality ── anomaly agent's blocklist + flagged-count reconciliation (admin) ──
+router.get('/extraction-quality', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { getBlocklist, QUALITY_REPORT_KEY } = require('../agents/extractionQuality');
+    const [blocklist, reportRow] = await Promise.all([
+      getBlocklist(),
+      db.prepare(`SELECT value FROM settings WHERE key = ?`).get(QUALITY_REPORT_KEY).catch(() => null),
+    ]);
+    let flaggedReport = null;
+    try { flaggedReport = JSON.parse(reportRow?.value || 'null'); } catch {}
+    res.json({ blocklist, flaggedReport });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── DELETE /api/job-intel/extraction-quality/:type/:value ── un-block a learned address/domain (admin) ──
+// Reversible, same pattern as pipelineHealth's source disable — the agent's
+// learned calls are never a one-way trip; a false positive can be undone.
+router.delete('/extraction-quality/:type/:value', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { getBlocklist } = require('../agents/extractionQuality');
+    const { type, value } = req.params;
+    if (!['emails', 'domains'].includes(type)) return res.status(400).json({ error: 'type must be "emails" or "domains"' });
+    const bl = await getBlocklist();
+    delete bl[type][decodeURIComponent(value).toLowerCase()];
+    await db.prepare(`
+      INSERT INTO settings (key, value) VALUES ('extraction_blocklist', ?)
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+    `).run(JSON.stringify(bl));
+    res.json({ ok: true, blocklist: bl });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── PATCH /api/job-intel/health/sources/:source ── enable/disable a source (admin) ──
 // Reversible — an auto-disabled source (see pipelineHealth.js checkSourceFailures)
 // is never a one-way trip.

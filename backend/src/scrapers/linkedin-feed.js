@@ -39,6 +39,7 @@ const {
 } = require('../lib/common');
 const { detectBotChallenge, EngineState } = require('../lib/captchaDetector');
 const proxyRotator = require('../lib/proxyRotator');
+const { cleanExtractedEmail } = require('../lib/contactExtract');
 
 const OUTPUT_DIR    = path.join(__dirname, '..', 'output', 'linkedin-feed');
 const SCRAPER_TITLE = 'LinkedIn Feed — HR Posts';
@@ -80,15 +81,20 @@ const RE_EMAIL = /\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b/g;
 const RE_GFORM = /https?:\/\/(?:docs\.google\.com\/forms|forms\.gle)\/[^\s"'<>)\]]+/g;
 const RE_WA    = /https?:\/\/(?:wa\.me|api\.whatsapp\.com\/send)[^\s"'<>)\]]+/g;
 const RE_PHONE = /(?:(?:\+91|0091|0)[\s\-]?)?[6-9]\d{9}/g;
-const SPAM     = ['noreply','no-reply','example.','donotreply','linkedin.com','sentry.io',
-                  'google.com','amazonaws','@2x','@3x','privacy@','legal@',
-                  'support@linkedin','jobs@linkedin','unsubscribe@','bounce@','mailer@',
-                  'bing.com','yahoo.com','brave.com','duckduckgo.com'];
+// Domain/placeholder-address denials now live in one place — lib/contactExtract.js's
+// cleanExtractedEmail — shared with the orchestrator's extraction/deepFetch paths so
+// this scraper can't drift out of sync with what's treated as a real HR contact
+// (previously had its own SPAM list here that didn't know about placeholder addresses
+// like "your.name@email.com", which a job-alert widget's text can look identical to
+// a real mailto: link when scanned as plain text).
+const SPAM     = ['linkedin.com', 'bing.com', 'yahoo.com', 'brave.com', 'duckduckgo.com'];
 
 function extractContact(text) {
   const t = text || '';
   return {
-    emails:  [...new Set((t.match(RE_EMAIL) || []).filter(e => !SPAM.some(s => e.toLowerCase().includes(s))))],
+    emails:  [...new Set((t.match(RE_EMAIL) || [])
+      .map(e => cleanExtractedEmail(e))
+      .filter(e => e && !SPAM.some(s => e.includes(s))))],
     gforms:  [...new Set(t.match(RE_GFORM) || [])],
     phones:  [...new Set((t.match(RE_PHONE) || []).map(p => p.replace(/[\s\-]/g, '')).filter(p => p.length >= 10))],
     waLinks: [...new Set(t.match(RE_WA) || [])],
@@ -792,6 +798,19 @@ async function searchYahoo(browser, queries, urlFilter, maxResults, tag, engineS
 
 // ─── Page scraper ─────────────────────────────────────────────────────────────
 
+// LinkedIn/board pages routinely show candidates replying in the comments
+// with their OWN contact info ("Interested! My email is xyz@gmail.com") right
+// below the actual hiring post. Scanning full page innerText for contacts —
+// as the previous body-text fallback did — picked those up indistinguishably
+// from the poster's own email. Cut the text off at the first sign of a
+// comment thread before it's used for contact extraction.
+const COMMENT_SECTION_RE = /\b(\d+\s+comments?\b|add a comment|most relevant|newest first|top comments?|\d+\s+repl(?:y|ies)\b|like\s*[·•]\s*reply|view\s+\d+\s+more\s+comments?)/i;
+function stripCommentsSection(text) {
+  if (!text) return text;
+  const m = text.match(COMMENT_SECTION_RE);
+  return m ? text.slice(0, m.index) : text;
+}
+
 async function scrapePage(browser, url) {
   const page = await newStealthPage(browser);
   try {
@@ -835,8 +854,13 @@ async function scrapePage(browser, url) {
       return { ogDesc, ogTitle, metaDesc, jsonLd, domText, bodyText };
     });
 
-    const combined = [data.ogDesc, data.metaDesc, data.domText, data.jsonLd, data.bodyText]
-      .filter(Boolean).join('\n');
+    // Prefer the actual post-content selectors (og/meta description, the
+    // matched DOM node, JSON-LD) — these are scoped to the post itself, never
+    // the comment thread below it. Only fall back to raw body innerText (which
+    // includes comments/replies from other users) when none of those yielded
+    // anything, and even then cut it off before the comment section starts.
+    const postContent = [data.ogDesc, data.metaDesc, data.domText, data.jsonLd].filter(Boolean).join('\n');
+    const combined = postContent.length > 40 ? postContent : stripCommentsSection(data.bodyText);
 
     return { text: combined, ogDesc: data.ogDesc || data.metaDesc, ogTitle: data.ogTitle };
   } catch (err) {

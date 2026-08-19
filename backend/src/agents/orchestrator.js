@@ -11,6 +11,7 @@ const { extractFromJob }  = require('./extraction');
 const { classifyJob }     = require('./classification');
 const { storeJob }        = require('./storage');
 const { qaCheck }         = require('./qa');
+const extractionQuality   = require('./extractionQuality');
 const { categorize, CATEGORY_LABELS, isLikelyStaffingAgency } = require('./categorize');
 const { lightweightSkillMatch, parseSkills } = require('../lib/skillMatch');
 const DEFAULT_KEYWORDS    = require('./defaultKeywords');
@@ -285,6 +286,25 @@ async function runPipeline(triggeredBy = 'scheduler') {
         const extraction = await extractFromJob(job);
         Object.assign(job, extraction);
 
+        // Enforcement half of the extraction-quality loop (agents/extractionQuality.js):
+        // drop any address the learning pass has previously identified as junk
+        // (reused across unrelated companies, or confirmed hard-bounced/flagged
+        // from an earlier run) — static per-email regex rules alone can't catch
+        // these since they're only knowable in hindsight, from real outcomes.
+        try {
+          let preFilterEmails = [];
+          try { preFilterEmails = JSON.parse(job.extracted_emails || '[]'); } catch { /* leave [] */ }
+          if (preFilterEmails.length) {
+            const kept = await extractionQuality.filterBlocked(preFilterEmails);
+            if (kept.length !== preFilterEmails.length) {
+              job.extracted_emails = JSON.stringify(kept);
+            }
+          }
+        } catch (e) {
+          // Non-fatal — a blocklist-lookup failure should never block a
+          // legitimately-found contact from being stored.
+        }
+
         // Tag with a tech-stack category (Java/Python/DevOps/AI/...) so the
         // frontend can filter by profile, and so category-weighted keyword
         // rotation (lib/categoryYield.js) can learn which categories actually
@@ -389,6 +409,20 @@ async function runPipeline(triggeredBy = 'scheduler') {
     // shared pool, not just the job-intel-extracted ones.
     const contactsSynced = await syncJobIntelContacts();
     const feedContactsSynced = await syncFeedContacts();
+
+    // ── 6.5 Extraction-quality agent: learn from this run + real bounce outcomes ──
+    // Runs every pipeline execution (default every ~6h) — "time to time" learning
+    // per the anomaly signals in extractionQuality.js. Never blocks the run.
+    try {
+      const learned = await extractionQuality.learnFromAnomalies();
+      if (learned.added.length) {
+        console.log(`[Pipeline] ExtractionQuality: learned ${learned.added.length} new blocked address(es) — ${learned.added.map(a => a.value).join(', ')}`);
+      }
+      const flagReport = await extractionQuality.reconcileFlaggedCounts();
+      console.log(`[Pipeline] ExtractionQuality: ${flagReport.totalFlaggedRows} flagged row(s) across ${flagReport.distinctFlaggedEmails} distinct address(es) (fan-out ${flagReport.fanOutRatio}x)`);
+    } catch (e) {
+      console.warn('[Pipeline] ExtractionQuality checks failed (non-fatal):', e.message);
+    }
 
     // Notification
     const scrapeNote = cfg.freshly_scraped_count > 0
@@ -547,6 +581,10 @@ async function syncJobIntelContacts(sinceMs = null) {
       for (const rawEmail of emails) {
         const email = cleanExtractedEmail(rawEmail);
         if (!email) continue;
+        // job_postings rows can predate a blocklist entry learned in a later
+        // run (extractionQuality.js) — re-check here so a re-sync of an old
+        // posting can't resurrect an address already confirmed junk.
+        if (await extractionQuality.isBlocked(email)) continue;
 
         const name      = cleanContactName(posting.extracted_contact_name, email);
         const company   = (posting.company  || '').trim();
@@ -636,8 +674,13 @@ async function syncFeedContacts(sinceMs = null) {
 
     let synced = 0;
     for (const c of merged) {
-      const email = (c.contact_email || '').trim().toLowerCase();
+      // getFeedContacts reads raw contact_email straight from scraped_jobs —
+      // it hasn't been through cleanExtractedEmail's placeholder/spam gate
+      // (or the learned blocklist), unlike the job-intel path above. Validate
+      // here so this sync can't be the side door that lets junk back in.
+      const email = cleanExtractedEmail((c.contact_email || '').trim());
       if (!email) continue;
+      if (await extractionQuality.isBlocked(email)) continue;
       const source = c.source === 'naukri' ? 'naukri' : 'linkedin-feed';
       const name = cleanContactName(c.contact_name, email);
 
