@@ -74,6 +74,17 @@ const LOGIN_HANDLERS = {
   },
   // Confirmed selectors: nav link "LOGIN" opens a modal with input[name=email],
   // input[name=password], and a submit button labeled "Login".
+  //
+  // Confirmed live 2026-08-20: the modal's <form> carries `ng-pristine
+  // ng-valid` classes — this is a legacy AngularJS (1.x) form bound via
+  // ng-model. page.fill() sets the DOM value directly and fires input/change,
+  // which usually satisfies Angular's $digest — but not reliably enough here;
+  // production logs showed repeated "problems submitting the information you
+  // provided. Please check each field" rejections, which is exactly Angular's
+  // own client-side validation still seeing the field as pristine/invalid at
+  // submit time. pressSequentially() (real per-keystroke key events, same as
+  // an actual user typing) plus an explicit blur is the standard fix for
+  // legacy Angular forms that don't pick up scripted value assignment.
   instahyre: async (page, { username, password }) => {
     await page.goto('https://www.instahyre.com/', { waitUntil: 'domcontentloaded', timeout: 25000 });
     await page.waitForTimeout(1200 + Math.random() * 800);
@@ -82,8 +93,15 @@ const LOGIN_HANDLERS = {
     // already took ~3s to become clickable on an otherwise-unblocked run.
     await page.locator('text=LOGIN').first().click({ timeout: 10000 });
     await page.waitForTimeout(1000);
-    await page.fill('input[name="email"]', username);
-    await page.fill('input[name="password"]', password);
+    const emailField = page.locator('input[name="email"]').first();
+    const passField  = page.locator('input[name="password"]').first();
+    await emailField.click();
+    await emailField.pressSequentially(username, { delay: 30 + Math.random() * 40 });
+    await emailField.blur();
+    await passField.click();
+    await passField.pressSequentially(password, { delay: 30 + Math.random() * 40 });
+    await passField.blur();
+    await page.waitForTimeout(300); // let Angular's $digest catch up before submit
     await page.locator('button:has-text("Login"), input[type="submit"][value="Login"]').first().click({ timeout: 10000 });
     await page.waitForTimeout(4000);
     const bodyText = await page.evaluate(() => document.body?.innerText || '').catch(() => '');
