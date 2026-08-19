@@ -32,7 +32,7 @@ const db = require('../db/database');
 const { decrypt } = require('../services/tokenCrypto');
 const { checkAutoApplyAllowed, saveQueueConfig, getQueueConfig } = require('./applyQueue');
 const logger = require('../lib/logger');
-const { launchStealthBrowser, newStealthContext, withBrowserLock } = require('../lib/browserStealth');
+const { launchStealthBrowser, newStealthContext, withBrowserLock, isTransientNetworkError } = require('../lib/browserStealth');
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -134,8 +134,45 @@ async function loginPortal(page, portal, creds) {
   try {
     return await handler(page, creds);
   } catch (e) {
-    return { ok: false, error: e.message };
+    // A thrown page.goto/network error (e.g. net::ERR_TUNNEL_CONNECTION_FAILED
+    // from a dead proxy) means the login page was NEVER reached — this says
+    // nothing about whether the username/password are right. `transient`
+    // lets callers avoid invalidating real, correct credentials over an
+    // infra hiccup (see loginWithRetry below).
+    return { ok: false, error: e.message, transient: isTransientNetworkError(e.message) };
   }
+}
+
+// Runs a login attempt, and if it fails for a TRANSIENT (network/proxy)
+// reason, retries once more with the proxy pool skipped entirely — a proxy
+// that passed the pool's TCP-only health check can still fail to actually
+// CONNECT-tunnel to a specific bot-protected target (exactly what
+// net::ERR_TUNNEL_CONNECTION_FAILED means). A real credential failure
+// (wrong password, CAPTCHA, locked account) is never retried — retrying
+// that wastes an attempt and risks the site's own abuse detection.
+// On success returns { ok:true, browser, ctx, page } — caller owns closing
+// them. On failure returns { ok:false, error, transient } with everything
+// already closed.
+async function loginWithRetry(portal, creds) {
+  let lastError = null, lastTransient = false;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const forceDirect = attempt > 0; // 2nd attempt only: bypass the proxy pool
+    let browser, ctx;
+    try {
+      browser = await launchStealthBrowser({ forceDirect });
+      ctx = await newStealthContext(browser);
+      const page = await ctx.newPage();
+      const login = await loginPortal(page, portal, creds);
+      if (login.ok) return { ok: true, browser, ctx, page };
+      lastError = login.error; lastTransient = !!login.transient;
+    } catch (e) {
+      lastError = e.message; lastTransient = isTransientNetworkError(e.message);
+    }
+    if (ctx) await ctx.close().catch(() => {});
+    if (browser) await browser.close().catch(() => {});
+    if (!lastTransient) break; // real login failure — retrying with a different proxy can't fix a wrong password
+  }
+  return { ok: false, error: lastError, transient: lastTransient };
 }
 
 // ── Answer matching — deliberately dumb and literal. No fuzzy/LLM guessing:
@@ -296,15 +333,21 @@ async function runPortalForUser(userId, portal) {
   let browser;
   let applied = 0, needsReview = 0, consecutiveFailures = 0;
   try {
-    browser = await launchStealthBrowser();
-    const ctx = await newStealthContext(browser);
-    const page = await ctx.newPage();
-
-    const login = await loginPortal(page, portal, { username: credRow.username, password });
+    const login = await loginWithRetry(portal, { username: credRow.username, password });
     if (!login.ok) {
+      if (login.transient) {
+        // Never invalidate real credentials over a proxy/network failure —
+        // both attempts (pooled proxy, then direct) failed to even reach the
+        // login page. Leave credentials untouched; the next scheduled cycle
+        // will retry with a freshly-rotated proxy.
+        logger.warn(`[auto-apply] ${portal} login failed after retry — transient network/proxy error, credentials left untouched`, { userId, error: login.error });
+        return { processed: 0, applied: 0, needsReview: 0, reason: 'login_network_error' };
+      }
       await markInvalidCredentials(userId, portal, login.error);
       return { processed: 0, applied: 0, needsReview: 0, reason: 'login_failed' };
     }
+    browser = login.browser;
+    const page = login.page;
     const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
     await db.prepare(
       `UPDATE portal_credentials SET last_login_at = ?, last_login_error = NULL WHERE user_id = ? AND portal = ?`
@@ -378,29 +421,27 @@ async function testLogin(userId, portal) {
   const password = decrypt(credRow.password_encrypted);
 
   return withBrowserLock(async () => {
-    let browser, ctx;
-    try {
-      browser = await launchStealthBrowser();
-      ctx = await newStealthContext(browser);
-      const page = await ctx.newPage();
-
-      const login = await loginPortal(page, portal, { username: credRow.username, password });
-      const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
-      if (!login.ok) {
-        await markInvalidCredentials(userId, portal, login.error);
-        return { ok: false, error: login.error };
+    const login = await loginWithRetry(portal, { username: credRow.username, password });
+    if (!login.ok) {
+      if (login.transient) {
+        // Same rule as runPortalForUser: a proxy/network failure (retried
+        // once already, direct) is never evidence the password is wrong.
+        logger.warn(`[auto-apply] ${portal} test login failed after retry — transient network/proxy error, credentials left untouched`, { userId, error: login.error });
+        return { ok: false, error: login.error, transient: true };
       }
+      await markInvalidCredentials(userId, portal, login.error);
+      return { ok: false, error: login.error };
+    }
+    try {
+      const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
       await db.prepare(
         `UPDATE portal_credentials SET status = 'active', last_login_at = ?, last_login_error = NULL WHERE user_id = ? AND portal = ?`
       ).run(now, userId, portal);
       logger.info(`[auto-apply] ${portal} test login succeeded`, { userId });
       return { ok: true };
-    } catch (e) {
-      await markInvalidCredentials(userId, portal, e.message);
-      return { ok: false, error: e.message };
     } finally {
-      if (ctx) await ctx.close().catch(() => {});
-      if (browser) await browser.close().catch(() => {});
+      if (login.ctx) await login.ctx.close().catch(() => {});
+      if (login.browser) await login.browser.close().catch(() => {});
     }
   });
 }

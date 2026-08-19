@@ -37,14 +37,30 @@ async function getProxyOption() {
   return undefined;
 }
 
-async function launchStealthBrowser() {
-  const proxy = await getProxyOption();
+// forceDirect skips the proxy pool entirely — used by loginWithRetry's 2nd
+// attempt when the picked proxy launched fine but failed to actually tunnel
+// to the target site (net::ERR_TUNNEL_CONNECTION_FAILED etc). A single
+// TCP-only health check (proxyRotator.healthCheckAll, see proxyFetcher.js)
+// doesn't guarantee a proxy can successfully CONNECT to an arbitrary HTTPS
+// host — a common gap with free/auto-fetched proxies against Akamai-style
+// bot detection specifically.
+async function launchStealthBrowser({ forceDirect = false } = {}) {
+  const proxy = forceDirect ? undefined : await getProxyOption();
   for (const channel of ['msedge', 'chrome']) {
     try {
       return await chromium.launch({ headless: true, channel, args: LEAN_ARGS, ...(proxy ? { proxy } : {}) });
     } catch (_) { /* channel not installed — try next */ }
   }
   return chromium.launch({ headless: true, args: LEAN_ARGS, ...(proxy ? { proxy } : {}) });
+}
+
+// Errors from a proxy/network hop that never reached the target site at
+// all — as opposed to a real response from the login page saying the
+// password is wrong. Callers must NEVER treat these as a credential
+// failure (see autoApplyWorker.js's loginWithRetry / markInvalidCredentials).
+const TRANSIENT_NETWORK_RE = /net::ERR_(TUNNEL_CONNECTION_FAILED|PROXY_CONNECTION_FAILED|CONNECTION_(REFUSED|RESET|CLOSED|TIMED_OUT)|NAME_NOT_RESOLVED|SOCKS_CONNECTION_FAILED|EMPTY_RESPONSE|ADDRESS_UNREACHABLE)|Timeout \d+ms exceeded|browserType\.launch:/i;
+function isTransientNetworkError(message) {
+  return TRANSIENT_NETWORK_RE.test(message || '');
 }
 
 // App-wide lock so auto-apply and the LinkedIn content publisher never both
@@ -75,4 +91,4 @@ async function newStealthContext(browser) {
   return ctx;
 }
 
-module.exports = { launchStealthBrowser, newStealthContext, withBrowserLock };
+module.exports = { launchStealthBrowser, newStealthContext, withBrowserLock, isTransientNetworkError };
