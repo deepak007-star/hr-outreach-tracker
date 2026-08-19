@@ -72,15 +72,59 @@ async function saveConfig(cfg) {
 
 let _running = false;
 
+// ── Cross-process lock ────────────────────────────────────────────────────
+// `_running` above only guards against a second call within THE SAME Node
+// process — it does nothing if two separate backend processes (e.g. two
+// Render services, or a local dev box left with DISABLE_BACKGROUND_JOBS
+// unset, both pointed at the same production DATABASE_URL) each run their
+// own schedulePipeline() timer. Observed in production: pairs of pipeline_runs
+// starting within seconds of each other, repeatedly, for days — doubling
+// search-engine traffic (worse anti-bot fingerprint) and external API calls
+// for zero extra yield, since the second run just finds the first run's
+// results as duplicates. A row in `settings`, CAS'd via ON CONFLICT ... WHERE,
+// is a lock any process sharing the DB can see, unlike the in-memory flag.
+const PIPELINE_LOCK_KEY = 'job_intel_pipeline_lock';
+const LOCK_STALE_MS     = 90 * 60_000; // generous vs. a typical 20-45min run — only overridden if a process died mid-run without releasing it
+
+async function acquireLock(runId) {
+  const now = Date.now();
+  const row = await db.prepare(`
+    INSERT INTO settings (key, value) VALUES (?, ?)
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+    WHERE (settings.value::jsonb ->> 'ts')::bigint < ?
+    RETURNING value
+  `).get(PIPELINE_LOCK_KEY, JSON.stringify({ ts: now, runId }), now - LOCK_STALE_MS).catch(e => {
+    console.warn('[Pipeline] acquireLock failed (non-fatal, falling back to in-process guard only):', e.message);
+    return { value: 'error' }; // fail open — never let a lock bug block the whole pipeline
+  });
+  return !!row;
+}
+
+async function releaseLock(runId) {
+  // Only clear if we still own it — a stale-timeout override during an
+  // unusually long run may have already handed the lock to someone else.
+  await db.prepare(`
+    UPDATE settings SET value = ?
+    WHERE key = ? AND (value::jsonb ->> 'runId') = ?
+  `).run(JSON.stringify({ ts: 0, runId: null }), PIPELINE_LOCK_KEY, runId).catch(() => {});
+}
+
 /**
- * Full pipeline run. Safe to call concurrently — will skip if already running.
+ * Full pipeline run. Safe to call concurrently — will skip if already running,
+ * whether the other run is in this same process or a different one sharing
+ * the same database (see acquireLock above).
  * Returns summary { runId, fetched, new: stored, duplicates, errors, durationMs }
  */
 async function runPipeline(triggeredBy = 'scheduler') {
-  if (_running) return { skipped: true, reason: 'already running' };
+  if (_running) return { skipped: true, reason: 'already running (in-process)' };
   _running = true;
 
   const runId     = randomUUID();
+  if (!(await acquireLock(runId))) {
+    _running = false;
+    console.log(`[Pipeline] Run ${runId} skipped — another process already holds the pipeline lock`);
+    return { skipped: true, reason: 'already running (cross-process lock held)' };
+  }
   const startedAt = new Date().toISOString().replace('T', ' ').slice(0, 19);
   const errors    = {};
   let   totalFetched = 0, totalNew = 0, totalDupes = 0;
@@ -255,11 +299,16 @@ async function runPipeline(triggeredBy = 'scheduler') {
         // and real company pages are a stronger deep-fetch target than
         // generic aggregator listings) is pushed last by ingestAll() and got
         // starved of the entire budget before its turn ever came.
+        // Raised again 320→700 (2026-08-20): relevance-filtered+deduped unique
+        // postings routinely run 600-900/run at current keyword breadth — a
+        // cap of 320 meant roughly HALF of them never even got their apply
+        // page fetched, so any email actually sitting there was never found,
+        // regardless of extraction quality. Concurrency/budget bumped to match.
         const http = await enrichWithPageEmails(unique, {
-          cap:         cfg.deep_fetch_cap || 320,
-          concurrency: cfg.deep_fetch_concurrency || 15,
+          cap:         cfg.deep_fetch_cap || 700,
+          concurrency: cfg.deep_fetch_concurrency || 20,
           timeoutMs:   cfg.deep_fetch_timeout_ms || 10000,
-          budgetMs:    cfg.deep_fetch_budget_ms || 120000, // hard overall cap
+          budgetMs:    cfg.deep_fetch_budget_ms || 180000, // hard overall cap
         });
         console.log(`[Pipeline] Deep-fetch (http): enriched ${http.enriched}/${http.attempted} apply pages` +
           (http.guessedEnriched ? ` (${http.guessedEnriched} via guessed company domain, e.g. LinkedIn-sourced jobs)` : ''));
@@ -445,6 +494,7 @@ async function runPipeline(triggeredBy = 'scheduler') {
     throw e;
   } finally {
     _running = false;
+    await releaseLock(runId);
   }
 }
 
