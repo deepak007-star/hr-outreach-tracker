@@ -163,12 +163,17 @@ async function reconcileFlaggedCounts() {
     SELECT COUNT(*) AS n FROM contacts WHERE email_deliverable = 'flagged'
   `).get();
 
+  // pg returns COUNT(*) as a numeric-looking STRING (e.g. '0') — truthy in JS,
+  // so `distinct?.n ? ... : 0` alone would still divide 0/0 (NaN, which
+  // JSON.stringify silently turns into null). Parse to a number first.
+  const distinctCount = parseInt(distinct?.n || 0, 10);
+  const totalCount    = parseInt(total?.n || 0, 10);
   const report = {
     ts: new Date().toISOString(),
-    bySource: bySource.map(r => ({ ...r, n: parseInt(r.n) })),
-    distinctFlaggedEmails: parseInt(distinct?.n || 0),
-    totalFlaggedRows: parseInt(total?.n || 0),
-    fanOutRatio: distinct?.n ? +(parseInt(total.n) / parseInt(distinct.n)).toFixed(2) : 0,
+    bySource: bySource.map(r => ({ ...r, n: parseInt(r.n, 10) })),
+    distinctFlaggedEmails: distinctCount,
+    totalFlaggedRows: totalCount,
+    fanOutRatio: distinctCount ? +(totalCount / distinctCount).toFixed(2) : 0,
   };
   await db.prepare(`
     INSERT INTO settings (key, value) VALUES (?, ?)
