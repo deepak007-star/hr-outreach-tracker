@@ -58,7 +58,17 @@ async function launchStealthBrowser({ forceDirect = false } = {}) {
 // all — as opposed to a real response from the login page saying the
 // password is wrong. Callers must NEVER treat these as a credential
 // failure (see autoApplyWorker.js's loginWithRetry / markInvalidCredentials).
-const TRANSIENT_NETWORK_RE = /net::ERR_(TUNNEL_CONNECTION_FAILED|PROXY_CONNECTION_FAILED|CONNECTION_(REFUSED|RESET|CLOSED|TIMED_OUT)|NAME_NOT_RESOLVED|SOCKS_CONNECTION_FAILED|EMPTY_RESPONSE|ADDRESS_UNREACHABLE)|Timeout \d+ms exceeded|browserType\.launch:/i;
+//
+// Was an enumerated whitelist of specific net::ERR_ codes — missed the
+// plain net::ERR_TIMED_OUT (a general navigation timeout, distinct from
+// net::ERR_CONNECTION_TIMED_OUT which WAS listed) and wrongly invalidated
+// real, working Instahyre credentials over it live 2026-08-21. Chromium has
+// dozens of net::ERR_* codes; ANY of them means Playwright's page.goto()
+// threw before a real HTTP response ever came back, which by definition
+// can't be "the site said this password is wrong" — that requires an
+// actual page to render. So: any net::ERR_* is transient, full stop, no
+// enumeration to keep in sync.
+const TRANSIENT_NETWORK_RE = /net::ERR_[A-Z_]+|Timeout \d+ms exceeded|browserType\.launch:/i;
 function isTransientNetworkError(message) {
   return TRANSIENT_NETWORK_RE.test(message || '');
 }
