@@ -388,71 +388,92 @@ async function attemptApply(page, job, bank) {
 // matching engine has usually already moved past what was scraped days ago.
 // So this function ignores that queue entirely and scores whatever is
 // CURRENTLY being recommended, right now, against the user's live skills.
+// The "employer profile" panel a View-click opens (ng-controller=
+// "employerProfileModalCtrl", confirmed live) is NOT necessarily a
+// `.modal`/`[role=dialog]` — attribute-based, matches by controller-name
+// substring instead so it isn't tied to a specific CSS framework's markup.
+const INSTAHYRE_PANEL_SELECTOR = '.modal, [role="dialog"], [uib-modal-window], [ng-controller*="Modal" i]';
+// Confirmed live: the real "accept" action inside that panel is a plain
+// element (not necessarily <button>) with ng-click="submitChoice(opp, true)"
+// — NEVER match the sibling "Not interested" action (submitChoice(opp,
+// false)). The literal substring "true)" cannot appear in the false variant
+// regardless of whitespace formatting, so this can't cross-match it even if
+// Instahyre's ng-click spacing changes.
+const INSTAHYRE_ACCEPT_SELECTOR = 'button:has-text("Apply"), [ng-click*="submitChoice"][ng-click*="true)"], button[ng-click="applyBulk()"]';
+
 async function attemptApplyInstahyreOpportunities(page, skills, bank, cap) {
-  await page.goto('https://www.instahyre.com/candidate/opportunities/', { waitUntil: 'domcontentloaded', timeout: 25000 });
-  await page.waitForTimeout(2500);
-  await waitForOverlayClear(page);
-
-  // Read every visible card's text WITHOUT depending on a specific class/
-  // ng-repeat name (confirmed live that a plain `[ng-repeat]` selector does
-  // NOT reliably find these cards — Angular's compiled DOM here doesn't
-  // expose it the way it does elsewhere on the site). Walk up from each
-  // "View »" control to the nearest ancestor that also contains a
-  // "Not interested" sibling — robust to markup/class changes on
-  // Instahyre's end since it keys off the actual visible button text.
-  const cards = await page.evaluate(() => {
-    const viewEls = [...document.querySelectorAll('a, button')].filter(el => /view\s*»/i.test(el.textContent || ''));
-    return viewEls.map((el, i) => {
-      let node = el;
-      for (let d = 0; d < 8 && node; d++) {
-        if (node.querySelectorAll && [...node.querySelectorAll('button')].some(b => /not interested/i.test(b.textContent || ''))) break;
-        node = node.parentElement;
-      }
-      return { index: i, text: (node || el).innerText.slice(0, 500) };
-    });
-  }).catch(() => []);
-
   const results = [];
+  const seenTitles = new Set(); // never re-process the same card twice in one run
   let processed = 0;
-  for (const card of cards) {
-    if (processed >= cap) break;
-    const { matched } = lightweightSkillMatch(skills, card.text);
-    if (matched.length < MIN_MATCHED_SKILLS) continue; // not a confident match — leave the card alone, never reject it
 
+  // Re-navigate FRESH for every card rather than reusing one page load
+  // across the whole loop — confirmed live: a previous card's
+  // employer-profile panel can be left open after a needs_review outcome
+  // and then physically intercept clicks meant for the NEXT card's "View »"
+  // link. A clean reload guarantees no leftover panel state can bleed into
+  // the next card, at the cost of one extra page load per card (acceptable
+  // — this loop is already bounded to a handful of matches per run).
+  for (; processed < cap; ) {
+    await page.goto('https://www.instahyre.com/candidate/opportunities/', { waitUntil: 'domcontentloaded', timeout: 25000 });
+    await page.waitForTimeout(2500);
+    await waitForOverlayClear(page);
+
+    // Read every visible card's text WITHOUT depending on a specific class/
+    // ng-repeat name (confirmed live that a plain `[ng-repeat]` selector
+    // does NOT reliably find these cards). Walk up from each "View »"
+    // control to the nearest ancestor that also contains a "Not interested"
+    // sibling — robust to markup/class changes since it keys off the
+    // actual visible button text, not a class name.
+    const cards = await page.evaluate(() => {
+      const viewEls = [...document.querySelectorAll('a, button')].filter(el => /view\s*»/i.test(el.textContent || ''));
+      return viewEls.map((el, i) => {
+        let node = el;
+        for (let d = 0; d < 8 && node; d++) {
+          if (node.querySelectorAll && [...node.querySelectorAll('button')].some(b => /not interested/i.test(b.textContent || ''))) break;
+          node = node.parentElement;
+        }
+        return { index: i, text: (node || el).innerText.slice(0, 500) };
+      });
+    }).catch(() => []);
+
+    const card = cards.find(c => {
+      const title = c.text.split('\n')[0]?.slice(0, 200) || '';
+      if (!title || seenTitles.has(title)) return false;
+      return lightweightSkillMatch(skills, c.text).matched.length >= MIN_MATCHED_SKILLS;
+    });
+    if (!card) break; // nothing left this run that both matches skills and hasn't been processed yet
+
+    const title = card.text.split('\n')[0]?.slice(0, 200) || '';
+    seenTitles.add(title);
     processed++;
-    const log = { title: card.text.split('\n')[0]?.slice(0, 200) || '', matchedSkills: matched, questions: [] };
+    const { matched } = lightweightSkillMatch(skills, card.text);
+    const log = { title, matchedSkills: matched, questions: [] };
     try {
-      // Re-locate by TEXT at click time, not a cached element handle — an
-      // earlier accepted card in this same loop can shift list positions.
       const viewBtn = page.locator('a, button').filter({ hasText: /view\s*»/i }).nth(card.index);
       await viewBtn.click({ timeout: 10000 });
       await page.waitForTimeout(2000 + Math.random() * 1000);
       await waitForOverlayClear(page);
 
-      // Scope everything below to the modal itself when one is actually
-      // present, not the whole page — never confirmed live what markup
-      // openApplyModal() renders, and a full-page `.first()` search risks
-      // grabbing an unrelated "Apply" element elsewhere in the page chrome
-      // instead of the one this specific opportunity's modal introduced.
-      // Falls back to the full page only if no modal container is detected
-      // (e.g. the interaction turned out to be inline, not a real modal).
-      const MODAL_SELECTOR = '.modal, [role="dialog"], [uib-modal-window]';
-      const modalScope = page.locator(MODAL_SELECTOR).first();
-      const hasModal = await modalScope.count() > 0 && await modalScope.isVisible().catch(() => false);
-      const scope = hasModal ? modalScope : page;
+      // Scope question-detection and the accept action to the panel itself
+      // when one is present, not the whole page — a full-page search risks
+      // grabbing an unrelated element from page chrome instead of the one
+      // this specific opportunity's panel introduced.
+      const panelScope = page.locator(INSTAHYRE_PANEL_SELECTOR).first();
+      const hasPanel = await panelScope.count() > 0 && await panelScope.isVisible().catch(() => false);
+      const scope = hasPanel ? panelScope : page;
 
       // Reuse the exact same generic screening-question detection as every
       // other portal — an unmatched question stops here; nothing submitted.
       // Root-detection happens inside the browser-context callback itself
       // (page.evaluate and Locator.evaluate pass different arguments to
       // their callback, so this can't cleanly branch on `scope`'s type).
-      const questionBlocks = await page.evaluate(({ modalSel, sel }) => {
-        const modal = document.querySelector(modalSel);
-        const root  = (modal && modal.offsetParent !== null) ? modal : document;
+      const questionBlocks = await page.evaluate(({ panelSel, sel }) => {
+        const panel = document.querySelector(panelSel);
+        const root  = (panel && panel.offsetParent !== null) ? panel : document;
         return [...root.querySelectorAll(sel)]
           .map(b => ({ label: b.innerText?.trim().slice(0, 200) || '', hasField: !!b.querySelector('input, select, textarea') }))
           .filter(b => b.label && b.hasField);
-      }, { modalSel: MODAL_SELECTOR, sel: QUESTION_BLOCK_SELECTOR }).catch(() => []);
+      }, { panelSel: INSTAHYRE_PANEL_SELECTOR, sel: QUESTION_BLOCK_SELECTOR }).catch(() => []);
 
       let blocked = false;
       for (const qb of questionBlocks) {
@@ -471,14 +492,19 @@ async function attemptApplyInstahyreOpportunities(page, skills, bank, cap) {
         else await field.fill(String(answer)).catch(() => {});
       }
 
-      // Finalize via the Apply/confirm button — scoped to the modal when
-      // present (see above), otherwise the page-level applyBulk() button.
-      // Should now be enabled since the step above registered interest.
-      const applyBtn = scope.locator('button:has-text("Apply")').first();
+      // Finalize via the accept action — scoped to the panel when present
+      // (see above). Should now be enabled/present since the step above
+      // registered interest in this opportunity.
+      const applyBtn = scope.locator(INSTAHYRE_ACCEPT_SELECTOR).first();
       await waitForOverlayClear(page);
+      if (await applyBtn.count() === 0) {
+        log.error = 'No accept/apply control found in the panel — flow unclear, not submitting';
+        results.push({ status: 'needs_review', log });
+        continue;
+      }
       const isEnabled = await applyBtn.isEnabled({ timeout: 8000 }).catch(() => false);
       if (!isEnabled) {
-        log.error = 'Apply button still disabled after the modal step — flow unclear, not submitting';
+        log.error = 'Apply control still disabled after the panel step — flow unclear, not submitting';
         results.push({ status: 'needs_review', log });
         continue;
       }
