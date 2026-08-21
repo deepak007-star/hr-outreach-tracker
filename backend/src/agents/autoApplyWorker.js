@@ -363,6 +363,117 @@ async function attemptApply(page, job, bank) {
   }
 }
 
+// ── Naukri — API-driven apply flow ───────────────────────────────────────────
+// Confirmed live 2026-08-21: clicking Apply fires a real XHR
+// (POST .../cloudgateway-workflow/workflow-services/apply-workflow/v1/apply)
+// whose JSON response is the actual source of truth — not the DOM. It can
+// return `{ statusCode: 0, jobs: [{ questionnaire: [...] }] }`, where a
+// non-empty MANDATORY questionnaire means the application is NOT complete
+// yet regardless of what statusCode says; the button's own text/DOM state
+// never visibly changes either way, which is why the generic attemptApply()
+// (DOM-only, no idea this API call exists) could never reliably tell
+// "genuinely done" from "silently still needs the form."
+const NAUKRI_APPLY_API_RE = /apply-workflow\/v1\/apply/i;
+
+async function attemptApplyNaukri(page, job, bank) {
+  const log = { job_id: job.id, title: job.title, company: job.company, questions: [] };
+  try {
+    await page.goto(job.apply_link || job.link, { waitUntil: 'domcontentloaded', timeout: 25000 });
+    await page.waitForTimeout(2000 + Math.random() * 1500);
+    await waitForOverlayClear(page);
+
+    const applyBtn = page.locator('button:has-text("Apply")').first();
+    if (await applyBtn.count() === 0) {
+      log.error = 'No recognizable Apply button found on the job page';
+      return { status: 'needs_review', log };
+    }
+
+    // Arm the response listener BEFORE clicking — the API call can resolve
+    // within a second of the click, before a fixed post-click wait would
+    // even start looking for it.
+    const applyResponsePromise = page.waitForResponse(res => NAUKRI_APPLY_API_RE.test(res.url()), { timeout: 15000 }).catch(() => null);
+    await applyBtn.click({ timeout: 15000 });
+    const applyResponse = await applyResponsePromise;
+
+    if (!applyResponse) {
+      // Never observed the API call at all — the click may not have
+      // registered, or this posting uses a different endpoint. Don't guess.
+      log.error = 'No apply-workflow API response observed after clicking Apply';
+      return { status: 'needs_review', log };
+    }
+
+    let payload = null;
+    try { payload = await applyResponse.json(); } catch (_) { /* non-JSON or empty body */ }
+    const mandatoryQs = (payload?.jobs?.[0]?.questionnaire || []).filter(q => q.isMandatory);
+
+    // No mandatory questions and the API call itself succeeded — this IS the
+    // definitive completion signal for Naukri (there's no separate DOM
+    // confirmation to wait for), unlike the generic per-portal flow which
+    // has to infer completion from page text.
+    if (!mandatoryQs.length) {
+      if (payload?.statusCode === 0) {
+        log.completionSignal = { statusCode: payload.statusCode, source: 'apply-workflow API' };
+        return { status: 'applied', log };
+      }
+      log.error = `apply-workflow returned unexpected statusCode: ${payload?.statusCode}`;
+      return { status: 'needs_review', log };
+    }
+
+    // Mandatory questions exist — match each against the answer bank exactly
+    // like every other portal (never guess, never partial-submit).
+    for (const q of mandatoryQs) {
+      const answer = matchAnswer(q.questionName, bank);
+      log.questions.push({ label: q.questionName, matched: !!answer, answer: answer || null, type: q.questionType });
+      if (!answer) {
+        log.error = `Unmatched screening question: "${q.questionName}"`;
+        return { status: 'needs_review', log };
+      }
+    }
+
+    // All matched — give the page a moment to actually render the
+    // questionnaire form (the API response and its DOM rendering are two
+    // separate events), then fill it via the DOM. Filling through Naukri's
+    // own private API contract directly would be far riskier than reusing
+    // the same generic, already-tested DOM-fill logic every other portal
+    // uses once real fields exist to target.
+    await page.waitForTimeout(2000 + Math.random() * 1000);
+    await waitForOverlayClear(page);
+
+    for (const q of mandatoryQs) {
+      const answer = matchAnswer(q.questionName, bank);
+      const block = page.locator(QUESTION_BLOCK_SELECTOR).filter({ hasText: q.questionName }).first();
+      if (await block.count() === 0) {
+        log.error = `Answered "${q.questionName}" but couldn't find its rendered form field in the DOM`;
+        return { status: 'needs_review', log };
+      }
+      const field = block.locator('input, select, textarea').first();
+      const tag = await field.evaluate(el => el.tagName.toLowerCase()).catch(() => 'input');
+      if (q.questionType === 'Check Box') await field.check().catch(() => {});
+      else if (tag === 'select') await field.selectOption({ label: answer }).catch(() => field.selectOption(answer).catch(() => {}));
+      else await field.fill(String(answer)).catch(() => {});
+    }
+
+    const submitBtn = page.locator('button:has-text("Submit"), button:has-text("Save and Continue"), button:has-text("Continue")').first();
+    if (await submitBtn.count() === 0) {
+      log.error = 'No final submit control found after filling the questionnaire';
+      return { status: 'needs_review', log };
+    }
+    await waitForOverlayClear(page);
+    await submitBtn.click({ timeout: 15000 });
+    await page.waitForTimeout(3000);
+
+    const bodyText = await page.evaluate(() => document.body?.innerText || '').catch(() => '');
+    if (hasFailureText(bodyText)) {
+      log.error = 'Post-submit page shows an error/failure indicator';
+      return { status: 'needs_review', log };
+    }
+    return { status: 'applied', log };
+  } catch (e) {
+    log.error = e.message;
+    return { status: 'needs_review', log };
+  }
+}
+
 // ── Instahyre — real-time "Opportunities" flow (NOT the queued-job model) ───
 // Confirmed live 2026-08-21, genuinely authenticated (SIGN OUT visible in
 // nav): a specific job's static URL (job.apply_link, as scraped/queued days
@@ -657,7 +768,13 @@ async function runPortalForUser(userId, portal) {
         break;
       }
 
-      const result = await attemptApply(page, job, bank);
+      // Naukri gets its own handler (see attemptApplyNaukri's header) since
+      // its real completion signal lives in an API response, not the DOM —
+      // every other queued-job portal (currently just foundit) uses the
+      // generic DOM-based flow.
+      const result = portal === 'naukri'
+        ? await attemptApplyNaukri(page, job, bank)
+        : await attemptApply(page, job, bank);
       const ts = new Date().toISOString().replace('T', ' ').slice(0, 19);
 
       if (result.status === 'applied') {
