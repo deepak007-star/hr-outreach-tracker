@@ -329,23 +329,35 @@ async function main() {
         if (!config.time || config.time !== hhmm) continue;
         if (config.days?.length && !config.days.includes(todayDay)) continue;
 
-        // Check if already sent today
-        const sentKey = `reminder_email_sent_${userId}_${todayStr}`;
-        const alreadySent = await database.prepare('SELECT value FROM settings WHERE key = ?').get(sentKey);
-        if (alreadySent) continue;
-
         const user = await database.prepare('SELECT email, name FROM users WHERE id = ?').get(userId);
         if (!user) continue;
 
+        // Atomically claim "I'm sending this reminder now" BEFORE actually
+        // sending — mirrors the daily-scrape job's own established pattern
+        // above ("mark done BEFORE running... or the next tick would start
+        // a second overlapping run"). The old order (send, then mark) was a
+        // TOCTOU race: two processes whose 60s ticks land in the same
+        // minute (this box + a deployed instance both sharing the same
+        // DATABASE_URL, same risk class already found/fixed for the Job
+        // Intel pipeline, auto-apply cycle, and LinkedIn publisher
+        // elsewhere in this app) could both read "not yet sent" and both
+        // actually send a real, duplicate reminder email to the same user.
+        const sentKey = `reminder_email_sent_${userId}_${todayStr}`;
+        const claimed = await database.prepare(`
+          INSERT INTO settings (key, value) VALUES (?, '1')
+          ON CONFLICT (key) DO NOTHING
+          RETURNING key
+        `).get(sentKey);
+        if (!claimed) continue; // another process already claimed/sent this one
+
         try {
           await sendReminderEmail(userId, user.email, user.name, config);
-          await database.prepare(`
-            INSERT INTO settings (key, value) VALUES (?, ?)
-            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-          `).run(sentKey, '1');
           console.log(`[Reminder] Email sent to ${user.email}`);
         } catch (e) {
           console.error(`[Reminder] Failed to send to ${user.email}:`, e.message);
+          // Send failed after the claim succeeded — release it so a later
+          // tick can retry instead of silently never sending today.
+          await database.prepare('DELETE FROM settings WHERE key = ?').run(sentKey).catch(() => {});
         }
       }
     } catch (e) { console.error('[Reminder scheduler]', e.message); }
