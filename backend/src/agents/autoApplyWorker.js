@@ -30,7 +30,8 @@
 const crypto = require('crypto');
 const db = require('../db/database');
 const { decrypt } = require('../services/tokenCrypto');
-const { checkAutoApplyAllowed, saveQueueConfig, getQueueConfig } = require('./applyQueue');
+const { checkAutoApplyAllowed, saveQueueConfig, getQueueConfig, MIN_MATCHED_SKILLS } = require('./applyQueue');
+const { lightweightSkillMatch, parseSkills } = require('../lib/skillMatch');
 const logger = require('../lib/logger');
 const { launchStealthBrowser, newStealthContext, withBrowserLock, isTransientNetworkError } = require('../lib/browserStealth');
 
@@ -362,6 +363,146 @@ async function attemptApply(page, job, bank) {
   }
 }
 
+// ── Instahyre — real-time "Opportunities" flow (NOT the queued-job model) ───
+// Confirmed live 2026-08-21, genuinely authenticated (SIGN OUT visible in
+// nav): a specific job's static URL (job.apply_link, as scraped/queued days
+// earlier) shows the Apply button PERMANENTLY disabled
+// (ng-disabled="!oppValues") no matter what — because Instahyre doesn't work
+// like a normal job board with stable per-job apply pages. It's a live,
+// rotating "recommended for you" queue on /candidate/opportunities/
+// (~5 cards shown at a time). Each card exposes:
+//   - "View »"          -> openApplyModal(opp): opens a modal for that card;
+//                          this is what actually sets oppValues
+//   - "Not interested"   -> submitChoice(opp, false): PERMANENTLY discards
+//                          the opportunity — a real, semi-irreversible action
+//                          against the user's real account/employer-visible
+//                          record. NEVER clicked automatically here — a
+//                          skill-match miss just leaves the card alone for
+//                          the user to review themselves, exactly like every
+//                          other "uncertain" case in this file.
+//   - a page-level "Apply" button (ng-click="applyBulk()") that only becomes
+//     enabled after a card's modal flow has registered interest
+//
+// This means the job_applications 'queued' rows scraped for this portal are
+// structurally unusable here — by the time auto-apply runs, Instahyre's own
+// matching engine has usually already moved past what was scraped days ago.
+// So this function ignores that queue entirely and scores whatever is
+// CURRENTLY being recommended, right now, against the user's live skills.
+async function attemptApplyInstahyreOpportunities(page, skills, bank, cap) {
+  await page.goto('https://www.instahyre.com/candidate/opportunities/', { waitUntil: 'domcontentloaded', timeout: 25000 });
+  await page.waitForTimeout(2500);
+  await waitForOverlayClear(page);
+
+  // Read every visible card's text WITHOUT depending on a specific class/
+  // ng-repeat name (confirmed live that a plain `[ng-repeat]` selector does
+  // NOT reliably find these cards — Angular's compiled DOM here doesn't
+  // expose it the way it does elsewhere on the site). Walk up from each
+  // "View »" control to the nearest ancestor that also contains a
+  // "Not interested" sibling — robust to markup/class changes on
+  // Instahyre's end since it keys off the actual visible button text.
+  const cards = await page.evaluate(() => {
+    const viewEls = [...document.querySelectorAll('a, button')].filter(el => /view\s*»/i.test(el.textContent || ''));
+    return viewEls.map((el, i) => {
+      let node = el;
+      for (let d = 0; d < 8 && node; d++) {
+        if (node.querySelectorAll && [...node.querySelectorAll('button')].some(b => /not interested/i.test(b.textContent || ''))) break;
+        node = node.parentElement;
+      }
+      return { index: i, text: (node || el).innerText.slice(0, 500) };
+    });
+  }).catch(() => []);
+
+  const results = [];
+  let processed = 0;
+  for (const card of cards) {
+    if (processed >= cap) break;
+    const { matched } = lightweightSkillMatch(skills, card.text);
+    if (matched.length < MIN_MATCHED_SKILLS) continue; // not a confident match — leave the card alone, never reject it
+
+    processed++;
+    const log = { title: card.text.split('\n')[0]?.slice(0, 200) || '', matchedSkills: matched, questions: [] };
+    try {
+      // Re-locate by TEXT at click time, not a cached element handle — an
+      // earlier accepted card in this same loop can shift list positions.
+      const viewBtn = page.locator('a, button').filter({ hasText: /view\s*»/i }).nth(card.index);
+      await viewBtn.click({ timeout: 10000 });
+      await page.waitForTimeout(2000 + Math.random() * 1000);
+      await waitForOverlayClear(page);
+
+      // Scope everything below to the modal itself when one is actually
+      // present, not the whole page — never confirmed live what markup
+      // openApplyModal() renders, and a full-page `.first()` search risks
+      // grabbing an unrelated "Apply" element elsewhere in the page chrome
+      // instead of the one this specific opportunity's modal introduced.
+      // Falls back to the full page only if no modal container is detected
+      // (e.g. the interaction turned out to be inline, not a real modal).
+      const MODAL_SELECTOR = '.modal, [role="dialog"], [uib-modal-window]';
+      const modalScope = page.locator(MODAL_SELECTOR).first();
+      const hasModal = await modalScope.count() > 0 && await modalScope.isVisible().catch(() => false);
+      const scope = hasModal ? modalScope : page;
+
+      // Reuse the exact same generic screening-question detection as every
+      // other portal — an unmatched question stops here; nothing submitted.
+      // Root-detection happens inside the browser-context callback itself
+      // (page.evaluate and Locator.evaluate pass different arguments to
+      // their callback, so this can't cleanly branch on `scope`'s type).
+      const questionBlocks = await page.evaluate(({ modalSel, sel }) => {
+        const modal = document.querySelector(modalSel);
+        const root  = (modal && modal.offsetParent !== null) ? modal : document;
+        return [...root.querySelectorAll(sel)]
+          .map(b => ({ label: b.innerText?.trim().slice(0, 200) || '', hasField: !!b.querySelector('input, select, textarea') }))
+          .filter(b => b.label && b.hasField);
+      }, { modalSel: MODAL_SELECTOR, sel: QUESTION_BLOCK_SELECTOR }).catch(() => []);
+
+      let blocked = false;
+      for (const qb of questionBlocks) {
+        const answer = matchAnswer(qb.label, bank);
+        log.questions.push({ label: qb.label, matched: !!answer, answer: answer || null });
+        if (!answer) { log.error = `Unmatched screening question: "${qb.label}"`; blocked = true; break; }
+      }
+      if (blocked) { results.push({ status: 'needs_review', log }); continue; }
+
+      for (const qb of questionBlocks) {
+        const block = scope.locator(QUESTION_BLOCK_SELECTOR).filter({ hasText: qb.label }).first();
+        const answer = matchAnswer(qb.label, bank);
+        const field = block.locator('input, select, textarea').first();
+        const tag = await field.evaluate(el => el.tagName.toLowerCase()).catch(() => 'input');
+        if (tag === 'select') await field.selectOption({ label: answer }).catch(() => field.selectOption(answer).catch(() => {}));
+        else await field.fill(String(answer)).catch(() => {});
+      }
+
+      // Finalize via the Apply/confirm button — scoped to the modal when
+      // present (see above), otherwise the page-level applyBulk() button.
+      // Should now be enabled since the step above registered interest.
+      const applyBtn = scope.locator('button:has-text("Apply")').first();
+      await waitForOverlayClear(page);
+      const isEnabled = await applyBtn.isEnabled({ timeout: 8000 }).catch(() => false);
+      if (!isEnabled) {
+        log.error = 'Apply button still disabled after the modal step — flow unclear, not submitting';
+        results.push({ status: 'needs_review', log });
+        continue;
+      }
+      await applyBtn.click({ timeout: 10000 });
+      await page.waitForTimeout(3000);
+
+      const bodyText = await page.evaluate(() => document.body?.innerText || '').catch(() => '');
+      if (hasFailureText(bodyText)) {
+        log.error = 'Post-apply page shows an error/failure indicator';
+        results.push({ status: 'needs_review', log });
+        continue;
+      }
+      results.push({ status: 'applied', log });
+    } catch (e) {
+      log.error = e.message;
+      results.push({ status: 'needs_review', log });
+    }
+
+    await sleep(8000 + Math.random() * 12000); // same human-like pacing as every other apply loop in this file
+  }
+
+  return results;
+}
+
 // ── Credential invalidation + notification ──────────────────────────────────
 
 async function markInvalidCredentials(userId, portal, error) {
@@ -436,6 +577,46 @@ async function runPortalForUser(userId, portal) {
     logger.info(`[auto-apply] ${portal} login succeeded`, { userId });
 
     let remaining = allowed.remaining;
+
+    // Instahyre doesn't follow the "queue a stable job URL, apply to it
+    // later" model every other portal uses — see attemptApplyInstahyreOpportunities's
+    // header comment. Skip the queued-job DB read entirely for it and drive
+    // its own real-time flow instead.
+    if (portal === 'instahyre') {
+      const profile = await db.prepare('SELECT skills FROM profiles WHERE user_id = ?').get(userId);
+      const skills = parseSkills(profile?.skills);
+      if (!skills.length) {
+        return { processed: 0, applied: 0, needsReview: 0, reason: 'no_skills_on_profile' };
+      }
+      const results = await attemptApplyInstahyreOpportunities(page, skills, bank, remaining);
+      const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+      for (const r of results) {
+        // job_applications.job_id is a FK into scraped_jobs(id) — Instahyre
+        // never exposed a stable per-opportunity id anywhere we could read,
+        // so synthesize one the SAME way the rest of the app keys scraped
+        // postings (SHA-256 of title+company, see CLAUDE.md) and upsert a
+        // matching minimal scraped_jobs row first so the FK is satisfiable.
+        // Same hash for the same title -> re-appearances update in place
+        // instead of duplicating.
+        const jobId = crypto.createHash('sha256').update(`instahyre:${r.log.title}`).digest('hex');
+        await db.prepare(`
+          INSERT INTO scraped_jobs (id, scraper_type, title, scraped_at)
+          VALUES (?, 'instahyre', ?, ?)
+          ON CONFLICT (id) DO NOTHING
+        `).run(jobId, r.log.title, now);
+        await db.prepare(`
+          INSERT INTO job_applications (id, user_id, job_id, status, title, scraper_type, submission_mode, applied_at, auto_apply_log)
+          VALUES (?, ?, ?, ?, ?, 'instahyre', 'auto', ?, ?)
+          ON CONFLICT (user_id, job_id) DO UPDATE SET
+            status = EXCLUDED.status, applied_at = EXCLUDED.applied_at, auto_apply_log = EXCLUDED.auto_apply_log
+        `).run(crypto.randomUUID(), userId, jobId, r.status, r.log.title, r.status === 'applied' ? now : null, JSON.stringify(r.log));
+
+        if (r.status === 'applied') { applied++; consecutiveFailures = 0; }
+        else { needsReview++; consecutiveFailures = 0; } // this flow never returns anything but applied/needs_review
+      }
+      return { processed: applied + needsReview, applied, needsReview };
+    }
+
     const queued = await db.prepare(`
       SELECT * FROM job_applications WHERE user_id = ? AND scraper_type = ? AND status = 'queued'
       ORDER BY match_percent DESC, queued_at ASC LIMIT ?
