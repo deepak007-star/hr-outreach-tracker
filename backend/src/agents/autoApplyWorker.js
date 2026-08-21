@@ -219,11 +219,25 @@ const APPLY_BUTTON_SELECTORS = [
 // almost always pairs a label/question text with an input/select/textarea.
 const QUESTION_BLOCK_SELECTOR = 'form label, [class*="question"], [class*="form-group"]';
 
+// A loading/spinner overlay sitting on top of the real button is exactly
+// what produced "<div id='loading-page'>… intercepts pointer events" in a
+// live run (Instahyre's Angular app: the button itself is
+// ng-disabled="!jobDataLoaded", so it briefly exists-but-is-blocked while the
+// job data finishes loading). Waiting it out here beats a longer flat delay —
+// it clears as soon as the app is actually ready instead of a fixed guess.
+const LOADING_OVERLAY_SELECTOR = '#loading-page, [class*="loading-overlay"], [class*="spinner"]:visible, [class*="lcp-element"]';
+async function waitForOverlayClear(page, timeoutMs = 8000) {
+  try {
+    await page.locator(LOADING_OVERLAY_SELECTOR).first().waitFor({ state: 'hidden', timeout: timeoutMs });
+  } catch (_) { /* no overlay present, or it never clears — proceed and let the click itself time out/retry */ }
+}
+
 async function attemptApply(page, job, bank) {
   const log = { job_id: job.id, title: job.title, company: job.company, questions: [] };
   try {
     await page.goto(job.apply_link || job.link, { waitUntil: 'domcontentloaded', timeout: 25000 });
     await page.waitForTimeout(2000 + Math.random() * 1500);
+    await waitForOverlayClear(page);
 
     let applyBtn = null;
     for (const sel of APPLY_BUTTON_SELECTORS) {
@@ -234,7 +248,7 @@ async function attemptApply(page, job, bank) {
       log.error = 'No recognizable Apply button found on the job page';
       return { status: 'needs_review', log };
     }
-    await applyBtn.click({ timeout: 10000 });
+    await applyBtn.click({ timeout: 15000 }); // bumped from 10000 — a disabled-until-loaded button (ng-disabled="!jobDataLoaded") needs real headroom beyond the overlay wait above
     await page.waitForTimeout(2500 + Math.random() * 1500);
 
     // Detect screening questions: any labeled input/select/textarea that
@@ -283,7 +297,8 @@ async function attemptApply(page, job, bank) {
       log.error = 'No final submit control found after filling questions';
       return { status: 'needs_review', log };
     }
-    await submitBtn.click({ timeout: 10000 });
+    await waitForOverlayClear(page);
+    await submitBtn.click({ timeout: 15000 });
     await page.waitForTimeout(3000);
 
     const bodyText = await page.evaluate(() => document.body?.innerText || '').catch(() => '');
@@ -294,8 +309,19 @@ async function attemptApply(page, job, bank) {
 
     return { status: 'applied', log };
   } catch (e) {
+    // A thrown error here (click timeout, an overlay intercepting the click,
+    // the page/context closing mid-attempt) means automation couldn't
+    // confidently interact with THIS job's page — it says nothing about
+    // whether the portal or credentials are broken. Per this file's own
+    // design rule (never guess, never partially submit — see file header),
+    // that's exactly a needs_review case, same as an unmatched question.
+    // Previously this returned 'error', which counts toward
+    // CONSECUTIVE_FAILURE_LIMIT and auto-pauses the WHOLE portal — so 3
+    // ordinary selector/timing hiccups (one per differently-structured job
+    // page) were pausing auto-apply entirely, even though nothing was
+    // actually wrong with the account or the portal itself.
     log.error = e.message;
-    return { status: 'error', log };
+    return { status: 'needs_review', log };
   }
 }
 
