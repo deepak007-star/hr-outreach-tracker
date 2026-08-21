@@ -294,6 +294,43 @@ async function attemptApply(page, job, bank) {
 
     const submitBtn = page.locator('button:has-text("Submit"), button[type="submit"]:has-text("Apply")').first();
     if (await submitBtn.count() === 0) {
+      // Confirmed live 2026-08-21 across all 20 Naukri queued jobs this run:
+      // every single one hit exactly this branch with ZERO screening
+      // questions detected — meaning the earlier applyBtn.click() (line ~251)
+      // was very likely the WHOLE application on portals with a genuine
+      // one-click "Apply" flow (no separate submit step at all), not a
+      // stuck/broken flow. The old code treated "no submit button" as
+      // automatic needs_review regardless, which silently forces every
+      // one-click-apply portal to 0% success. Only take the shortcut when
+      // there were no questions to answer (bank-filled multi-step forms
+      // still require the buttons above); look for a positive completion
+      // signal before trusting it, rather than assuming success just because
+      // nothing to click was found — a genuinely stuck/broken page has no
+      // such signal either, so this can't manufacture a false 'applied'.
+      if (questionBlocks.length === 0) {
+        const postClickState = await page.evaluate(() => {
+          const btn = [...document.querySelectorAll('button, a')]
+            .find(el => /apply/i.test(el.textContent || ''));
+          return {
+            btnText: btn?.textContent?.trim().slice(0, 60) || '',
+            btnDisabled: btn ? (btn.disabled || btn.getAttribute('aria-disabled') === 'true' || btn.className.includes('disabled')) : false,
+            bodySnippet: document.body?.innerText?.slice(0, 1500) || '',
+          };
+        }).catch(() => ({ btnText: '', btnDisabled: false, bodySnippet: '' }));
+
+        const APPLIED_RE = /already applied|application (?:sent|submitted|successful)|successfully applied|thanks for applying|your application has been (?:sent|received|submitted)/i;
+        const btnNowSaysApplied = /^applied$/i.test(postClickState.btnText);
+        const pageConfirmsApplied = APPLIED_RE.test(postClickState.bodySnippet);
+
+        if (btnNowSaysApplied || pageConfirmsApplied || postClickState.btnDisabled) {
+          log.completionSignal = { btnText: postClickState.btnText, btnDisabled: postClickState.btnDisabled, pageConfirmsApplied };
+          return { status: 'applied', log };
+        }
+
+        log.error = 'No submit control and no completion signal after apply click — status unclear';
+        return { status: 'needs_review', log };
+      }
+
       log.error = 'No final submit control found after filling questions';
       return { status: 'needs_review', log };
     }
