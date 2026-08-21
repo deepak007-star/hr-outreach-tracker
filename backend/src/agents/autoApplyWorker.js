@@ -851,10 +851,50 @@ async function testLogin(userId, portal) {
   });
 }
 
+// ── Cross-process lock ────────────────────────────────────────────────────
+// withBrowserLock (lib/browserStealth.js) is an in-memory promise chain —
+// it only serializes calls within THIS process. It does nothing if a
+// second process (e.g. two live Render instances, or a local dev box with
+// DISABLE_BACKGROUND_JOBS unset) independently fires its own
+// runAutoApplyCycle() against the same shared production DB. This is the
+// EXACT category of bug the Job Intel pipeline scheduler already hit —
+// "100+ orphaned pipeline_runs rows stuck in 'running'... every local
+// restart kicked off a fresh scrape" (see index.js's comment above the
+// pipeline scheduler) — fixed there with a DB-backed CAS lock
+// (orchestrator.js's acquireLock/releaseLock). Auto-apply is arguably
+// higher-stakes: two processes both logging into the SAME real Naukri/
+// Instahyre account around the same moment is exactly the kind of
+// concurrent-session pattern that looks like unexplained login flakiness
+// and can trigger a site's own anti-abuse defenses. Same pattern here.
+const AUTO_APPLY_LOCK_KEY = 'auto_apply_cycle_lock';
+const AUTO_APPLY_LOCK_STALE_MS = 60 * 60_000; // generous vs. a full multi-portal, multi-user cycle
+
+async function acquireCycleLock(runId) {
+  const now = Date.now();
+  const row = await db.prepare(`
+    INSERT INTO settings (key, value) VALUES (?, ?)
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+    WHERE (settings.value::jsonb ->> 'ts')::bigint < ?
+    RETURNING value
+  `).get(AUTO_APPLY_LOCK_KEY, JSON.stringify({ ts: now, runId }), now - AUTO_APPLY_LOCK_STALE_MS).catch(e => {
+    logger.warn('[auto-apply] acquireCycleLock failed (non-fatal, proceeding without cross-process lock)', { error: e.message });
+    return { value: 'error' }; // fail open — a lock bug must never block the whole cycle
+  });
+  return !!row;
+}
+
+async function releaseCycleLock(runId) {
+  await db.prepare(`
+    UPDATE settings SET value = ?
+    WHERE key = ? AND (value::jsonb ->> 'runId') = ?
+  `).run(JSON.stringify({ ts: 0, runId: null }), AUTO_APPLY_LOCK_KEY, runId).catch(() => {});
+}
+
 // ── Scheduler entry point ────────────────────────────────────────────────────
 // Iterates every user with an active credential row for an enabled portal,
 // running them ONE AT A TIME (never concurrent browser sessions — see file
-// header) so this is safe to call from a single periodic timer.
+// header) so this is safe to call from a single periodic timer — and now
+// safe across multiple processes/instances too (see acquireCycleLock above).
 async function runAutoApplyCycle() {
   const cfg = await getQueueConfig();
   if (cfg.auto_apply.paused) {
@@ -865,23 +905,33 @@ async function runAutoApplyCycle() {
   const enabledPortals = Object.entries(cfg.auto_apply.enabled).filter(([, on]) => on).map(([p]) => p);
   if (!enabledPortals.length) return { skipped: true, reason: 'no_portals_enabled' };
 
-  const rows = await db.prepare(`
-    SELECT user_id, portal FROM portal_credentials
-    WHERE status = 'active' AND portal = ANY(?)
-  `).all(enabledPortals);
-
-  const summary = [];
-  for (const { user_id, portal } of rows) {
-    try {
-      const result = await runPortalForUser(user_id, portal);
-      summary.push({ user_id, portal, ...result });
-      logger.info(`[auto-apply] ${portal} run complete`, { userId: user_id, ...result });
-    } catch (e) {
-      logger.error(`[auto-apply] ${portal} run threw`, { userId: user_id, error: e.message });
-      summary.push({ user_id, portal, error: e.message });
-    }
+  const runId = crypto.randomUUID();
+  if (!(await acquireCycleLock(runId))) {
+    logger.info('[auto-apply] cycle skipped — another process already holds the cycle lock');
+    return { skipped: true, reason: 'cross_process_lock_held' };
   }
-  return { skipped: false, summary };
+
+  try {
+    const rows = await db.prepare(`
+      SELECT user_id, portal FROM portal_credentials
+      WHERE status = 'active' AND portal = ANY(?)
+    `).all(enabledPortals);
+
+    const summary = [];
+    for (const { user_id, portal } of rows) {
+      try {
+        const result = await runPortalForUser(user_id, portal);
+        summary.push({ user_id, portal, ...result });
+        logger.info(`[auto-apply] ${portal} run complete`, { userId: user_id, ...result });
+      } catch (e) {
+        logger.error(`[auto-apply] ${portal} run threw`, { userId: user_id, error: e.message });
+        summary.push({ user_id, portal, error: e.message });
+      }
+    }
+    return { skipped: false, summary };
+  } finally {
+    await releaseCycleLock(runId);
+  }
 }
 
 module.exports = { runPortalForUser, runAutoApplyCycle, matchAnswer, loginPortal, attemptApply, markInvalidCredentials, testLogin };

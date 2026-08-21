@@ -90,9 +90,21 @@ async function clickPostAndVerify(page) {
  * manually rather than guessing.
  */
 async function publishPost(postId) {
-  const post = await db.prepare('SELECT * FROM content_posts WHERE id = ?').get(postId);
-  if (!post) return { ok: false, error: 'post not found' };
-  if (post.status !== 'approved') return { ok: false, error: `post is not approved (status=${post.status})` };
+  // Atomically claim the post before touching anything else — the old
+  // SELECT-then-check here was a TOCTOU race: two processes (e.g. two live
+  // instances both polling runPublishCycle every 60s, or a local dev box
+  // left running alongside the deployed one — same shared-DB multi-instance
+  // risk already documented/fixed for the Job Intel pipeline and auto-apply
+  // cycle elsewhere in this app) could both read status='approved' and both
+  // actually publish to the SAME real LinkedIn account. A duplicate visible
+  // post is a real, hard-to-undo mistake — worse than the analogous
+  // duplicate-scrape/duplicate-login issues, which are just wasteful. The
+  // claim below succeeds for exactly one caller; everyone else gets 0 rows
+  // and backs off immediately, before ever launching a browser.
+  const post = await db.prepare(
+    `UPDATE content_posts SET status = 'publishing', updated_at = ? WHERE id = ? AND status = 'approved' RETURNING *`
+  ).get(nowStr(), postId);
+  if (!post) return { ok: false, error: 'not_claimable — already claimed/published by another process, not found, or not approved' };
 
   const cfg = await getConfig();
 

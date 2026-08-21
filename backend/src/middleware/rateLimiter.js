@@ -15,7 +15,14 @@ const store = new Map(); // `${uid}:${type}` → number[]
 function _clean(key, windowMs) {
   const now = Date.now();
   const ts  = (store.get(key) || []).filter(t => now - t < windowMs);
-  store.set(key, ts);
+  // Evict the key entirely once its window is empty — this Map otherwise
+  // grows for the lifetime of the process, one entry per distinct
+  // userId:type pair ever seen, even after every timestamp has aged out.
+  // On a long-running 512MB container with many users over weeks/months
+  // that's a real, if slow, leak (see the earlier dedicated
+  // "reduce memory footprint for 512MB container" work).
+  if (ts.length) store.set(key, ts);
+  else store.delete(key);
   return ts;
 }
 
