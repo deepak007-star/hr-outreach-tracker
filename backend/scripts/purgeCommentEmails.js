@@ -60,7 +60,7 @@ function validPhones(list, text) {
 
 async function cleanScrapedJobs(client) {
   const { rows } = await client.query(
-    `SELECT id, description, link, contact_email, contact_phone, all_contacts
+    `SELECT id, title, company, description, link, contact_email, contact_phone, all_contacts
        FROM scraped_jobs
       WHERE scraper_type = 'linkedin-feed'
         AND (contact_email IS NOT NULL OR all_contacts IS NOT NULL)`);
@@ -76,7 +76,8 @@ async function cleanScrapedJobs(client) {
 
     // The stored description is the post's own og:description — never the
     // comment thread — so it is the right context for the filter to judge against.
-    const kept   = dropGluedDuplicates(filterHrEmails(before, r.description || ''));
+    const ctx    = [r.title, r.company, r.description, r.link].filter(Boolean).join(' ');
+    const kept   = dropGluedDuplicates(filterHrEmails(before, ctx));
     const phones = validPhones(ac.phones, `${r.description || ''} ${r.link || ''}`);
 
     kept.forEach(e => survivors.add(e));
@@ -104,7 +105,7 @@ async function cleanScrapedJobs(client) {
 
 async function cleanJobPostings(client) {
   const { rows } = await client.query(
-    `SELECT id, description, apply_url, extracted_emails
+    `SELECT id, title, company, description, apply_url, extracted_emails
        FROM job_postings
       WHERE extracted_emails IS NOT NULL AND extracted_emails <> '[]'`);
 
@@ -116,7 +117,8 @@ async function cleanJobPostings(client) {
     try { list = JSON.parse(r.extracted_emails); } catch { continue; }
     if (!Array.isArray(list) || !list.length) continue;
 
-    const kept  = dropGluedDuplicates(filterHrEmails(list.map(cleanExtractedEmail).filter(Boolean), r.description || ''));
+    const ctx   = [r.title, r.company, r.description, r.apply_url].filter(Boolean).join(' ');
+    const kept  = dropGluedDuplicates(filterHrEmails(list.map(cleanExtractedEmail).filter(Boolean), ctx));
     kept.forEach(e => survivors.add(e));
     const delta = list.filter(e => !kept.includes(e));
     if (!delta.length) continue;

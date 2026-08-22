@@ -138,7 +138,70 @@ const CANDIDATE_SPEAK_RE = /(my\s+(?:resume|cv|profile|mail|e-?mail|id|details|c
 // and keep only company-domain ones (which a comment thread rarely produces).
 const FREE_MAIL_FLOOD = 3;
 const MAX_HR_EMAILS   = 3;
-const CONTEXT_WINDOW  = 160;
+const CONTEXT_BEFORE  = 100;   // candidate-speak precedes the address ("here is my resume x@…")
+const CONTEXT_AFTER   = 40;    // …but also trails it occasionally ("x@… is my mail id")
+
+// A flat scrape concatenates the post and many separate comments into one
+// string. Reading a fixed character window around an address therefore bleeds
+// into a NEIGHBOURING comment and judges the wrong text — which would let one
+// candidate's "here is my resume" disqualify the recruiter's address sitting
+// just before it. Clip the window at the nearest segment boundary.
+const SEGMENT_SEP = /[\n\r|·•]|\s{3,}/;
+
+function contextAround(lower, at, email) {
+  const rawBefore = lower.slice(Math.max(0, at - CONTEXT_BEFORE), at);
+  const rawAfter  = lower.slice(at + email.length, at + email.length + CONTEXT_AFTER);
+  const beforeCut = [...rawBefore.matchAll(new RegExp(SEGMENT_SEP, 'g'))].pop();
+  const afterCut  = rawAfter.search(SEGMENT_SEP);
+  return (beforeCut ? rawBefore.slice(beforeCut.index + beforeCut[0].length) : rawBefore)
+       + ' ' + (afterCut >= 0 ? rawAfter.slice(0, afterCut) : rawAfter);
+}
+
+// College / university addresses. In Indian hiring threads a Training &
+// Placement Officer very often comments "sharing with our students, reach me at
+// tpo@<college>.ac.in" — a real, deliverable address that is emphatically NOT
+// the hiring contact. Free-mail rules miss it because the domain looks corporate.
+const EDU_DOMAIN_RE = /\.(?:ac|edu)\.[a-z]{2}$|\.edu$|\.ac\.[a-z]{2}$/i;
+function isEduMail(email) {
+  const at = (email || '').lastIndexOf('@');
+  return at > 0 && EDU_DOMAIN_RE.test(email.slice(at + 1));
+}
+
+// …but a university advertising its OWN vacancy is a legitimate posting whose
+// contact is naturally an .ac.in/.edu address, so the rule above is suspended
+// when the posting itself reads as academic.
+const ACADEMIC_POST_RE = /\b(universit|college|institute|institution|academic|academy|faculty|campus|professor|lecturer|principal|teaching|non-teaching|vidyalaya|vidyapeeth|vishwavidyalaya|school\s+of|dean\b|scholar|phd|research\s+(?:fellow|associate|scholar))/i;
+
+// Role-based local parts — an inbox a company publishes for inbound applications.
+// A commenting job-seeker essentially never writes from one.
+const ROLE_LOCAL_RE = /^(?:hr|hrd|hiring|recruit(?:ment|er|ers)?|talent|career|careers|job|jobs|apply|application|applications|resume|resumes|cv|connect|contact|info|enquiry|enquiries|inquiry|admin|office|team|work|join|people|staffing|placements?)[._\-]?\d*$/i;
+
+// Second-level label of a domain — "narvee" from "narvee.com", "shrasits" from
+// "mail.shrasits.co.in". Used to test whether an address's domain is actually
+// the company the post is about.
+function domainLabel(email) {
+  const at = (email || '').lastIndexOf('@');
+  if (at < 0) return '';
+  const parts = email.slice(at + 1).split('.').filter(Boolean);
+  // Drop the TLD, plus a second-level ccTLD chunk like .co.in / .ac.uk
+  let i = parts.length - 1;
+  if (i > 0 && /^(?:co|com|net|org|ac|gov|edu)$/i.test(parts[i - 1])) i--;
+  return (parts[i - 1] || parts[0] || '').toLowerCase();
+}
+
+/**
+ * A "strong" address is one the POST itself vouches for: either its domain is
+ * the company the post is about, or its local part is a published role inbox.
+ * When any address in a posting is strong, the weak ones are almost always
+ * comment-thread noise and get dropped.
+ */
+function isStrongHrEmail(email, lowerText) {
+  if (isFreeMail(email) || isEduMail(email)) return false;
+  const local = email.slice(0, email.indexOf('@'));
+  if (ROLE_LOCAL_RE.test(local)) return true;
+  const label = domainLabel(email);
+  return label.length >= 4 && lowerText.includes(label);
+}
 
 /**
  * Narrow a list of extracted emails down to the ones plausibly belonging to the
@@ -146,17 +209,48 @@ const CONTEXT_WINDOW  = 160;
  * the per-email context check); omit it to apply the count heuristic only.
  */
 function filterHrEmails(emails, text = '') {
-  if (!Array.isArray(emails) || emails.length <= 1) return emails || [];
+  if (!Array.isArray(emails) || !emails.length) return emails || [];
 
-  const flood = emails.filter(isFreeMail).length >= FREE_MAIL_FLOOD;
   const lower = (text || '').toLowerCase();
 
+  // Educational addresses go first, BEFORE the single-address shortcut below:
+  // a student or Training & Placement Officer commenting under a company's
+  // hiring post is frequently the only address the page yields, and a lone
+  // wrong contact is exactly what must not reach Contacts. Kept only when the
+  // posting is itself academic — a university advertising its own vacancy.
+  if (!ACADEMIC_POST_RE.test(lower)) {
+    const nonEdu = emails.filter(e => !isEduMail(e));
+    if (nonEdu.length !== emails.length) emails = nonEdu;  // may legitimately empty the list
+  }
+  if (emails.length <= 1) return emails;
+
+  const flood = emails.filter(isFreeMail).length >= FREE_MAIL_FLOOD;
+
+  // Positive signal displaces personal addresses. When the posting contains an
+  // address the post itself vouches for (company domain named in the text, or a
+  // role inbox like careers@/connect@), any free-mail or college address
+  // alongside it is comment-thread noise — that is what separates
+  // connect@narvee.com from the college TPO and the job-seeker who both replied
+  // under a "Narvee is hiring Java developers" post.
+  //
+  // Deliberately scoped to free-mail/edu: two ordinary COMPANY addresses in one
+  // posting (a consultancy plus its client, say) are both plausibly real, and
+  // preferring whichever happened to match the text would silently discard a
+  // genuine recruiter.
+  const hasStrong = emails.some(e => isStrongHrEmail(e, lower));
+  if (hasStrong) {
+    return emails
+      .filter(e => !isFreeMail(e) && !isEduMail(e))
+      .slice(0, MAX_HR_EMAILS);
+  }
+
+  // No positive signal anywhere — fall back to removing what looks wrong.
   const kept = emails.filter(e => {
     if (!isFreeMail(e)) return true;   // company domain — a commenter almost never has one
     if (flood) return false;
     const at = lower.indexOf(e);
     if (at < 0) return true;           // can't locate it in the source — no basis to judge
-    return !CANDIDATE_SPEAK_RE.test(lower.slice(Math.max(0, at - CONTEXT_WINDOW), at + CONTEXT_WINDOW));
+    return !CANDIDATE_SPEAK_RE.test(contextAround(lower, at, e));
   });
 
   return kept.slice(0, MAX_HR_EMAILS);

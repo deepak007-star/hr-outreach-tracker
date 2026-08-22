@@ -46,6 +46,15 @@ async function llmExtract(description) {
  * Fast path: internal DB sources (scraped_jobs) may already have contact_email
  * extracted by the scraper — use that directly without re-running regex/LLM.
  */
+// Context handed to filterHrEmails. The description alone is too thin: the
+// company-domain test ("is narvee.com the company this post is about?") needs
+// the title/company fields, and the academic-posting test often only has
+// "university" in the title or the apply URL slug.
+function filterContext(job) {
+  return [job.title, job.company, job.company_name, job.description, job.apply_url]
+    .filter(Boolean).join(' ');
+}
+
 async function extractFromJob(job) {
   // Fast path: scraper already extracted the email — validate then use it.
   // Don't blindly trust the scraped value: it may have absorbed adjacent text
@@ -68,7 +77,7 @@ async function extractFromJob(job) {
     // scraped before that filter existed carry whole harvested comment threads
     // in _pre_all_contacts, and this fast path is exactly how they reached
     // job_postings (extraction_method 'pre-extracted') and then Contacts.
-    const hrEmails = filterHrEmails([...emails], job.description || '');
+    const hrEmails = filterHrEmails([...emails], filterContext(job));
     if (hrEmails.length) {
       return {
         extracted_emails:       JSON.stringify(hrEmails),
@@ -82,9 +91,13 @@ async function extractFromJob(job) {
   const text   = job.description || '';
   const result = extractContacts(text);
 
-  if (result.emails.length) {
+  // extractContacts already filtered, but only against the description it was
+  // given — re-narrow with the full context so the company-domain and
+  // academic-posting tests can see the title/company/URL too.
+  const regexEmails = filterHrEmails(result.emails, filterContext(job));
+  if (regexEmails.length) {
     return {
-      extracted_emails:       JSON.stringify(result.emails),
+      extracted_emails:       JSON.stringify(regexEmails),
       // For LinkedIn posts use author name as contact name when regex finds the email
       extracted_contact_name: job._author_name || null,
       extraction_method:      'regex',
@@ -102,7 +115,7 @@ async function extractFromJob(job) {
           .map(cleanExtractedEmail)
           .filter(Boolean)
           .filter(e => lowerText.includes(e)),
-        text,
+        filterContext(job),
       );
       if (validEmails.length) {
         // Same hallucination risk applies to the contact name — an LLM can
