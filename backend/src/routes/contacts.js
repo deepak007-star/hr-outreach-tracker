@@ -187,27 +187,74 @@ router.get('/dashboard-stats', async (req, res) => {
   const scopeParams = pool ? [] : [userId];
 
   try {
-    const pipelineRows = await db.prepare(`
-      SELECT COALESCE(s.status, 'New') AS status, COUNT(*) AS count
-      FROM contacts c
-      LEFT JOIN contact_user_state s ON s.contact_id = c.id AND s.user_id = ?
-      ${scopeSql}
-      GROUP BY COALESCE(s.status, 'New')
-    `).all(userId, ...scopeParams);
+    const companyWhere  = [`c.company IS NOT NULL`, `c.company != ''`];
+    const companyParams = [];
+    if (!pool) { companyWhere.unshift('c.user_id = ?'); companyParams.push(userId); }
+    const companyWhereSql = ' WHERE ' + companyWhere.join(' AND ');
+
+    // Sent/Opened for >7 days with no reply — a concrete follow-up shortlist.
+    const cutoff = new Date(Date.now() - 7 * 86_400_000).toISOString().replace('T', ' ').slice(0, 19);
+    const stalledWhere  = [`COALESCE(s.status, 'New') IN ('Sent','Opened')`, `c.date_last_contacted IS NOT NULL`, `c.date_last_contacted < ?`];
+    const stalledParams = [userId]; // for the join
+    if (!pool) { stalledWhere.unshift('c.user_id = ?'); stalledParams.push(userId); }
+    stalledParams.push(cutoff);
+
+    // Bounced/undeliverable contacts — surfaced on the Dashboard the same way
+    // stalled follow-ups are, so a delivery problem doesn't stay buried until
+    // someone happens to filter My HR List by the Flagged tab.
+    const flaggedWhere  = [`c.email_deliverable IN ${FLAGGED_DELIVERABLE_SQL}`];
+    const flaggedScopeParams = [];
+    if (!pool) { flaggedWhere.unshift('c.user_id = ?'); flaggedScopeParams.push(userId); }
+
+    // None of the 7 queries below depend on each other's results — they were
+    // previously awaited one at a time, stacking up serialized network round
+    // trips to the (remote) DB on every single dashboard load. Run them
+    // concurrently instead; same queries, same params, just not blocking
+    // each other.
+    const [
+      pipelineRows, sourceRows, companyRow, myCompaniesRows,
+      stalledRows, flaggedRows, flaggedCountRow,
+    ] = await Promise.all([
+      db.prepare(`
+        SELECT COALESCE(s.status, 'New') AS status, COUNT(*) AS count
+        FROM contacts c
+        LEFT JOIN contact_user_state s ON s.contact_id = c.id AND s.user_id = ?
+        ${scopeSql}
+        GROUP BY COALESCE(s.status, 'New')
+      `).all(userId, ...scopeParams),
+      db.prepare(`
+        SELECT
+          COALESCE(c.email_source, 'manual') AS source,
+          COUNT(*) AS total,
+          SUM(CASE WHEN COALESCE(s.status, 'New') IN ${ALREADY_MAILED_STATUSES_SQL} THEN 1 ELSE 0 END) AS contacted,
+          SUM(CASE WHEN COALESCE(s.status, 'New') IN ('Replied','Interview')        THEN 1 ELSE 0 END) AS replied
+        FROM contacts c
+        LEFT JOIN contact_user_state s ON s.contact_id = c.id AND s.user_id = ?
+        ${scopeSql}
+        GROUP BY COALESCE(c.email_source, 'manual')
+      `).all(userId, ...scopeParams),
+      db.prepare(`SELECT COUNT(DISTINCT c.company) AS count FROM contacts c${companyWhereSql}`).get(...companyParams),
+      db.prepare(`SELECT DISTINCT c.company FROM contacts c${companyWhereSql} ORDER BY c.company ASC LIMIT 12`).all(...companyParams),
+      db.prepare(`
+        SELECT c.*, s.status AS my_status, s.notes AS my_notes, s.follow_up_at AS my_follow_up_at
+        FROM contacts c
+        LEFT JOIN contact_user_state s ON s.contact_id = c.id AND s.user_id = ?
+        WHERE ${stalledWhere.join(' AND ')}
+        ORDER BY c.date_last_contacted ASC LIMIT 8
+      `).all(...stalledParams),
+      db.prepare(`
+        SELECT c.*, s.status AS my_status, s.notes AS my_notes, s.follow_up_at AS my_follow_up_at
+        FROM contacts c
+        LEFT JOIN contact_user_state s ON s.contact_id = c.id AND s.user_id = ?
+        WHERE ${flaggedWhere.join(' AND ')}
+        ORDER BY c.last_bounce_at DESC NULLS LAST LIMIT 8
+      `).all(userId, ...flaggedScopeParams),
+      db.prepare(`SELECT COUNT(*) AS count FROM contacts c WHERE ${flaggedWhere.join(' AND ')}`).get(...flaggedScopeParams),
+    ]);
+
     const pipeline = {};
     for (const r of pipelineRows) pipeline[r.status] = parseInt(r.count, 10) || 0;
 
-    const sourceRows = await db.prepare(`
-      SELECT
-        COALESCE(c.email_source, 'manual') AS source,
-        COUNT(*) AS total,
-        SUM(CASE WHEN COALESCE(s.status, 'New') IN ${ALREADY_MAILED_STATUSES_SQL} THEN 1 ELSE 0 END) AS contacted,
-        SUM(CASE WHEN COALESCE(s.status, 'New') IN ('Replied','Interview')        THEN 1 ELSE 0 END) AS replied
-      FROM contacts c
-      LEFT JOIN contact_user_state s ON s.contact_id = c.id AND s.user_id = ?
-      ${scopeSql}
-      GROUP BY COALESCE(c.email_source, 'manual')
-    `).all(userId, ...scopeParams);
     const sourceBreakdown = sourceRows
       .map(r => {
         const total = parseInt(r.total, 10) || 0;
@@ -216,49 +263,6 @@ router.get('/dashboard-stats', async (req, res) => {
         return { key: r.source, total, contacted, replied, rate: contacted ? Math.round((replied / contacted) * 100) : 0 };
       })
       .sort((a, b) => b.total - a.total);
-
-    const companyWhere  = [`c.company IS NOT NULL`, `c.company != ''`];
-    const companyParams = [];
-    if (!pool) { companyWhere.unshift('c.user_id = ?'); companyParams.push(userId); }
-    const companyWhereSql = ' WHERE ' + companyWhere.join(' AND ');
-
-    const companyRow = await db.prepare(`
-      SELECT COUNT(DISTINCT c.company) AS count FROM contacts c${companyWhereSql}
-    `).get(...companyParams);
-    const myCompaniesRows = await db.prepare(`
-      SELECT DISTINCT c.company FROM contacts c${companyWhereSql} ORDER BY c.company ASC LIMIT 12
-    `).all(...companyParams);
-
-    // Sent/Opened for >7 days with no reply — a concrete follow-up shortlist.
-    const cutoff = new Date(Date.now() - 7 * 86_400_000).toISOString().replace('T', ' ').slice(0, 19);
-    const stalledWhere  = [`COALESCE(s.status, 'New') IN ('Sent','Opened')`, `c.date_last_contacted IS NOT NULL`, `c.date_last_contacted < ?`];
-    const stalledParams = [userId]; // for the join
-    if (!pool) { stalledWhere.unshift('c.user_id = ?'); stalledParams.push(userId); }
-    stalledParams.push(cutoff);
-    const stalledRows = await db.prepare(`
-      SELECT c.*, s.status AS my_status, s.notes AS my_notes, s.follow_up_at AS my_follow_up_at
-      FROM contacts c
-      LEFT JOIN contact_user_state s ON s.contact_id = c.id AND s.user_id = ?
-      WHERE ${stalledWhere.join(' AND ')}
-      ORDER BY c.date_last_contacted ASC LIMIT 8
-    `).all(...stalledParams);
-
-    // Bounced/undeliverable contacts — surfaced on the Dashboard the same way
-    // stalled follow-ups are, so a delivery problem doesn't stay buried until
-    // someone happens to filter My HR List by the Flagged tab.
-    const flaggedWhere  = [`c.email_deliverable IN ${FLAGGED_DELIVERABLE_SQL}`];
-    const flaggedScopeParams = [];
-    if (!pool) { flaggedWhere.unshift('c.user_id = ?'); flaggedScopeParams.push(userId); }
-    const flaggedRows = await db.prepare(`
-      SELECT c.*, s.status AS my_status, s.notes AS my_notes, s.follow_up_at AS my_follow_up_at
-      FROM contacts c
-      LEFT JOIN contact_user_state s ON s.contact_id = c.id AND s.user_id = ?
-      WHERE ${flaggedWhere.join(' AND ')}
-      ORDER BY c.last_bounce_at DESC NULLS LAST LIMIT 8
-    `).all(userId, ...flaggedScopeParams);
-    const flaggedCountRow = await db.prepare(`
-      SELECT COUNT(*) AS count FROM contacts c WHERE ${flaggedWhere.join(' AND ')}
-    `).get(...flaggedScopeParams);
 
     res.json({
       pipeline,
