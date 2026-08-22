@@ -614,9 +614,17 @@ async function main() {
       `).all(nowStr, cutoff);
 
       for (const row of expiring) {
+        // Same TOCTOU fix as the reminder-email scheduler above: claim the
+        // dedup key atomically BEFORE sending, not after, so two processes
+        // whose 24h ticks land close together can't both send this user a
+        // duplicate "plan renews soon" email.
         const dedupKey = `plan_expiry_notified_${row.user_id}_${today}`;
-        const already  = await database.prepare('SELECT value FROM settings WHERE key = ?').get(dedupKey);
-        if (already) continue;
+        const claimed = await database.prepare(`
+          INSERT INTO settings (key, value) VALUES (?, '1')
+          ON CONFLICT (key) DO NOTHING
+          RETURNING key
+        `).get(dedupKey);
+        if (!claimed) continue;
 
         const expiryDate = row.current_period_end.slice(0, 10);
         await database.prepare(
@@ -641,10 +649,6 @@ async function main() {
         } catch (e) {
           console.warn('[Subscriptions] expiry reminder email failed (non-fatal):', e.message);
         }
-
-        await database.prepare(
-          `INSERT INTO settings (key, value) VALUES (?, '1') ON CONFLICT (key) DO UPDATE SET value = '1'`
-        ).run(dedupKey);
       }
     } catch (e) {
       console.error('[Subscriptions] expiry reminder error:', e.message);
