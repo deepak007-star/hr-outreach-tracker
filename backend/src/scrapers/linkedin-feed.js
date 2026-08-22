@@ -39,7 +39,7 @@ const {
 } = require('../lib/common');
 const { detectBotChallenge, EngineState } = require('../lib/captchaDetector');
 const proxyRotator = require('../lib/proxyRotator');
-const { cleanExtractedEmail } = require('../lib/contactExtract');
+const { cleanExtractedEmail, filterHrEmails, URL_RE } = require('../lib/contactExtract');
 
 const OUTPUT_DIR    = path.join(__dirname, '..', 'output', 'linkedin-feed');
 const SCRAPER_TITLE = 'LinkedIn Feed — HR Posts';
@@ -80,7 +80,10 @@ function randomVP()  { return VIEWPORTS[Math.floor(Math.random() * VIEWPORTS.len
 const RE_EMAIL = /\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b/g;
 const RE_GFORM = /https?:\/\/(?:docs\.google\.com\/forms|forms\.gle)\/[^\s"'<>)\]]+/g;
 const RE_WA    = /https?:\/\/(?:wa\.me|api\.whatsapp\.com\/send)[^\s"'<>)\]]+/g;
-const RE_PHONE = /(?:(?:\+91|0091|0)[\s\-]?)?[6-9]\d{9}/g;
+// Both ends anchored to a non-digit — without that, the 19-digit LinkedIn
+// activity id in every post URL matched a 10-digit window and every scraped
+// post got a fake phone number (…activity-7495869545585459201 → 7495869545).
+const RE_PHONE = /(?<!\d)(?:(?:\+91|0091|0)[\s\-]?)?[6-9]\d{9}(?!\d)/g;
 // Domain/placeholder-address denials now live in one place — lib/contactExtract.js's
 // cleanExtractedEmail — shared with the orchestrator's extraction/deepFetch paths so
 // this scraper can't drift out of sync with what's treated as a real HR contact
@@ -91,12 +94,18 @@ const SPAM     = ['linkedin.com', 'bing.com', 'yahoo.com', 'brave.com', 'duckduc
 
 function extractContact(text) {
   const t = text || '';
+  const emails = [...new Set((t.match(RE_EMAIL) || [])
+    .map(e => cleanExtractedEmail(e))
+    .filter(e => e && !SPAM.some(s => e.includes(s))))];
   return {
-    emails:  [...new Set((t.match(RE_EMAIL) || [])
-      .map(e => cleanExtractedEmail(e))
-      .filter(e => e && !SPAM.some(s => e.includes(s))))],
+    // filterHrEmails drops candidate addresses harvested from a comment thread —
+    // see lib/contactExtract.js. Scoped page selectors keep most of them out in
+    // the first place; this catches what arrives via search-engine snippets.
+    emails:  filterHrEmails(emails, t),
     gforms:  [...new Set(t.match(RE_GFORM) || [])],
-    phones:  [...new Set((t.match(RE_PHONE) || []).map(p => p.replace(/[\s\-]/g, '')).filter(p => p.length >= 10))],
+    // Phones are matched against URL-stripped text: a post/job URL's numeric id
+    // is not a phone number.
+    phones:  [...new Set((t.replace(URL_RE, ' ').match(RE_PHONE) || []).map(p => p.replace(/[\s\-]/g, '')).filter(p => p.length >= 10))],
     waLinks: [...new Set(t.match(RE_WA) || [])],
   };
 }
@@ -829,28 +838,68 @@ async function scrapePage(browser, url) {
       const ogTitle  = document.querySelector('meta[property="og:title"]')?.content        || '';
       const metaDesc = document.querySelector('meta[name="description"]')?.content         || '';
 
+      // JSON-LD: PARSE it, never concatenate the raw blob. LinkedIn emits
+      // `SocialMediaPosting` with BOTH `articleBody` (the post) and `comment[]`
+      // (every reply, verbatim) — dumping the raw text in fed the entire
+      // candidate comment thread straight into contact extraction. It also
+      // carried literal `\n` escape pairs, whose stray "n" glued itself onto the
+      // next address ("\nanushka@x.com" → "nanushka@x.com").
       let jsonLd = '';
       try {
-        const el = document.querySelector('script[type="application/ld+json"]');
-        if (el) jsonLd = el.textContent || '';
+        const POST_FIELDS = ['articleBody', 'text', 'description', 'headline'];
+        const parts = [];
+        for (const el of document.querySelectorAll('script[type="application/ld+json"]')) {
+          let obj;
+          try { obj = JSON.parse(el.textContent || ''); } catch (_) { continue; }
+          for (const node of (Array.isArray(obj) ? obj : [obj])) {
+            if (!node || typeof node !== 'object') continue;
+            for (const f of POST_FIELDS) {
+              if (typeof node[f] === 'string' && node[f].trim()) parts.push(node[f].trim());
+            }
+          }
+        }
+        jsonLd = parts.join('\n');
       } catch (_) {}
 
+      // Post-body selectors. `.attributed-text-segment-list__content` is shared
+      // by the post AND by every comment (comments additionally carry
+      // `.comment__text`), so it is matched with an explicit :not() and an
+      // ancestor check — otherwise a comment node can win the query outright.
       const DOM_LI = [
         '.feed-shared-update-v2__description-wrapper',
         '.update-components-text', '.feed-shared-text',
-        '.attributed-text-segment-list__content',
         '[data-test-id="main-feed-activity-card__commentary"]',
         '.main-feed-activity-card__commentary',
+        '.attributed-text-segment-list__content:not(.comment__text)',
         '.base-main-card__description', '.description__text',
       ];
+      const COMMENT_ANCESTORS =
+        '.comment__text, .comments-comment-item, .comments-comment-entity, ' +
+        '.comments-comments-list, .social-details-social-activity, ' +
+        'article.comments-comment-entity, [data-test-id*="comment"]';
       let domText = '';
       for (const sel of DOM_LI) {
-        const el = document.querySelector(sel);
-        const t  = el?.textContent?.trim();
-        if (t && t.length > 30) { domText = t; break; }
+        for (const el of document.querySelectorAll(sel)) {
+          if (el.closest(COMMENT_ANCESTORS)) continue;   // it's a reply, not the post
+          const t = el.textContent?.trim();
+          if (t && t.length > 30) { domText = t; break; }
+        }
+        if (domText) break;
       }
 
-      const bodyText = document.body?.innerText?.slice(0, 8000) || '';
+      // Last-resort raw text: strip the comment subtree out of a clone first so
+      // the fallback can't reintroduce what the selectors above just excluded.
+      let bodyText = '';
+      try {
+        const clone = document.body?.cloneNode(true);
+        if (clone) {
+          clone.querySelectorAll(COMMENT_ANCESTORS).forEach(n => n.remove());
+          bodyText = (clone.innerText || clone.textContent || '').slice(0, 8000);
+        }
+      } catch (_) {
+        bodyText = document.body?.innerText?.slice(0, 8000) || '';
+      }
+
       return { ogDesc, ogTitle, metaDesc, jsonLd, domText, bodyText };
     });
 
@@ -860,7 +909,10 @@ async function scrapePage(browser, url) {
     // includes comments/replies from other users) when none of those yielded
     // anything, and even then cut it off before the comment section starts.
     const postContent = [data.ogDesc, data.metaDesc, data.domText, data.jsonLd].filter(Boolean).join('\n');
-    const combined = postContent.length > 40 ? postContent : stripCommentsSection(data.bodyText);
+    // stripCommentsSection runs on BOTH branches now. The scoped selectors above
+    // are the real defence, but a "12 comments … " run-on can still survive
+    // inside a meta description, and there is no upside to keeping it.
+    const combined = stripCommentsSection(postContent.length > 40 ? postContent : data.bodyText);
 
     return { text: combined, ogDesc: data.ogDesc || data.metaDesc, ogTitle: data.ogTitle };
   } catch (err) {

@@ -12,7 +12,7 @@
 // HTTP-first (fast, covers static Greenhouse/Lever/company pages). A bounded
 // Playwright fallback renders JS-heavy pages that returned little usable text.
 
-const { extractContacts, cleanExtractedEmail } = require('../lib/contactExtract');
+const { extractContacts, cleanExtractedEmail, filterHrEmails } = require('../lib/contactExtract');
 const common = require('../lib/common');
 
 const MAILTO_RE = /mailto:\s*([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})/gi;
@@ -33,7 +33,10 @@ function pageEmails(html) {
   for (const e of extractContacts(text).emails) {
     out.add(e);
   }
-  return [...out];
+  // Job boards render candidate comment/reply sections too, and mailto: matches
+  // skip cleanExtractedEmail's gate entirely — run the shared HR-vs-candidate
+  // filter over the merged set so a full-page scan can't harvest job-seekers.
+  return filterHrEmails([...out], text);
 }
 
 function needsFetch(job) {

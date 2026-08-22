@@ -147,6 +147,12 @@ Checks `job_postings` table for existing `external_id`s; splits into `unique` (n
 **Stage 4 — Extract → Store** (loop in `orchestrator.js`)
 For each unique posting: calls `extractFromJob(job)` (`agents/extraction.js`) which regex-scans title, company, description, and apply URL for email addresses and contact names. If no email is found, the posting is skipped (not stored). Optional LLM classification via Groq (`agents/classification.js`) is off by default (`cfg.classify = false`) — enable via Admin Panel. Passes QA check (`agents/qa.js`) then `storeJob(job)` (`agents/storage.js`) upserts into `job_postings`.
 
+**Contact extraction invariant — never harvest the comment thread.** A hiring post is followed by candidates replying with their OWN address ("Interested! my resume: x@gmail.com"). Those must never reach `contacts`, or outreach mail goes to fellow job-seekers. Two layers enforce this and both must be kept intact when touching extraction:
+1. *At the source* (`scrapers/linkedin-feed.js` `scrapePage`) — the page's JSON-LD is **parsed** and only `articleBody`/`text`/`description`/`headline` are read; LinkedIn's `SocialMediaPosting` node also carries a `comment[]` array with every reply verbatim, so concatenating the raw blob (as it once did) fed the whole thread into extraction. DOM selectors exclude comment nodes (`.attributed-text-segment-list__content` is shared by the post AND every comment — comments additionally carry `.comment__text`), and the body-innerText fallback removes the comment subtree before reading.
+2. *At the filter* (`lib/contactExtract.js` `filterHrEmails`) — the shared last line for text arriving from search snippets, deep-fetched board pages and legacy rows. Company-domain addresses always pass; free-mail addresses are dropped when 3+ appear in one posting (comment-thread signature) or when unambiguous candidate-side phrasing sits next to them. Every extraction path routes through it — `extractContacts`, the `_pre_contact_email` fast path, the LLM path, and `deepFetch.pageEmails`.
+
+Related: phone regexes are anchored with `(?<!\d)`/`(?!\d)` and run on URL-stripped text — `\b` alone matched a 10-digit window inside the 19-digit activity id in every LinkedIn post URL. `backend/scripts/purgeCommentEmails.js` is the idempotent backfill that cleaned the rows written before these fixes.
+
 **Stage 5 — Pipeline run record update** (`orchestrator.js`)
 Updates `pipeline_runs` row with `status = 'success'`, counters, and error map.
 

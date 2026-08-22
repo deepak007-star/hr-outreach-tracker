@@ -14,3 +14,6 @@ Thumbs.db
 .idea/
 .claude/settings.local.json
 credentials.txt
+
+# Pre-migration DB dumps — contain contact PII, never commit
+backend/data/backups/

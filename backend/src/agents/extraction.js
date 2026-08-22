@@ -1,5 +1,5 @@
 'use strict';
-const { extractContacts, hasOutreachIntent, cleanExtractedEmail } = require('../lib/contactExtract');
+const { extractContacts, hasOutreachIntent, cleanExtractedEmail, filterHrEmails } = require('../lib/contactExtract');
 const db = require('../db/database');
 
 // ── Groq LLM fallback ────────────────────────────────────────────────────────
@@ -64,9 +64,14 @@ async function extractFromJob(job) {
         }
       } catch (_) {}
     }
-    if (emails.size) {
+    // Re-run the HR-vs-candidate filter even on pre-extracted values. Rows
+    // scraped before that filter existed carry whole harvested comment threads
+    // in _pre_all_contacts, and this fast path is exactly how they reached
+    // job_postings (extraction_method 'pre-extracted') and then Contacts.
+    const hrEmails = filterHrEmails([...emails], job.description || '');
+    if (hrEmails.length) {
       return {
-        extracted_emails:       JSON.stringify([...emails]),
+        extracted_emails:       JSON.stringify(hrEmails),
         extracted_contact_name: null,
         extraction_method:      'pre-extracted',
       };
@@ -92,10 +97,13 @@ async function extractFromJob(job) {
       // LLM can hallucinate plausible-looking emails — a format check alone isn't
       // enough. Only trust ones that actually appear verbatim in the source text.
       const lowerText  = text.toLowerCase();
-      const validEmails = llmResult.emails
-        .map(cleanExtractedEmail)
-        .filter(Boolean)
-        .filter(e => lowerText.includes(e));
+      const validEmails = filterHrEmails(
+        llmResult.emails
+          .map(cleanExtractedEmail)
+          .filter(Boolean)
+          .filter(e => lowerText.includes(e)),
+        text,
+      );
       if (validEmails.length) {
         // Same hallucination risk applies to the contact name — an LLM can
         // invent a plausible-sounding person who isn't actually named in the

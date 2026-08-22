@@ -7,8 +7,18 @@
 
 const EMAIL_RE = /\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b/g;
 
-// Indian mobile: optional +91/91/0 prefix then 6-9 leading digit, 9 more digits
-const PHONE_RE = /(?:(?:\+91|91|0)[\s.\-]?)?[6-9]\d{9}\b/g;
+// Indian mobile: optional +91/91/0 prefix then 6-9 leading digit, 9 more digits.
+// The `(?<!\d)` / `(?!\d)` guards are load-bearing: `\b` alone happily matches a
+// 10-digit WINDOW inside a longer digit run, so every LinkedIn post URL
+// (…-activity-7495869545585459201-mYSw) was yielding a bogus "phone" of
+// 7495869545. Anchoring both ends to a non-digit rejects the whole run instead.
+const PHONE_RE = /(?<!\d)(?:(?:\+91|91|0)[\s.\-]?)?[6-9]\d{9}(?!\d)/g;
+
+// URLs carry long numeric ids (LinkedIn activity ids, job ids, tracking params)
+// that look exactly like phone numbers once the surrounding punctuation is
+// stripped. Blank them out before phone matching — never before email matching,
+// since mailto: links and plain-text addresses live inside that same text.
+const URL_RE = /\b(?:https?:\/\/|www\.)\S+/gi;
 
 // Shared across both regex extraction (this file) and the apply-page deep-fetch
 // scan (agents/deepFetch.js) — keep this the single source of truth for
@@ -95,6 +105,63 @@ function cleanExtractedEmail(raw) {
   return e;
 }
 
+// ── HR-vs-candidate email disambiguation ─────────────────────────────────────
+// A hiring post is followed by a comment thread in which CANDIDATES post their
+// own address ("Interested! my resume — foo@gmail.com"). Any full-page scan
+// mixes those in with the recruiter's address indistinguishably, and they are
+// the worst possible thing to end up in Contacts: outreach mail then goes to
+// fellow job-seekers. The scrapers now cut the comment thread off at the source
+// (see scrapers/linkedin-feed.js's scrapePage), but search-engine snippets,
+// deep-fetched board pages and re-processed legacy rows can still carry it, so
+// this is the shared last-line filter every extraction path runs through.
+
+const FREE_MAIL_DOMAINS = new Set([
+  'gmail.com', 'googlemail.com', 'yahoo.com', 'yahoo.co.in', 'yahoo.in', 'ymail.com',
+  'hotmail.com', 'outlook.com', 'live.com', 'msn.com', 'aol.com',
+  'rediffmail.com', 'rediff.com', 'icloud.com', 'me.com',
+  'proton.me', 'protonmail.com', 'yandex.com', 'mail.ru', 'gmx.com',
+]);
+
+function isFreeMail(email) {
+  const at = (email || '').lastIndexOf('@');
+  return at > 0 && FREE_MAIL_DOMAINS.has(email.slice(at + 1));
+}
+
+// Unambiguous candidate-side ("I am applying") phrasing. Deliberately does NOT
+// include a bare "interested" — recruiters write "if interested, mail hr@x.com"
+// just as often as candidates write "interested".
+const CANDIDATE_SPEAK_RE = /(my\s+(?:resume|cv|profile|mail|e-?mail|id|details|contact|number)\b|sharing\s+my\b|here\s+(?:is|are)\s+my\b|(?:please|kindly)\s+(?:do\s+)?(?:consider|review|check)\s+(?:me|my)\b|i\s*(?:'m|’m|\s+am)\s+interested\b|i\s+have\s+applied\b|pfa\s+my\b|attaching\s+my\b|looking\s+for\s+(?:a\s+)?(?:job|opportunit))/i;
+
+// A genuine hiring post lists one contact address, occasionally two. Three or
+// more FREE-MAIL addresses in one posting is the signature of a harvested
+// comment thread, not a recruiter — drop every free-mail address in that case
+// and keep only company-domain ones (which a comment thread rarely produces).
+const FREE_MAIL_FLOOD = 3;
+const MAX_HR_EMAILS   = 3;
+const CONTEXT_WINDOW  = 160;
+
+/**
+ * Narrow a list of extracted emails down to the ones plausibly belonging to the
+ * person doing the hiring. `text` is the source the emails came from (used for
+ * the per-email context check); omit it to apply the count heuristic only.
+ */
+function filterHrEmails(emails, text = '') {
+  if (!Array.isArray(emails) || emails.length <= 1) return emails || [];
+
+  const flood = emails.filter(isFreeMail).length >= FREE_MAIL_FLOOD;
+  const lower = (text || '').toLowerCase();
+
+  const kept = emails.filter(e => {
+    if (!isFreeMail(e)) return true;   // company domain — a commenter almost never has one
+    if (flood) return false;
+    const at = lower.indexOf(e);
+    if (at < 0) return true;           // can't locate it in the source — no basis to judge
+    return !CANDIDATE_SPEAK_RE.test(lower.slice(Math.max(0, at - CONTEXT_WINDOW), at + CONTEXT_WINDOW));
+  });
+
+  return kept.slice(0, MAX_HR_EMAILS);
+}
+
 // Patterns that strongly suggest the post contains an HR's direct contact ask.
 // Ordered roughly by signal strength.
 const OUTREACH_PATTERNS = [
@@ -136,7 +203,7 @@ function extractContacts(text) {
     .filter(Boolean);
 
   // Normalise phones: strip separators, require exactly 10 digit suffix after country code
-  const rawPhones = (text.match(PHONE_RE) || [])
+  const rawPhones = (text.replace(URL_RE, ' ').match(PHONE_RE) || [])
     .map(p => p.replace(/[\s.\-]/g, ''))
     .filter(p => {
       const stripped = p.replace(/^(?:\+91|91|0)/, '');
@@ -148,7 +215,7 @@ function extractContacts(text) {
       return `+91${stripped}`;
     });
 
-  const emails = [...new Set(rawEmails)];
+  const emails = filterHrEmails([...new Set(rawEmails)], text);
   const phones = [...new Set(rawPhones)];
 
   return {
@@ -161,4 +228,8 @@ function extractContacts(text) {
   };
 }
 
-module.exports = { extractContacts, hasOutreachIntent, cleanExtractedEmail, EMAIL_RE, PHONE_RE };
+module.exports = {
+  extractContacts, hasOutreachIntent, cleanExtractedEmail,
+  filterHrEmails, isFreeMail,
+  EMAIL_RE, PHONE_RE, URL_RE,
+};
